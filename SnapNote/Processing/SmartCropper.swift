@@ -1,0 +1,161 @@
+import AppKit
+import Vision
+
+struct SmartCropper {
+    /// Minimum percentage of area that must be removed for crop to apply
+    private static let minCropThreshold: CGFloat = 0.15
+    /// Padding factor around salient region
+    private static let paddingFactor: CGFloat = 0.05
+
+    /// Auto-crop using Vision saliency analysis
+    /// Returns the cropped image, or the original if cropping isn't beneficial
+    static func autoCrop(_ cgImage: CGImage) async -> CGImage {
+        // Try saliency-based crop first
+        if let saliencyCropped = try? await saliencyCrop(cgImage) {
+            return saliencyCropped
+        }
+
+        // Fallback: trim uniform borders
+        if let borderTrimmed = trimUniformBorders(cgImage) {
+            return borderTrimmed
+        }
+
+        return cgImage
+    }
+
+    // MARK: - Saliency Crop
+
+    private static func saliencyCrop(_ cgImage: CGImage) async throws -> CGImage? {
+        let request = VNGenerateAttentionBasedSaliencyImageRequest()
+
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        try handler.perform([request])
+
+        guard let results = request.results,
+              !results.isEmpty else {
+            return nil
+        }
+
+        // Union all salient object bounding boxes
+        var unionRect = CGRect.null
+        for observation in results {
+            for salientObject in observation.salientObjects ?? [] {
+                let bbox = salientObject.boundingBox
+                unionRect = unionRect.union(bbox)
+            }
+        }
+
+        guard !unionRect.isNull else { return nil }
+
+        // Add padding
+        let paddingX = unionRect.width * paddingFactor
+        let paddingY = unionRect.height * paddingFactor
+        let paddedRect = unionRect.insetBy(dx: -paddingX, dy: -paddingY)
+
+        // Clamp to image bounds (normalized 0..1 coordinates)
+        let clampedRect = paddedRect.intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+
+        // Convert normalized coordinates to pixel coordinates
+        let imageWidth = CGFloat(cgImage.width)
+        let imageHeight = CGFloat(cgImage.height)
+        let pixelRect = CGRect(
+            x: clampedRect.origin.x * imageWidth,
+            y: (1.0 - clampedRect.origin.y - clampedRect.height) * imageHeight, // Flip Y for CG coords
+            width: clampedRect.width * imageWidth,
+            height: clampedRect.height * imageHeight
+        ).integral
+
+        // Check if crop removes enough area
+        let originalArea = imageWidth * imageHeight
+        let croppedArea = pixelRect.width * pixelRect.height
+        let removedRatio = 1.0 - (croppedArea / originalArea)
+
+        guard removedRatio >= minCropThreshold else {
+            return nil // Not enough to crop
+        }
+
+        return cgImage.cropping(to: pixelRect)
+    }
+
+    // MARK: - Border Trim Fallback
+
+    /// Trims uniform-color borders (e.g., whitespace around slides)
+    static func trimUniformBorders(_ cgImage: CGImage) -> CGImage? {
+        guard let dataProvider = cgImage.dataProvider,
+              let data = dataProvider.data,
+              let pointer = CFDataGetBytePtr(data) else {
+            return nil
+        }
+
+        let width = cgImage.width
+        let height = cgImage.height
+        let bytesPerRow = cgImage.bytesPerRow
+        let bytesPerPixel = cgImage.bitsPerPixel / 8
+
+        guard bytesPerPixel >= 3 else { return nil }
+
+        // Get the corner pixel color as reference
+        let refR = pointer[0]
+        let refG = pointer[1]
+        let refB = pointer[2]
+
+        let tolerance: UInt8 = 10
+
+        func pixelMatchesRef(x: Int, y: Int) -> Bool {
+            let offset = y * bytesPerRow + x * bytesPerPixel
+            return abs(Int(pointer[offset]) - Int(refR)) <= Int(tolerance) &&
+                   abs(Int(pointer[offset + 1]) - Int(refG)) <= Int(tolerance) &&
+                   abs(Int(pointer[offset + 2]) - Int(refB)) <= Int(tolerance)
+        }
+
+        // Find top border
+        var top = 0
+        outer_top: for y in 0..<height {
+            for x in stride(from: 0, to: width, by: 4) {
+                if !pixelMatchesRef(x: x, y: y) { break outer_top }
+            }
+            top = y + 1
+        }
+
+        // Find bottom border
+        var bottom = height
+        outer_bottom: for y in stride(from: height - 1, through: 0, by: -1) {
+            for x in stride(from: 0, to: width, by: 4) {
+                if !pixelMatchesRef(x: x, y: y) { break outer_bottom }
+            }
+            bottom = y
+        }
+
+        // Find left border
+        var left = 0
+        outer_left: for x in 0..<width {
+            for y in stride(from: top, to: bottom, by: 4) {
+                if !pixelMatchesRef(x: x, y: y) { break outer_left }
+            }
+            left = x + 1
+        }
+
+        // Find right border
+        var right = width
+        outer_right: for x in stride(from: width - 1, through: 0, by: -1) {
+            for y in stride(from: top, to: bottom, by: 4) {
+                if !pixelMatchesRef(x: x, y: y) { break outer_right }
+            }
+            right = x
+        }
+
+        let cropRect = CGRect(x: left, y: top, width: right - left, height: bottom - top)
+
+        // Check threshold
+        let originalArea = CGFloat(width * height)
+        let croppedArea = cropRect.width * cropRect.height
+        let removedRatio = 1.0 - (croppedArea / originalArea)
+
+        guard removedRatio >= minCropThreshold,
+              cropRect.width > 10 && cropRect.height > 10 else {
+            return nil
+        }
+
+        return cgImage.cropping(to: cropRect)
+    }
+}
