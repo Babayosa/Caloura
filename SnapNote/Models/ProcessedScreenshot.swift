@@ -40,7 +40,9 @@ final class ProcessedScreenshot {
             captureMode: context.mode.rawValue,
             ocrText: ocrText,
             width: width,
-            height: height
+            height: height,
+            title: context.sourceWindowTitle ?? context.sourceAppName ?? "Untitled",
+            tags: []
         )
     }
 }

@@ -50,12 +50,20 @@ final class CaptureOverlayWindow: NSWindow {
         for screen in NSScreen.screens {
             let overlay = CaptureOverlayWindow(for: screen)
             overlay.onRegionSelected = { rect, screen in
-                // Close all overlays first
-                windows.forEach { $0.close() }
+                // Close all overlays and break retain cycle
+                for w in windows {
+                    w.onRegionSelected = nil
+                    w.onCancelled = nil
+                    w.close()
+                }
                 onRegionSelected(rect, screen)
             }
             overlay.onCancelled = {
-                windows.forEach { $0.close() }
+                for w in windows {
+                    w.onRegionSelected = nil
+                    w.onCancelled = nil
+                    w.close()
+                }
                 onCancelled()
             }
             overlay.makeKeyAndOrderFront(nil)

@@ -20,25 +20,27 @@ final class CapturePipeline: ObservableObject {
         guard !appState.isCapturing else { return }
         appState.isCapturing = true
 
-        overlayWindows = CaptureOverlayWindow.showOnAllScreens(
-            onRegionSelected: { [weak self] rect, screen in
-                guard let self = self else { return }
-                Task { @MainActor in
-                    self.overlayWindows = []
-                    // Store for repeat capture
-                    self.appState.lastCaptureRect = rect
-                    self.appState.lastCaptureScreen = screen
-                    await self.performAreaCapture(rect: rect, screen: screen)
+        Task {
+            overlayWindows = CaptureOverlayWindow.showOnAllScreens(
+                onRegionSelected: { [weak self] rect, screen in
+                    guard let self = self else { return }
+                    Task { @MainActor in
+                        self.overlayWindows = []
+                        // Store for repeat capture
+                        self.appState.lastCaptureRect = rect
+                        self.appState.lastCaptureScreen = screen
+                        await self.performAreaCapture(rect: rect, screen: screen)
+                    }
+                },
+                onCancelled: { [weak self] in
+                    guard let self = self else { return }
+                    Task { @MainActor in
+                        self.overlayWindows = []
+                        self.appState.isCapturing = false
+                    }
                 }
-            },
-            onCancelled: { [weak self] in
-                guard let self = self else { return }
-                Task { @MainActor in
-                    self.overlayWindows = []
-                    self.appState.isCapturing = false
-                }
-            }
-        )
+            )
+        }
     }
 
     func captureFullscreen() {
@@ -77,6 +79,9 @@ final class CapturePipeline: ObservableObject {
                         }
                     }
                 )
+            } catch CaptureError.noPermission {
+                appState.isCapturing = false
+                captureManager.showPermissionAlert()
             } catch {
                 appState.isCapturing = false
                 appState.statusMessage = "Failed to enumerate windows: \(error.localizedDescription)"
@@ -144,7 +149,7 @@ final class CapturePipeline: ObservableObject {
         }
     }
 
-    private func performWindowCapture(window: SCWindow) async {
+    private func performWindowCapture(window: CaptureWindow) async {
         await performCapture(mode: .window) {
             try await self.captureManager.captureWindow(window)
         }
@@ -153,14 +158,6 @@ final class CapturePipeline: ObservableObject {
     // MARK: - Pipeline
 
     private func performCapture(mode: CaptureMode, capture: () async throws -> CGImage) async {
-        // Verify ScreenCaptureKit access before attempting capture
-        let hasAccess = await captureManager.verifySCKAccess()
-        if !hasAccess {
-            appState.isCapturing = false
-            captureManager.showPermissionAlert()
-            return
-        }
-
         do {
             // Detect context before capture
             let (appName, windowTitle, category) = ContextDetector.detectContext()
@@ -235,33 +232,40 @@ final class CapturePipeline: ObservableObject {
             // Notify URL scheme handler and other listeners
             NotificationCenter.default.post(name: .captureCompleted, object: nil)
 
-            // Background OCR
+            // Background OCR — capture the item's UUID so we update the correct entry
+            // even if another capture completes before OCR finishes.
             let cgImageForOCR = processed.cgImage
+            let screenshotID = appState.recentScreenshots.first?.id
             Task.detached {
                 if let text = try? await OCREngine.recognizeText(in: cgImageForOCR),
-                   !text.isEmpty {
+                   !text.isEmpty,
+                   let targetID = screenshotID {
                     await MainActor.run {
-                        // Update the screenshot item with OCR text
-                        if let lastItem = AppState.shared.recentScreenshots.first {
-                            let updated = ScreenshotItem(
-                                id: lastItem.id,
-                                timestamp: lastItem.timestamp,
-                                filePath: lastItem.filePath,
-                                fileName: lastItem.fileName,
-                                sourceAppName: lastItem.sourceAppName,
-                                sourceWindowTitle: lastItem.sourceWindowTitle,
-                                captureMode: lastItem.captureMode,
-                                presetName: lastItem.presetName,
-                                ocrText: text,
-                                width: lastItem.width,
-                                height: lastItem.height
-                            )
-                            AppState.shared.recentScreenshots[0] = updated
-                        }
+                        let state = AppState.shared
+                        guard let index = state.recentScreenshots.firstIndex(where: { $0.id == targetID }) else { return }
+                        let item = state.recentScreenshots[index]
+                        let updated = ScreenshotItem(
+                            id: item.id,
+                            timestamp: item.timestamp,
+                            filePath: item.filePath,
+                            fileName: item.fileName,
+                            sourceAppName: item.sourceAppName,
+                            sourceWindowTitle: item.sourceWindowTitle,
+                            captureMode: item.captureMode,
+                            presetName: item.presetName,
+                            ocrText: text,
+                            width: item.width,
+                            height: item.height,
+                            title: item.title,
+                            tags: item.tags
+                        )
+                        state.recentScreenshots[index] = updated
                     }
                 }
             }
 
+        } catch CaptureError.noPermission {
+            captureManager.showPermissionAlert()
         } catch {
             appState.statusMessage = "Capture failed: \(error.localizedDescription)"
         }
@@ -293,5 +297,3 @@ final class CapturePipeline: ObservableObject {
         appState.statusMessage = "Copied OCR text"
     }
 }
-
-import ScreenCaptureKit

@@ -24,7 +24,7 @@ struct PreferencesView: View {
                     Label("About", systemImage: "info.circle")
                 }
         }
-        .frame(width: 480, height: 360)
+        .frame(minWidth: 480, minHeight: 360)
     }
 }
 
@@ -200,5 +200,54 @@ struct AboutView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Preferences Window Controller
+
+@MainActor
+final class PreferencesWindowController {
+    static let shared = PreferencesWindowController()
+    private var window: NSWindow?
+    private var closeObserver: NSObjectProtocol?
+
+    func show() {
+        if let existing = window, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let hostingView = NSHostingView(rootView: PreferencesView())
+        hostingView.frame = CGRect(x: 0, y: 0, width: 480, height: 360)
+
+        let window = NSWindow(
+            contentRect: hostingView.frame,
+            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.title = "SnapNote Preferences"
+        window.setFrameAutosaveName("PreferencesWindow")
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+
+        closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.window = nil
+                if let token = self?.closeObserver {
+                    NotificationCenter.default.removeObserver(token)
+                    self?.closeObserver = nil
+                }
+            }
+        }
+
+        self.window = window
     }
 }

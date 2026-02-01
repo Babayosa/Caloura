@@ -1,9 +1,18 @@
 import SwiftUI
 
+// MARK: - Permission Detail
+
+enum PermissionDetail {
+    case working
+    case grantedNotWorking
+    case notGranted
+}
+
 struct OnboardingView: View {
     @ObservedObject var settings: AppSettings
     @State private var currentStep = 0
     @State private var hasPermission = false
+    @State private var permissionDetail: PermissionDetail = .notGranted
     var onComplete: () -> Void
 
     var body: some View {
@@ -54,6 +63,7 @@ struct OnboardingView: View {
                         withAnimation { currentStep += 1 }
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(currentStep == 1 && !hasPermission)
                 } else {
                     Button("Get Started") {
                         settings.hasCompletedOnboarding = true
@@ -66,7 +76,43 @@ struct OnboardingView: View {
         }
         .frame(width: 480, height: 400)
         .onAppear {
-            hasPermission = ScreenCaptureManager.shared.checkPermission()
+            recheckPermission()
+        }
+        .task(id: currentStep) {
+            // Auto-poll every 2 seconds while on the permission step
+            guard currentStep == 1 else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard !Task.isCancelled else { break }
+                await recheckPermissionAsync()
+            }
+        }
+    }
+
+    private func recheckPermission() {
+        Task {
+            await recheckPermissionAsync()
+        }
+    }
+
+    private func recheckPermissionAsync() async {
+        // SCK is the authoritative check — if it works, permission is fully functional
+        let sckOK = await ScreenCaptureManager.shared.checkSCKAccess()
+        if sckOK {
+            hasPermission = true
+            permissionDetail = .working
+            return
+        }
+
+        // SCK failed — use broader OS-level signals (CGPreflight + CGWindowList).
+        // For onboarding, we just need to know "did the user grant permission?"
+        // even if SCK itself can't use it (e.g. debug build, ad-hoc signing).
+        if ScreenCaptureManager.shared.hasAnyPermissionSignal() {
+            hasPermission = true
+            permissionDetail = .grantedNotWorking
+        } else {
+            hasPermission = false
+            permissionDetail = .notGranted
         }
     }
 
@@ -111,15 +157,24 @@ struct OnboardingView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
 
-            if hasPermission {
-                Label("Permission granted!", systemImage: "checkmark.circle.fill")
+            switch permissionDetail {
+            case .working:
+                Label("Permission granted and working!", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
-            } else {
+
+            case .grantedNotWorking:
+                Label("Permission granted", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text("App restart may be needed for captures to work.")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+
+            case .notGranted:
                 Button("Grant Permission") {
                     _ = ScreenCaptureManager.shared.requestPermission()
                     // Check after a short delay to let the system process
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                        hasPermission = ScreenCaptureManager.shared.checkPermission()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        recheckPermission()
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -132,7 +187,7 @@ struct OnboardingView: View {
                 .buttonStyle(.bordered)
 
                 Button("Check Again") {
-                    hasPermission = ScreenCaptureManager.shared.checkPermission()
+                    recheckPermission()
                 }
             }
         }
@@ -183,12 +238,21 @@ struct OnboardingView: View {
 
     private func shortcutRow(keys: String, action: String) -> some View {
         HStack {
-            Text(keys)
-                .font(.system(.body, design: .monospaced))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.gray.opacity(0.2))
-                .cornerRadius(4)
+            HStack(spacing: 3) {
+                ForEach(Array(keys), id: \.self) { key in
+                    Text(String(key))
+                        .font(.system(.body, design: .rounded).weight(.medium))
+                        .frame(minWidth: 28, minHeight: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.gray.opacity(0.15))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                        )
+                }
+            }
             Text(action)
                 .foregroundStyle(.secondary)
         }
@@ -207,6 +271,13 @@ final class OnboardingWindowController {
     }
 
     func show(settings: AppSettings) {
+        // If already showing, just bring to front
+        if let existing = window, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
         let onboardingView = OnboardingView(settings: settings) { [weak self] in
             self?.window?.close()
             self?.window = nil
@@ -228,5 +299,16 @@ final class OnboardingWindowController {
         NSApp.activate(ignoringOtherApps: true)
 
         self.window = window
+
+        // Nil out window reference when closed via the close button
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.window = nil
+            }
+        }
     }
 }

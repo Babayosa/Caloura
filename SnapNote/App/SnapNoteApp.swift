@@ -4,11 +4,9 @@ import KeyboardShortcuts
 @main
 struct SnapNoteApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var appState = AppState.shared
-    @StateObject private var settings = AppSettings.shared
-    @StateObject private var pipeline = CapturePipeline.shared
-    @StateObject private var updateManager = UpdateManager()
-
+    @ObservedObject private var appState = AppState.shared
+    @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var pipeline = CapturePipeline.shared
     var body: some Scene {
         MenuBarExtra {
             MenuBarView(appState: appState, settings: settings)
@@ -17,9 +15,6 @@ struct SnapNoteApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        Settings {
-            PreferencesView()
-        }
     }
 }
 
@@ -30,6 +25,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let onboardingController = OnboardingWindowController()
     private let historyController = HistoryWindowController()
     private let annotationController = AnnotationWindowController()
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        Task {
+            let sckOK = await ScreenCaptureManager.shared.checkSCKAccess()
+            AppState.shared.hasScreenRecordingPermission = sckOK
+        }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         HotKeyManager.shared.registerAll()
@@ -43,28 +45,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             andEventID: AEEventID(kAEGetURL)
         )
 
-        // Show onboarding on first launch
-        if !AppSettings.shared.hasCompletedOnboarding {
-            onboardingController.showIfNeeded(settings: AppSettings.shared)
-        }
-
         // Ensure save directory exists
         try? FileOrganizer.ensureBaseDirectory(AppSettings.shared.saveDirectory)
 
-        // Check screen recording permission (no prompt for CG, async verify for SCK)
+        // Check screen recording permission and handle onboarding
         AppState.shared.hasScreenRecordingPermission = ScreenCaptureManager.shared.checkPermission()
         Task {
-            let sckOK = await ScreenCaptureManager.shared.verifySCKAccess()
+            let sckOK = await ScreenCaptureManager.shared.checkSCKAccess()
             AppState.shared.hasScreenRecordingPermission = sckOK
+
+            if !AppSettings.shared.hasCompletedOnboarding {
+                // First launch — always show setup guide
+                onboardingController.showIfNeeded(settings: AppSettings.shared)
+            } else if !sckOK {
+                // Returning user — SCK not working. Only auto-show the setup guide
+                // if the OS says permission was never granted. If permission IS granted
+                // but SCK is failing (e.g. debug build, signature issue), don't loop —
+                // the user will see the diagnostic dialog on their next capture attempt.
+                let state = ScreenCaptureManager.shared.diagnosePermissionState()
+                if state == .neverGranted {
+                    onboardingController.show(settings: AppSettings.shared)
+                }
+            }
         }
     }
 
     @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
+        // Apple Event selectors may be invoked off the main thread via the ObjC runtime,
+        // bypassing @MainActor isolation. Dispatch explicitly to guarantee main thread.
         guard let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
               let url = URL(string: urlString) else {
             return
         }
-        URLSchemeHandler.handle(url)
+        Task { @MainActor in
+            URLSchemeHandler.handle(url)
+        }
     }
 
     private func setupNotificationHandlers() {
@@ -149,6 +164,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         nc.addObserver(forName: .showHistory, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 self?.historyController.show(appState: AppState.shared)
+            }
+        }
+
+        nc.addObserver(forName: .showSettings, object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                PreferencesWindowController.shared.show()
+            }
+        }
+
+        nc.addObserver(forName: .showSetupGuide, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                self?.onboardingController.show(settings: AppSettings.shared)
             }
         }
     }
