@@ -1,4 +1,4 @@
-# SnapNote — Project Plan
+# Caloura — Project Plan
 
 ## Table of Contents
 
@@ -14,13 +14,13 @@
 
 ## Project Overview
 
-SnapNote is a macOS menu-bar screenshot tool targeting educators. It captures screen regions, windows, and full screens, with OCR, annotation, pinning, presets, and clipboard integration. Distribution is via Gumroad (direct download, not App Store — screen recording is incompatible with the App Store sandbox).
+Caloura is a macOS menu-bar screenshot tool targeting educators. It captures screen regions, windows, and full screens, with OCR, annotation, pinning, presets, and clipboard integration. Distribution is via Gumroad (direct download, not App Store — screen recording is incompatible with the App Store sandbox).
 
 **Platform**: macOS 14.0+ (Sonoma)
 **Language**: Swift 5.9 / SwiftUI
 **Build system**: XcodeGen (`project.yml`) + Swift Package Manager
 **Dependencies**: KeyboardShortcuts, Sparkle
-**Bundle ID**: `com.snapnote.app`
+**Bundle ID**: `com.caloura.app`
 **Team ID**: `NG4ML6Q47T`
 
 ---
@@ -30,8 +30,8 @@ SnapNote is a macOS menu-bar screenshot tool targeting educators. It captures sc
 ### Source Layout
 
 ```
-SnapNote/
-├── App/             SnapNoteApp, AppDelegate, CapturePipeline, UpdateManager, URLSchemeHandler
+Caloura/
+├── App/             CalouraApp, AppDelegate, CapturePipeline, UpdateManager, URLSchemeHandler
 ├── Capture/         ScreenCaptureManager, CaptureWindow, RegionSelectionView, WindowPicker
 ├── Context/         Preset system
 ├── Distribution/    FileOrganizer, ClipboardManager
@@ -108,13 +108,50 @@ Three-tier fallback chain (SCK → screencapture CLI → CoreGraphics) with `Cap
 
 Added `title: String?` and `tags: [String]` to `ScreenshotItem` with backward-compatible Codable decoding. Titles auto-populate from window title or app name. Tags are user-defined strings. HistoryView displays title as primary label, supports inline title editing, tag chips with add/remove, and tag search.
 
+### Persistence Bug Fix + Tag Normalization
+
+Post-review hardening: `saveHistory()` was `private` and only called from `addScreenshot()` / `clearHistory()`. Title edits, tag add/remove, OCR background updates, and context menu deletes mutated `@Published` state but never persisted to UserDefaults — changes lost on restart. Fix: made `saveHistory()` internal and called it after every mutation in `HistoryView` and `CapturePipeline`. Also added case-insensitive tag deduplication (preserves display case, rejects case-only duplicates). Added 5 data integrity tests covering Codable round-trip with title/tags and mutation persistence.
+
+### Test Target Signing Fix
+
+`CalouraTests` target in `project.yml` was missing `DEVELOPMENT_TEAM` and `CODE_SIGN_STYLE`, causing a Team ID mismatch at test bundle load time (`dlopen` refused to load the test bundle into the host app process). Added `DEVELOPMENT_TEAM: NG4ML6Q47T` and `CODE_SIGN_STYLE: Automatic` to the test target settings, matching the app target. Regenerated `.xcodeproj` via XcodeGen. 66 tests now run from CLI (`xcodebuild test`).
+
+### ScreenshotItem Hashable Fix
+
+`ScreenshotItem` used synthesized `Equatable`/`Hashable` which compared all stored properties. `testHashable_sameIDsAreEqual` created two items with the same UUID but separate `Date()` calls, so the timestamps differed and the equality check failed. Fix: added explicit `==` and `hash(into:)` that use only `id`, matching the `Identifiable` semantics the rest of the codebase relies on. 66 tests pass, 0 failures.
+
 ### Private Selector Fix
 
-Replaced undocumented `showSettingsWindow:` selector with `PreferencesWindowController` — a manual window controller following the same pattern as `HistoryWindowController`. Removed `Settings` scene from `SnapNoteApp.body`.
+Replaced undocumented `showSettingsWindow:` selector with `PreferencesWindowController` — a manual window controller following the same pattern as `HistoryWindowController`. Removed `Settings` scene from `CalouraApp.body`.
 
 ### Overlay Memory Leak Fix
 
 Removed `isReleasedWhenClosed = false` from `CaptureOverlayWindow` and `OnboardingWindowController`. Windows are created fresh each capture and never reused, so AppKit's default release-on-close behavior is correct. `PinnedScreenshotWindow` intentionally retains `false` since pinned panels are long-lived.
+
+### Rebrand: SnapNote → Caloura
+
+Full product rebrand across the entire codebase. No functional changes — pure identity replacement.
+
+**What changed**:
+- **Filesystem**: `SnapNote/` → `Caloura/`, `SnapNoteTests/` → `CalouraTests/`, `SnapNoteApp.swift` → `CalouraApp.swift`, `SnapNote.entitlements` → `Caloura.entitlements`, repo root `/Users/b/SnapNote` → `/Users/b/Caloura`
+- **Build config**: `project.yml` and `Info.plist` — project name, bundle IDs (`com.caloura.app`, `com.caloura.app.tests`), target names, entitlements path, usage description
+- **Swift source** (13 files): App struct (`CalouraApp`), logger subsystems (`com.caloura.app`), URL scheme (`caloura://`), temp file prefix (`caloura-`), default save directory (`~/Pictures/Caloura`), filename prefix (`Caloura_`), all window titles, alert text, UI strings
+- **Tests** (9 files): `@testable import Caloura`, URL scheme test URLs (`caloura://`), filename assertions (`Caloura_`), temp dir names (`CalouraTest_`), fixture strings (`main.swift - Caloura`, `Caloura.xcodeproj`)
+- **Scripts**: `release.sh` — `APP_NAME`, `SCHEME`, keychain profile (`Caloura-Notarize`), appcast repo (`caloura-appcast`), all comments
+- **Documentation**: `plan.md`, `ROADMAP.md`, `HANDOFF.md`, `HANDOFF-CG-CAPTURE.md`
+
+**What did NOT change**: UserDefaults keys, notification names, Team ID, entitlements content, ExportOptions.plist content.
+
+**Verification**: `xcodegen` succeeded, `xcodebuild build` succeeded, 66 tests pass (0 failures), `grep -ri "snapnote"` returns zero matches.
+
+**Manual follow-up required**:
+- Re-create notarization credentials: `xcrun notarytool store-credentials "Caloura-Notarize" ...`
+- Re-grant TCC screen recording permission in System Settings
+- Replace placeholder icons with Caloura-branded artwork
+- Register `caloura.app` domain
+- Create `caloura-appcast` GitHub repo
+- Update Gumroad product page
+- Update git remote if repo name changes on GitHub
 
 ---
 
@@ -125,7 +162,7 @@ Removed `isReleasedWhenClosed = false` from `CaptureOverlayWindow` and `Onboardi
 | Step | Action | Status |
 |------|--------|--------|
 | 1 | Create Developer ID Application certificate at developer.apple.com | **Required** |
-| 2 | Store notarization credentials: `xcrun notarytool store-credentials "SnapNote-Notarize" --apple-id <email> --team-id NG4ML6Q47T --password <app-specific-password>` | **Required** |
+| 2 | Store notarization credentials: `xcrun notarytool store-credentials "Caloura-Notarize" --apple-id <email> --team-id NG4ML6Q47T --password <app-specific-password>` | **Required** |
 | 3 | Generate Sparkle EdDSA key: download Sparkle release, run `./bin/generate_keys`, add public key to `project.yml` as `SUPublicEDKey` | Required for auto-updates |
 | 4 | Create appcast repo (e.g. GitHub Pages), add URL to `project.yml` as `SUFeedURL` | Required for auto-updates |
 
@@ -133,7 +170,7 @@ Removed `isReleasedWhenClosed = false` from `CaptureOverlayWindow` and `Onboardi
 
 ```bash
 ./scripts/release.sh 1.0.0
-# Produces: build/SnapNote-1.0.0.zip
+# Produces: build/Caloura-1.0.0.zip
 # Upload to Gumroad
 ```
 
@@ -143,7 +180,7 @@ Removed `isReleasedWhenClosed = false` from `CaptureOverlayWindow` and `Onboardi
 Developer                          User
 ─────────                          ────
 release.sh → zip                   Gumroad → download zip
-           → notarize              unzip → SnapNote.app
+           → notarize              unzip → Caloura.app
            → upload to Gumroad     macOS verifies notarization ✓
            → update appcast        Sparkle checks appcast for updates
 ```
@@ -201,3 +238,5 @@ release.sh → zip                   Gumroad → download zip
 | Keep CG fallback code | Graceful degradation on macOS 14; remove when deployment target is 15.0+ |
 | `CGImageSourceCreateThumbnailAtIndex` for history | Reduces memory from ~3 GB to ~20 MB for 50 thumbnails |
 | Keep macOS 14.0 minimum for v1, drop in v2 | Education IT lags 12-18 months on OS upgrades; CG fallback code is isolated and causes no maintenance burden; plan to drop in v2 (late 2026/early 2027) when macOS 14 is two versions behind |
+| Case-insensitive tag dedup, preserve display case | Store tag as-entered ("CS101"), deduplicate by lowercased comparison. Avoids silent accumulation of case variants while preserving user's preferred casing. Search already lowercases both sides. |
+| Rebrand SnapNote → Caloura | Product identity change before public launch. Done as a single atomic pass across all files — no incremental migration needed since no users exist yet. UserDefaults keys left generic (no brand in key names) to avoid data migration. |

@@ -1,6 +1,6 @@
-name: SnapNote
+name: Caloura
 options:
-  bundleIdPrefix: com.snapnote
+  bundleIdPrefix: com.caloura
   deploymentTarget:
     macOS: "14.0"
   xcodeVersion: "15.0"
@@ -21,44 +21,53 @@ settings:
     MACOSX_DEPLOYMENT_TARGET: "14.0"
 
 targets:
-  SnapNote:
+  Caloura:
     type: application
     platform: macOS
     sources:
-      - path: SnapNote
+      - path: Caloura
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.snapnote.app
-        INFOPLIST_FILE: SnapNote/Resources/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.caloura.app
+        INFOPLIST_FILE: Caloura/Resources/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         COMBINE_HIDPI_IMAGES: true
-        CODE_SIGN_ENTITLEMENTS: SnapNote/Resources/SnapNote.entitlements
+        CODE_SIGN_ENTITLEMENTS: Caloura/Resources/Caloura.entitlements
         ENABLE_HARDENED_RUNTIME: true
+        DEVELOPMENT_TEAM: NG4ML6Q47T
+        CODE_SIGN_STYLE: Automatic
+      configs:
+        Debug:
+          CODE_SIGN_IDENTITY: "Apple Development"
+        Release:
+          CODE_SIGN_IDENTITY: "Developer ID Application"
     dependencies:
       - package: KeyboardShortcuts
       - package: Sparkle
     info:
-      path: SnapNote/Resources/Info.plist
+      path: Caloura/Resources/Info.plist
       properties:
-        CFBundleName: SnapNote
-        CFBundleDisplayName: SnapNote
-        CFBundleIdentifier: com.snapnote.app
+        CFBundleName: Caloura
+        CFBundleDisplayName: Caloura
+        CFBundleIdentifier: com.caloura.app
         CFBundleVersion: "1"
         CFBundleShortVersionString: "1.0.0"
         CFBundlePackageType: APPL
-        CFBundleExecutable: SnapNote
+        CFBundleExecutable: Caloura
         LSMinimumSystemVersion: "14.0"
         LSUIElement: true
-        NSScreenCaptureUsageDescription: "SnapNote needs screen recording access to capture screenshots."
+        NSScreenCaptureUsageDescription: "Caloura needs screen recording access to capture screenshots."
 
-  SnapNoteTests:
+  CalouraTests:
     type: bundle.unit-test
     platform: macOS
     sources:
-      - path: SnapNoteTests
+      - path: CalouraTests
     dependencies:
-      - target: SnapNote
+      - target: Caloura
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.snapnote.app.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.caloura.app.tests
         GENERATE_INFOPLIST_FILE: true
+        DEVELOPMENT_TEAM: NG4ML6Q47T
+        CODE_SIGN_STYLE: Automatic
