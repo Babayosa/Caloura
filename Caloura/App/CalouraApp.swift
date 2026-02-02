@@ -10,7 +10,7 @@ struct CalouraApp: App {
         MenuBarExtra {
             MenuBarView(appState: AppState.shared, settings: AppSettings.shared)
         } label: {
-            Image(systemName: "camera.viewfinder")
+            Image("MenuBarIcon")
         }
         .menuBarExtraStyle(.menu)
     }
