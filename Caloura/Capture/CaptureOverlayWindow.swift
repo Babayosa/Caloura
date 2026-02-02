@@ -48,10 +48,14 @@ final class CaptureOverlayWindow: NSWindow {
     ) -> [CaptureOverlayWindow] {
         var windows: [CaptureOverlayWindow] = []
 
+        // Activate app so the first click is a real mouseDown, not a window-activation click
+        NSApp.activate(ignoringOtherApps: true)
+        NSCursor.hide()
+
         for screen in NSScreen.screens {
             let overlay = CaptureOverlayWindow(for: screen)
             overlay.onRegionSelected = { rect, screen in
-                // Close all overlays and break retain cycle
+                NSCursor.unhide()
                 for w in windows {
                     w.onRegionSelected = nil
                     w.onCancelled = nil
@@ -60,6 +64,7 @@ final class CaptureOverlayWindow: NSWindow {
                 onRegionSelected(rect, screen)
             }
             overlay.onCancelled = {
+                NSCursor.unhide()
                 for w in windows {
                     w.onRegionSelected = nil
                     w.onCancelled = nil

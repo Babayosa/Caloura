@@ -12,7 +12,7 @@ struct CalouraApp: App {
         } label: {
             Image(systemName: "camera.viewfinder")
         }
-        .menuBarExtraStyle(.window)
+        .menuBarExtraStyle(.menu)
     }
 }
 

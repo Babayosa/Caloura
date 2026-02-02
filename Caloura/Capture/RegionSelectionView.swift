@@ -10,16 +10,14 @@ final class RegionSelectionView: NSView {
     private var currentMouseLocation: NSPoint?
     private var trackingArea: NSTrackingArea?
 
-    // Crosshair styling
-    private let crosshairColor = NSColor.white.withAlphaComponent(0.45)
-    private let crosshairWidth: CGFloat = 0.5
+    // Cursor dot styling
+    private let dotRadius: CGFloat = 3
+    private let dotColor = NSColor.white.withAlphaComponent(0.9)
+    private let dotShadowColor = NSColor.black.withAlphaComponent(0.45)
 
     // Selection styling
     private let selectionBorderColor = NSColor.white
-    private let overlayColor = NSColor.black.withAlphaComponent(0.40)
-    private let idleOverlayColor = NSColor.black.withAlphaComponent(0.15)
     private let sizeFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
-    private var cursorHidden = false
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -28,22 +26,7 @@ final class RegionSelectionView: NSView {
         if let window = window {
             window.makeFirstResponder(self)
             window.acceptsMouseMovedEvents = true
-            if !cursorHidden {
-                NSCursor.hide()
-                cursorHidden = true
-            }
-        } else if cursorHidden {
-            NSCursor.unhide()
-            cursorHidden = false
         }
-    }
-
-    override func removeFromSuperview() {
-        if cursorHidden {
-            NSCursor.unhide()
-            cursorHidden = false
-        }
-        super.removeFromSuperview()
     }
 
     override func updateTrackingAreas() {
@@ -69,14 +52,7 @@ final class RegionSelectionView: NSView {
         if isSelecting, let start = selectionStart, let end = selectionEnd {
             let rect = normalizedRect(from: start, to: end)
 
-            // Darkened overlay with cutout
-            let path = NSBezierPath(rect: bounds)
-            let cutout = NSBezierPath(rect: rect)
-            path.append(cutout.reversed)
-            overlayColor.setFill()
-            path.fill()
-
-            // Selection border — thin white
+            // Selection border — thin white, no dimming overlay
             selectionBorderColor.withAlphaComponent(0.9).setStroke()
             let borderPath = NSBezierPath(rect: rect)
             borderPath.lineWidth = 1
@@ -85,17 +61,13 @@ final class RegionSelectionView: NSView {
             // Size label
             drawSizeLabel(for: rect)
         } else {
-            // Subtle idle overlay
-            idleOverlayColor.setFill()
-            NSBezierPath(rect: bounds).fill()
-
-            // Hint when not selecting
+            // No overlay — screen stays at full clarity
             drawHintLabel()
         }
 
-        // Crosshair on top
+        // Cursor dot on top
         if let mouseLocation = currentMouseLocation {
-            drawCrosshair(at: mouseLocation)
+            drawCursorDot(at: mouseLocation)
         }
     }
 
@@ -226,24 +198,20 @@ final class RegionSelectionView: NSView {
         }
     }
 
-    // MARK: - Crosshair
+    // MARK: - Cursor Dot
 
-    private func drawCrosshair(at point: NSPoint) {
-        crosshairColor.setStroke()
+    private func drawCursorDot(at point: NSPoint) {
+        let r = dotRadius
+        let dotRect = NSRect(x: point.x - r, y: point.y - r, width: r * 2, height: r * 2)
 
-        // Horizontal line — full width
-        let hLine = NSBezierPath()
-        hLine.lineWidth = crosshairWidth
-        hLine.move(to: NSPoint(x: bounds.minX, y: point.y))
-        hLine.line(to: NSPoint(x: bounds.maxX, y: point.y))
-        hLine.stroke()
+        // Shadow ring for contrast on light backgrounds
+        let shadowRect = dotRect.insetBy(dx: -1, dy: -1)
+        dotShadowColor.setFill()
+        NSBezierPath(ovalIn: shadowRect).fill()
 
-        // Vertical line — full height
-        let vLine = NSBezierPath()
-        vLine.lineWidth = crosshairWidth
-        vLine.move(to: NSPoint(x: point.x, y: bounds.minY))
-        vLine.line(to: NSPoint(x: point.x, y: bounds.maxY))
-        vLine.stroke()
+        // White dot
+        dotColor.setFill()
+        NSBezierPath(ovalIn: dotRect).fill()
     }
 
     // MARK: - Helpers
