@@ -5,6 +5,7 @@
 | Date | Change |
 |------|--------|
 | 2026-02-02 | Full plan rewrite. Marked M3 complete. Updated to 35 source / 9 test files, 15 commits. Tightened scope to M1/M2 critical path. Added distribution coupling risk. |
+| 2026-02-02 | Redesigned menu bar as native NSMenu (`.menu` style) with Shottr-inspired layout and "More" submenu. Overhauled area capture UX: dot cursor, no dimming, first-click starts drag. Added custom app icon (10 sizes) and menu bar template icon (3 scales). Ran full audit; fixed force unwrap, removed dead code, added error logging. 18 commits. Backlog items 1–2 complete. |
 
 ---
 
@@ -31,24 +32,24 @@ Caloura is a macOS menu-bar screenshot tool for knowledge workers. It captures r
 
 ## C. Current Reality
 
-**Status**: Feature-complete. Not shippable (missing icons, signing, and distribution infrastructure).
+**Status**: Feature-complete. Not shippable (missing signing and distribution infrastructure). Icons done. Menu bar redesigned as native NSMenu. Area capture UX polished (dot cursor, no dimming). Audit P0s fixed.
 
-**Codebase**: 35 source files (5,303 lines), 9 test files (1,088 lines). macOS 14.0+, Swift 5.9, XcodeGen (`project.yml`). Dependencies: KeyboardShortcuts 2.0+, Sparkle 2.5+. 15 commits on `main`.
+**Codebase**: 35 source files, 9 test files (66 tests, 0 failures). macOS 14.0+, Swift 5.9, XcodeGen (`project.yml`). Dependencies: KeyboardShortcuts 2.0+, Sparkle 2.5+. 18 commits on `main`.
 
 **What works**:
 - 3 capture modes (area, window, fullscreen) + repeat + delayed (with countdown overlay + ESC cancel) + multi-display
 - 3-tier capture backend: SCK → screencapture CLI → CoreGraphics (deprecated fallback)
 - Smart crop (Vision saliency + border trim), background OCR, PNG/JPEG/TIFF export
 - Clipboard: image / markdown / citation / multi-format. File save: `~/Pictures/Caloura/YYYY-MM-DD/`
-- Menu bar UI, onboarding (4-step with permission polling), preferences (4 tabs), searchable history (tags, thumbnails, 50-item cap)
+- Native NSMenu menu bar with "More" submenu, dot cursor for area capture (no dimming), onboarding (4-step with permission polling), preferences (4 tabs), searchable history (tags, thumbnails, 50-item cap)
 - Annotation (arrow/rect/highlight + undo), pinned windows (with dedup), Quick Access overlay (5 actions, 8s auto-dismiss)
 - URL scheme (10 routes), context detection (6 app categories), 7 customizable hotkeys
 - Launch at Login (SMAppService)
 - 66 tests, 0 failures (9 of 35 source files covered; core modules like ScreenCaptureManager untested)
 
 **What's missing for v1**:
-- App icon asset catalog: **placeholder JSON only, no PNGs**
-- Menu bar icon: **SF Symbol fallback** (`camera.viewfinder`)
+- ~~App icon asset catalog~~ ✅ Custom icon, 10 sizes (commit `a5a3231`)
+- ~~Menu bar icon~~ ✅ Custom template icon, 3 scales (commit `a5a3231`)
 - Sparkle: framework integrated, `UpdateManager` wired, but **no EdDSA key, no `SUPublicEDKey`, no `SUFeedURL`** in Info.plist
 - `scripts/release.sh` (138 lines): complete pipeline (archive → export → notarize → staple → zip) but **never run** — no Developer ID cert
 - No landing page, no Gumroad page
@@ -58,7 +59,7 @@ Caloura is a macOS menu-bar screenshot tool for knowledge workers. It captures r
 
 ## D. Target v1 Scope (Must-Ship)
 
-1. App icon (10 sizes) + menu bar template icon (@1x, @2x)
+1. ~~App icon (10 sizes) + menu bar template icon (@1x, @2x, @3x)~~ ✅ Done
 2. Apple Developer account provisioned, Developer ID cert installed
 3. Notarization credentials stored (`Caloura-Notarize` keychain profile)
 4. `release.sh` end-to-end success → notarized + stapled `.zip`
@@ -132,8 +133,8 @@ Raycast extension. Homebrew cask. GitHub Actions CI. `.edu` pricing flow.
 
 | # | Item | Milestone | Status |
 |---|------|-----------|--------|
-| 1 | Design + export app icon (10 sizes) | M1 | Asset catalog ready, needs PNGs |
-| 2 | Design + export menu bar template icon | M1 | Monochrome, @1x + @2x |
+| 1 | ~~Design + export app icon (10 sizes)~~ | M1 | ✅ Done (commit `a5a3231`) |
+| 2 | ~~Design + export menu bar template icon~~ | M1 | ✅ Done (commit `a5a3231`) |
 | 3 | Provision Apple Developer account + cert | M1 | $99/yr, Developer ID Application |
 | 4 | Store notarization credentials | M1 | `xcrun notarytool store-credentials` |
 | 5 | Run `release.sh` end-to-end, fix issues | M1 | Script exists (138 lines), never tested |
@@ -169,7 +170,7 @@ Raycast extension. Homebrew cask. GitHub Actions CI. `.edu` pricing flow.
 
 ## I. Open Questions
 
-1. **App icon**: Hire designer or DIY? Visual style? (Camera lens / viewfinder / abstract?)
+1. ~~**App icon**: Hire designer or DIY?~~ Resolved — custom icons generated and integrated.
 2. **Pricing**: What's the non-edu price? ($15 / $19 / pay-what-you-want?)
 3. **Landing page tech**: Static HTML, Framer, Hugo? Hosting? (caloura.app domain assumed available.)
 4. **macOS 15 minimum**: Should v1.1 drop macOS 14 and remove CG fallback? Depends on target user IT timelines.
@@ -216,3 +217,7 @@ Verified: macOS 15.2 / Xcode 16 / Apple Silicon. macOS 14.x validation pending (
 | No sandbox | Required for screen capture, file I/O to arbitrary paths, system integration |
 | caloura.app hosts binaries | Source of truth for appcast.xml + downloads. Gumroad is checkout only. Eliminates URL-change risk for Sparkle. |
 | .edu pricing deferred to M4 | Don't market what doesn't exist. Re-add to product definition when flow ships. |
+| Native NSMenu (`.menu` style) for menu bar | Shottr-style clean dropdown; right-aligned shortcuts rendered by AppKit; "More" submenu for secondary actions |
+| Dot cursor instead of crosshair for area capture | Differentiate from Shottr's crosshair; no preference toggle (YAGNI) |
+| No screen dimming during area capture | User wants full clarity to see exactly what they're capturing |
+| Custom icons, not generated | User designed icons externally and provided source PNGs; resized via Pillow |
