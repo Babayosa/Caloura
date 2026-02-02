@@ -65,7 +65,9 @@ final class AppSettings: ObservableObject {
     }
 
     private static var defaultSaveDirectory: String {
-        let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first!
+        guard let pictures = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first else {
+            return NSHomeDirectory() + "/Pictures/Caloura"
+        }
         return pictures.appendingPathComponent("Caloura").path
     }
 

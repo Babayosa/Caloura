@@ -10,7 +10,6 @@ final class AppState: ObservableObject {
     @Published var recentScreenshots: [ScreenshotItem] = []
     @Published var lastScreenshot: ProcessedScreenshot?
     @Published var isCapturing: Bool = false
-    @Published var captureMode: CaptureMode = .area
     @Published var hasScreenRecordingPermission: Bool = false
     @Published var statusMessage: String = ""
     @Published var isCountingDown: Bool = false

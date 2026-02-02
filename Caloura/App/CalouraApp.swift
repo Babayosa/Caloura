@@ -1,3 +1,4 @@
+import os.log
 import ServiceManagement
 import SwiftUI
 import KeyboardShortcuts
@@ -160,7 +161,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     if let cgImage = annotatedImage.cgImage(forProposedRect: nil, context: nil, hints: nil) {
                         let pngData = ImageProcessor.pngRepresentation(of: cgImage)
                         if let filePath = screenshot.filePath {
-                            try? pngData.write(to: filePath)
+                            do {
+                                try pngData.write(to: filePath)
+                            } catch {
+                                Logger(subsystem: "com.caloura.app", category: "Annotation")
+                                    .error("Failed to save annotated image: \(error.localizedDescription)")
+                            }
                         }
                     }
                 }
