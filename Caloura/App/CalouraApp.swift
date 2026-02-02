@@ -4,17 +4,14 @@ import KeyboardShortcuts
 @main
 struct CalouraApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @ObservedObject private var appState = AppState.shared
-    @ObservedObject private var settings = AppSettings.shared
-    @ObservedObject private var pipeline = CapturePipeline.shared
+
     var body: some Scene {
         MenuBarExtra {
-            MenuBarView(appState: appState, settings: settings)
+            MenuBarView(appState: AppState.shared, settings: AppSettings.shared)
         } label: {
             Image(systemName: "camera.viewfinder")
         }
         .menuBarExtraStyle(.window)
-
     }
 }
 
@@ -25,8 +22,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let onboardingController = OnboardingWindowController()
     private let historyController = HistoryWindowController()
     private let annotationController = AnnotationWindowController()
+    private var isInitialLaunch = true
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        // Skip the first activation — applicationDidFinishLaunching already checks.
+        if isInitialLaunch {
+            isInitialLaunch = false
+            return
+        }
         Task {
             let sckOK = await ScreenCaptureManager.shared.checkSCKAccess()
             AppState.shared.hasScreenRecordingPermission = sckOK

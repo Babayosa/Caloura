@@ -50,34 +50,6 @@ final class ScreenCaptureManager {
         }
     }
 
-    /// Broad permission check that returns true if *any* OS-level signal suggests
-    /// screen recording access has been granted. Uses CGPreflight and CGWindowList.
-    /// Useful for onboarding where the goal is to detect whether the user toggled
-    /// the permission on — even if SCK itself isn't working (debug builds).
-    func hasAnyPermissionSignal() -> Bool {
-        if CGPreflightScreenCaptureAccess() { return true }
-        return checkCGWindowListFallback()
-    }
-
-    /// Secondary permission signal using CGWindowListCopyWindowInfo.
-    /// When screen recording permission is granted, window names are populated.
-    /// When denied, window entries have nil/empty names.
-    private func checkCGWindowListFallback() -> Bool {
-        guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[CFString: Any]] else {
-            return false
-        }
-
-        // If we can see window names from other apps, permission is granted
-        let namedWindows = windowList.filter { info in
-            guard let name = info[kCGWindowName] as? String, !name.isEmpty else { return false }
-            guard let ownerName = info[kCGWindowOwnerName] as? String else { return false }
-            return ownerName != "Caloura"
-        }
-
-        logger.info("CGWindowList fallback: \(namedWindows.count) named windows from other apps (total: \(windowList.count))")
-        return namedWindows.count > 0
-    }
-
     /// Diagnose the current permission state by combining multiple signals.
     /// CGPreflight is the authoritative OS-level check. CGWindowList can give
     /// false positives on some macOS versions (returns named windows even when
@@ -151,15 +123,15 @@ final class ScreenCaptureManager {
                 sckFailed = true
             }
         }
-        guard hasAnyPermissionSignal() else { throw CaptureError.noPermission }
-
-        // Try screencapture CLI first (captures all windows), fall back to CG
+        // Try screencapture CLI (has its own entitlements, no permission gate needed)
         do {
             logger.info("Trying screencapture CLI for fullscreen")
             return try await screencaptureFullScreen(screen: screen)
         } catch {
             logger.warning("screencapture CLI failed: \(error.localizedDescription), falling back to CG")
         }
+        // CG fallback requires confirmed permission — CGPreflight is authoritative
+        guard checkPermission() else { throw CaptureError.noPermission }
         return try cgCaptureFullScreen(screen: screen)
     }
 
@@ -174,7 +146,6 @@ final class ScreenCaptureManager {
                 sckFailed = true
             }
         }
-        guard hasAnyPermissionSignal() else { throw CaptureError.noPermission }
 
         do {
             logger.info("Trying screencapture CLI for area")
@@ -182,6 +153,7 @@ final class ScreenCaptureManager {
         } catch {
             logger.warning("screencapture CLI failed: \(error.localizedDescription), falling back to CG")
         }
+        guard checkPermission() else { throw CaptureError.noPermission }
         return try cgCaptureArea(rect: rect, screen: screen)
     }
 
@@ -196,7 +168,6 @@ final class ScreenCaptureManager {
                 sckFailed = true
             }
         }
-        guard hasAnyPermissionSignal() else { throw CaptureError.noPermission }
 
         do {
             logger.info("Trying screencapture CLI for window \(window.id)")
@@ -204,6 +175,7 @@ final class ScreenCaptureManager {
         } catch {
             logger.warning("screencapture CLI failed: \(error.localizedDescription), falling back to CG")
         }
+        guard checkPermission() else { throw CaptureError.noPermission }
         return try cgCaptureWindow(windowID: window.id)
     }
 
@@ -226,7 +198,7 @@ final class ScreenCaptureManager {
                 sckFailed = true
             }
         }
-        if hasAnyPermissionSignal() {
+        if checkPermission() {
             return getWindowsCG()
         }
         throw CaptureError.noPermission

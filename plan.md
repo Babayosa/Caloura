@@ -180,6 +180,11 @@ All features below are implemented and verified in code. No stubs or TODOs.
 - UserDefaults keys left generic (no brand in key names) — no data migration needed
 - Verified: `grep -ri "snapnote"` returns zero matches
 
+### Permission False Positive Fix (P0)
+- **Root cause**: `hasAnyPermissionSignal()` used `checkCGWindowListFallback()` which returns named windows on macOS Sequoia even when screen recording permission is denied — a false positive. This allowed capture to proceed through the CG fallback, producing wallpaper-only screenshots instead of triggering the permission alert.
+- **Fix**: Removed `hasAnyPermissionSignal()` and `checkCGWindowListFallback()` entirely. Capture methods now always try screencapture CLI after SCK fails (CLI has its own entitlements), then gate the CG fallback behind `checkPermission()` (CGPreflight — the authoritative OS check). If CG isn't available, throws `noPermission` which triggers the permission alert. Onboarding also updated to use `checkPermission()`.
+- Files changed: `ScreenCaptureManager.swift`, `OnboardingView.swift`
+
 ### P1 Bug Fix Pass (audit-driven)
 - **Image format picker**: `FileOrganizer.save()` now accepts `imageFormat` parameter, encodes via `ImageProcessor` (PNG/JPEG/TIFF), uses correct file extension. `CapturePipeline` passes `settings.imageFormat`.
 - **History search**: Added `item.title` to `filteredScreenshots` filter — user-edited titles are now searchable.
@@ -297,6 +302,7 @@ After building, test on a separate Mac (or clean user account):
 | ~~Silent saveHistory() failure~~ | ~~P1~~ | `AppState.swift` | **Fixed** — `do-catch` with `logger.error` |
 | ~~No delete confirmation~~ | ~~P1~~ | `HistoryView.swift` | **Fixed** — confirmation alert before delete |
 | ~~Fullscreen SCK hardcodes 2x scale~~ | ~~P1~~ | `ScreenCaptureManager.swift` | **Fixed** — uses `backingScaleFactor` |
+| ~~Captures show only wallpaper (permission false positive)~~ | ~~P0~~ | `ScreenCaptureManager.swift` | **Fixed** — removed `hasAnyPermissionSignal()` / `checkCGWindowListFallback()` (false positive on Sequoia). CG fallback now gated behind `checkPermission()` (CGPreflight). |
 | Delayed capture not cancellable | P2 | `CapturePipeline.swift:110-134` | Documented, low impact |
 | CGWindowListCreateImage deprecated | Info | `ScreenCaptureManager.swift:416+` | Expected — retained for macOS 14 fallback |
 

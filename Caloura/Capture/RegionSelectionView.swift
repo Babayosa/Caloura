@@ -19,18 +19,30 @@ final class RegionSelectionView: NSView {
     private let selectionFillColor = NSColor.systemBlue.withAlphaComponent(0.1)
     private let overlayColor = NSColor.black.withAlphaComponent(0.3)
     private let sizeFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
+    private var cursorHidden = false
 
     override var acceptsFirstResponder: Bool { true }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        window?.makeFirstResponder(self)
-        window?.acceptsMouseMovedEvents = true
-        NSCursor.hide()
+        if let window = window {
+            window.makeFirstResponder(self)
+            window.acceptsMouseMovedEvents = true
+            if !cursorHidden {
+                NSCursor.hide()
+                cursorHidden = true
+            }
+        } else if cursorHidden {
+            NSCursor.unhide()
+            cursorHidden = false
+        }
     }
 
     override func removeFromSuperview() {
-        NSCursor.unhide()
+        if cursorHidden {
+            NSCursor.unhide()
+            cursorHidden = false
+        }
         super.removeFromSuperview()
     }
 

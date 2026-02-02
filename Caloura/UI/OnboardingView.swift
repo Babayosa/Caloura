@@ -104,10 +104,9 @@ struct OnboardingView: View {
             return
         }
 
-        // SCK failed — use broader OS-level signals (CGPreflight + CGWindowList).
-        // For onboarding, we just need to know "did the user grant permission?"
-        // even if SCK itself can't use it (e.g. debug build, ad-hoc signing).
-        if ScreenCaptureManager.shared.hasAnyPermissionSignal() {
+        // SCK failed — check CGPreflight (authoritative OS-level check).
+        // CGWindowList fallback was removed: it gives false positives on Sequoia.
+        if ScreenCaptureManager.shared.checkPermission() {
             hasPermission = true
             permissionDetail = .grantedNotWorking
         } else {
