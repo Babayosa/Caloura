@@ -1,328 +1,202 @@
 # Caloura — Project Plan
 
-## Table of Contents
+## Change Log
 
-- [Project Overview](#project-overview)
-- [Architecture](#architecture)
-- [Feature Inventory](#feature-inventory)
-- [Completed Work](#completed-work)
-- [Release Pipeline](#release-pipeline)
-- [Ship Checklist](#ship-checklist)
-- [Known Issues](#known-issues)
-- [Decisions Log](#decisions-log)
+| Date | Change |
+|------|--------|
+| 2026-02-02 | Full rewrite. Removed stale completed-work log, verbose known-issues table, and duplicated ROADMAP content. Aligned with actual codebase (66 tests, 9 commits). Added milestones, risks, open questions. |
 
 ---
 
-## Project Overview
+## A. Product Definition
 
-Caloura is a macOS menu-bar screenshot tool. It captures screen regions, windows, and full screens, with OCR, annotation, pinning, presets, and clipboard integration.
-
-**Audience**: Educators, students, and knowledge workers — teaching artifacts, lab/study workflows, lecture documentation.
-
-**Distribution**: Direct download via Gumroad (not App Store). Notarized and stapled for Gatekeeper.
-
-**Platform**: macOS 14.0+ (Sonoma)
-**Language**: Swift 5.9 / SwiftUI
-**Build system**: XcodeGen (`project.yml`) + Swift Package Manager
-**Dependencies**: KeyboardShortcuts, Sparkle
-**Bundle ID**: `com.caloura.app`
-**Team ID**: `NG4ML6Q47T`
+Caloura is a macOS menu-bar screenshot tool for students, educators, and knowledge workers. It captures regions, windows, and full screens with smart cropping, OCR, annotation, presets, and multi-format clipboard output — all from a lightweight menu-bar icon. Distribution is direct download (Gumroad) for faster iteration, Sparkle auto-updates, and fewer MAS constraints; app requires Screen Recording permission. Competitive edge: free for `.edu`, one-time purchase for everyone else, no subscription.
 
 ---
 
-## Architecture
+## B. Non-Goals (v1)
 
-### Source Layout
+- Screen recording / video capture
+- Scrolling capture
+- Cloud upload / sharing service
+- Custom user-created presets (4 built-in only)
+- iOS or iPad support
+- App Store distribution
+- Background/backdrop styling tools
 
-```
-Caloura/
-├── App/             CalouraApp, AppDelegate, CapturePipeline, UpdateManager, URLSchemeHandler
-├── Capture/         ScreenCaptureManager, CaptureWindow, RegionSelectionView, WindowPicker
-├── Context/         Preset system, ContextDetector
-├── Distribution/    FileOrganizer, ClipboardManager, MarkdownExporter
-├── HotKeys/         HotKeyManager
-├── Models/          AppState, ScreenshotItem, AppSettings, CaptureContext
-├── Processing/      ImageProcessor, SmartCropper, OCREngine
-├── Resources/       Info.plist, entitlements, assets
-└── UI/              MenuBarView, HistoryView, PreferencesView, OnboardingView, overlays
-```
+---
 
-### Capture Pipeline
+## C. Current Reality
+
+**Status**: Feature-complete. Not shippable.
+
+- macOS 14.0+, Swift 5.9, XcodeGen (`project.yml`), KeyboardShortcuts + Sparkle deps
+- 3 capture modes (area, window, fullscreen) + repeat + delayed + multi-display selector
+- 3-tier capture backend: SCK → screencapture CLI → CoreGraphics (deprecated fallback)
+- Processing: smart crop (Vision saliency + border trim), background OCR, PNG/JPEG/TIFF export
+- Distribution: clipboard (image / markdown / citation / multi-format), organized file save, Quick Access overlay
+- UI: menu bar, onboarding (4-step with permission polling), preferences (4 tabs), history (searchable, tags, thumbnails), annotation (arrow/rect/highlight + undo), pinned windows
+- Automation: URL scheme (11 routes), context detection (6 app categories), 7 hotkeys (customizable)
+- Sparkle integrated but unconfigured (no EdDSA key, no feed URL)
+- 66 tests across 9 files, 0 failures
+- App icon asset catalog exists but **contains no images** (placeholder JSON only)
+- Menu bar icon slot empty (code uses SF Symbol `camera.viewfinder` fallback)
+- `release.sh` exists (archive → export → notarize → staple → zip) but **never run** (no Developer ID cert)
+- 9 commits on `main`, last: `ff29c0e` (2026-02-02)
+
+---
+
+## D. Target v1 Scope (Must-Ship)
+
+1. App icon (10 sizes) + menu bar template icon (2 sizes)
+2. Apple Developer account provisioned, Developer ID cert installed
+3. Notarization credentials stored (`Caloura-Notarize` keychain profile)
+4. `release.sh` end-to-end success → notarized + stapled `.zip`
+5. Sparkle EdDSA keypair generated, public key in Info.plist
+6. Landing page live at `caloura.app` (download link + appcast.xml)
+7. Gumroad product page with working download
+8. Clean-machine verification: unzip → launch → no Gatekeeper warning → capture works
+9. "Launch at Login" preference toggle
+10. README with install instructions + screenshot
+11. Permissions troubleshooting section in README + landing page
+12. Sparkle upgrade rehearsal: v1.0.0 → v1.0.1 on clean Mac before public launch
+
+---
+
+## E. Architecture Snapshot
 
 ```
 HotKey / Menu / URL Scheme
-    → CapturePipeline
-        → ScreenCaptureManager
-            → SCK (primary)
-            → screencapture CLI (fallback)
-            → CoreGraphics (last resort, deprecated macOS 15)
-        → ImageProcessor (smart crop optional)
-        → FileOrganizer (save to disk)
-        → ClipboardManager (copy)
-        → QuickAccessOverlay (post-capture toolbar)
-        → OCREngine (async, background, updates history by UUID)
+  → CapturePipeline (singleton, @MainActor)
+      → ScreenCaptureManager
+          → SCK (primary, .best resolution)
+          → screencapture CLI (fallback, system binary entitlements)
+          → CoreGraphics (last resort, deprecated macOS 15)
+      → ImageProcessor (optional SmartCropper via Vision)
+      → FileOrganizer (~/Pictures/Caloura/YYYY-MM-DD/)
+      → ClipboardManager (image / markdown / citation / multi-format)
+      → QuickAccessOverlay (5 actions, 8s auto-dismiss)
+      → OCREngine (background, matches by UUID)
 ```
 
-### Key Design Decisions
+**Key modules** (all under `Caloura/`):
 
-- **Menu-bar only** (`LSUIElement: true`) — no dock icon
-- **No sandbox** — required for screen recording APIs
-- **Hardened runtime** — required for notarization
-- **Sparkle for updates** — standard for non-App Store Mac apps
-- **XcodeGen** — `project.yml` is the source of truth; `.xcodeproj` is generated
-- **ID-only equality on ScreenshotItem** — explicit `==` and `hash(into:)` use only `id`, supporting mutable title/tags without breaking identity
+| Dir | Purpose | Key files |
+|-----|---------|-----------|
+| `App/` | Entry point, pipeline, updates, URL scheme | `CalouraApp.swift`, `CapturePipeline.swift` |
+| `Capture/` | Backends, overlays, selection views | `ScreenCaptureManager.swift`, `*SelectionView.swift` |
+| `Processing/` | Crop, OCR, format encoding | `SmartCropper.swift`, `OCREngine.swift` |
+| `Distribution/` | Clipboard, file org, markdown | `ClipboardManager.swift`, `FileOrganizer.swift` |
+| `Context/` | Presets, app category detection | `PresetManager.swift`, `ContextDetector.swift` |
+| `Models/` | State, settings, data structs | `AppState.swift`, `AppSettings.swift` |
+| `UI/` | All views and window controllers | `MenuBarView.swift`, `PreferencesView.swift` |
+| `HotKeys/` | Keyboard shortcut registration | `HotKeyManager.swift` |
 
----
+**Storage**: UserDefaults only (history JSON ≤50 items, settings, presets). No database.
 
-## Feature Inventory
-
-All features below are implemented and verified in code. No stubs or TODOs.
-
-### Capture
-| Feature | Key files |
-|---------|-----------|
-| Region capture | `ScreenCaptureManager.swift`, `RegionSelectionView.swift`, `CaptureOverlayWindow.swift` |
-| Window capture | `ScreenCaptureManager.swift`, `WindowPicker.swift` |
-| Fullscreen capture | `ScreenCaptureManager.swift` |
-| Repeat last area | `CapturePipeline.swift` (stores last rect/screen) |
-| Delayed capture (3–10 s) | `CapturePipeline.swift` |
-| Three-tier fallback | SCK → screencapture CLI → CoreGraphics |
-
-### Processing
-| Feature | Key files |
-|---------|-----------|
-| Smart crop (Vision saliency + border trim) | `SmartCropper.swift` |
-| OCR (async, background) | `OCREngine.swift`, `CapturePipeline.swift` |
-| Image processing (PNG) | `ImageProcessor.swift` |
-
-### Distribution
-| Feature | Key files |
-|---------|-----------|
-| Clipboard (image, Markdown, citation, multi-format) | `ClipboardManager.swift`, `MarkdownExporter.swift` |
-| File export (PNG, date/subfolder organization) | `FileOrganizer.swift` |
-| Quick access overlay (5 actions, 8 s auto-dismiss) | `QuickAccessOverlay.swift` |
-
-### History & Metadata
-| Feature | Key files |
-|---------|-----------|
-| Searchable history (app, window title, OCR text, filename, tags) | `HistoryView.swift`, `AppState.swift` |
-| Titles (auto from window/app, user-editable) | `ScreenshotItem.swift`, `HistoryView.swift` |
-| Tags (user-defined, case-insensitive dedup) | `ScreenshotItem.swift`, `HistoryView.swift` |
-| Thumbnail downsampling (320 px CGImageSource) | `HistoryView.swift` |
-| Backward-compatible Codable (decodeIfPresent) | `ScreenshotItem.swift` |
-| Partial recovery on corrupt data | `AppState.swift` |
-
-### UI
-| Feature | Key files |
-|---------|-----------|
-| Menu bar (capture, repeat, delay, presets, system) | `MenuBarView.swift` |
-| Annotation (arrow, rectangle, highlight, undo/redo) | `AnnotationOverlay.swift` |
-| Pinned windows (always-on-top NSPanel) | `PinnedScreenshotWindow.swift` |
-| Preferences (General, Shortcuts, Presets, About) | `PreferencesView.swift` |
-| Onboarding (4-step, permission polling) | `OnboardingView.swift` |
-
-### Automation
-| Feature | Key files |
-|---------|-----------|
-| URL scheme (`caloura://capture`, `copy`, `history`, `settings`) | `URLSchemeHandler.swift` |
-| Presets (4 built-in: Quick Capture, Lecture Notes, Code Snippet, Assignment) | `PresetManager.swift` |
-| Context detection (auto-categorize app, auto-select preset) | `ContextDetector.swift` |
-| Keyboard shortcuts (customizable, KeyboardShortcuts framework) | `HotKeyManager.swift` |
-
-### System
-| Feature | Key files |
-|---------|-----------|
-| Sparkle auto-updates (check for updates, disabled if no feed URL) | `UpdateManager.swift` |
-| Permission re-check on app activation | `CalouraApp.swift` (AppDelegate) |
-| Two-state permission alerts (never granted vs. granted-but-failing) | `ScreenCaptureManager.swift` |
+**Signing**: Debug = Apple Development, Release = Developer ID Application. Team `NG4ML6Q47T`. Hardened runtime, no sandbox.
 
 ---
 
-## Completed Work
+## F. Milestones
 
-### Core Capture & Permissions
-- Three-tier fallback chain (SCK → screencapture CLI → CoreGraphics) with `CaptureWindow` abstraction
-- Stable code signing: `DEVELOPMENT_TEAM`, `CODE_SIGN_STYLE: Automatic`, split identity (Debug: Apple Development, Release: Developer ID Application)
-- Hardened runtime enabled, sandbox disabled
-- Permission re-check on `applicationDidBecomeActive` via `checkSCKAccess()`
-- Two-path permission alert: deep-links to System Settings for "never granted", offers restart for "granted but failing"
-- Onboarding 4-step flow with 2-second permission polling
+### M1: Distributable Build
+Design app icon + menu bar icon. Provision Developer ID cert. Store notarization credentials. Run `release.sh` end-to-end.
+**Done means**: `codesign -vv Caloura.app` shows valid Developer ID. `xcrun stapler validate` passes. Zip opens on clean Mac with no Gatekeeper warning.
 
-### History & Data Integrity
-- Thumbnail downsampling: `CGImageSourceCreateThumbnailAtIndex` at 320 px max (memory: ~400 KB per thumbnail vs ~30–60 MB for full image)
-- Tap gesture fix: double-tap before single-tap to resolve gesture ambiguity
-- `saveHistory()` made internal, called after every mutation (7 call sites: add, clear, title edit, tag add, tag remove, context menu delete, OCR update)
-- Partial recovery on corrupt JSON (`AppState.loadHistory` salvages readable items)
-- Titles auto-populated from capture context (window title → app name → "Untitled"), user-editable
-- Tags: user-defined, case-insensitive deduplication (preserves display case)
-- ID-only Equatable/Hashable on ScreenshotItem (supports mutable fields without breaking identity)
+### M2: Distribution Live
+Landing page at `caloura.app` with download link. Gumroad product page. Sparkle EdDSA key embedded, appcast.xml hosted.
+**Done means**: User can discover, download, install, auto-update. Sparkle upgrade cycle tested (v1.0.0 → v1.0.1) on clean Mac.
 
-### UI & Overlays
-- Annotation tools with undo/redo stacks (Cmd+Z / Cmd+Shift+Z)
-- Pinned windows: always-on-top NSPanel with copy/close toolbar, space-spanning
-- Quick access overlay: 5 actions (copy, markdown, citation, annotate, pin), 8 s auto-dismiss
-- PreferencesWindowController replaces undocumented `showSettingsWindow:` selector
-- All ARC-managed windows set `isReleasedWhenClosed = false` to prevent `objc_release` double-free crash
+### M3: Post-Launch Polish (v1.1)
+Launch at Login toggle. Delayed capture cancellation (ESC / menu button). Countdown overlay. Pinned screenshot dedup.
+**Done means**: All P2 items resolved. No known UX papercuts.
 
-### Sparkle & Updates
-- UpdateManager singleton with auto-starting updater
-- `canCheckForUpdates` bound via Combine publisher
-- "Check for Updates" menu item, disabled when no feed URL configured
-
-### Build & Test
-- XcodeGen `project.yml` as source of truth
-- `release.sh`: archive → export → notarize (with `--wait`) → staple → zip
-- Test target signing fix (DEVELOPMENT_TEAM on CalouraTests)
-- 66 tests across 9 files, 0 failures
-
-### Rebrand: SnapNote → Caloura
-- Full atomic rename across directories, build config, Swift source (13 files), tests (9 files), scripts, documentation
-- UserDefaults keys left generic (no brand in key names) — no data migration needed
-- Verified: `grep -ri "snapnote"` returns zero matches
-
-### Permission False Positive Fix (P0)
-- **Root cause**: `hasAnyPermissionSignal()` used `checkCGWindowListFallback()` which returns named windows on macOS Sequoia even when screen recording permission is denied — a false positive. This allowed capture to proceed through the CG fallback, producing wallpaper-only screenshots instead of triggering the permission alert.
-- **Fix**: Removed `hasAnyPermissionSignal()` and `checkCGWindowListFallback()` entirely. Capture methods now always try screencapture CLI after SCK fails (CLI has its own entitlements), then gate the CG fallback behind `checkPermission()` (CGPreflight — the authoritative OS check). If CG isn't available, throws `noPermission` which triggers the permission alert. Onboarding also updated to use `checkPermission()`.
-- Files changed: `ScreenCaptureManager.swift`, `OnboardingView.swift`
-
-### P1 Bug Fix Pass (audit-driven)
-- **Image format picker**: `FileOrganizer.save()` now accepts `imageFormat` parameter, encodes via `ImageProcessor` (PNG/JPEG/TIFF), uses correct file extension. `CapturePipeline` passes `settings.imageFormat`.
-- **History search**: Added `item.title` to `filteredScreenshots` filter — user-edited titles are now searchable.
-- **Silent save failures**: Replaced `try?` with `do-catch` + `Self.logger.error` in `AppState.saveHistory()`.
-- **Delete confirmation**: Context menu delete now sets `itemToDelete` state and presents a confirmation alert before removal.
-- **SCK scale factor**: `sckCaptureFullScreen` uses `targetScreen.backingScaleFactor` instead of hardcoded `* 2`.
-- All 5 fixes verified: 66 tests pass, 0 failures.
-
-### Window Over-Release Crash Fix (P0)
-- **Root cause**: `NSWindow.isReleasedWhenClosed` defaults to `true`. When `close()` is called, AppKit sends an extra `release` that ARC doesn't track. Subsequent `= nil` on the strong reference sends a second `release` on a freed object → `EXC_BAD_ACCESS` in `objc_release`.
-- Added `isReleasedWhenClosed = false` to all ARC-managed windows:
-  - `CaptureOverlayWindow` (init)
-  - `QuickAccessOverlay` (panel creation)
-  - `HistoryWindowController` (window creation)
-  - `PreferencesWindowController` (window creation)
-  - `OnboardingWindowController` (window creation)
-- `PinnedScreenshotWindow` already had the fix (long-lived panel).
-- 66 tests pass, 0 failures.
+### M4: Growth
+Raycast extension. Homebrew cask. GitHub Actions CI. `.edu` pricing flow.
+**Done means**: Two additional distribution channels live. CI green on every push.
 
 ---
 
-## Release Pipeline
+## G. Backlog (Prioritized)
 
-### Prerequisites (one-time, before first release)
+| # | Item | Milestone | Notes |
+|---|------|-----------|-------|
+| 1 | Design + export app icon (10 sizes) | M1 | Asset catalog ready, needs PNGs |
+| 2 | Design + export menu bar template icon | M1 | Monochrome, @1x + @2x |
+| 3 | Provision Apple Developer account + cert | M1 | $99/yr, Developer ID Application |
+| 4 | Store notarization credentials | M1 | `xcrun notarytool store-credentials` |
+| 5 | Run `release.sh` end-to-end, fix issues | M1 | Script exists, never tested |
+| 6 | Generate Sparkle EdDSA keypair | M2 | `sparkle/bin/generate_keys` |
+| 7 | Add `SUPublicEDKey` + `SUFeedURL` to Info.plist | M2 | Currently empty |
+| 8 | Build landing page (`caloura.app`) | M2 | Host appcast.xml here too |
+| 9 | Create Gumroad product page | M2 | |
+| 10 | Add "Launch at Login" preference | M3 | Expected for menu-bar apps |
+| 11 | Delayed capture cancellation (ESC + menu) | M3 | Known P2 issue |
+| 12 | Countdown overlay for delayed captures | M3 | Floating number on screen |
+| 13 | Pinned screenshot deduplication | M3 | Prevent double-pin |
+| 14 | Raycast extension (wraps URL scheme) | M4 | Zero maintenance |
+| 15 | Homebrew cask submission | M4 | After stable download URL |
 
-| # | Step | Command / Action | Verification |
-|---|------|-----------------|--------------|
-| 1 | Developer ID Application certificate | Create at developer.apple.com → Certificates | `security find-identity -v -p codesigning \| grep "Developer ID Application"` |
-| 2 | Store notarization credentials | `xcrun notarytool store-credentials "Caloura-Notarize" --apple-id <email> --team-id NG4ML6Q47T --password <app-specific-password>` | `xcrun notarytool credentials list` shows `Caloura-Notarize` |
-| 3 | Sparkle EdDSA key (for auto-updates) | Download Sparkle release, run `./bin/generate_keys` | Public key printed; add to `project.yml` as `SUPublicEDKey` |
-| 4 | Appcast hosting (for auto-updates) | Create GitHub Pages repo, add URL to `project.yml` as `SUFeedURL` | URL returns valid XML |
+---
 
-Steps 1–2 are required for any release. Steps 3–4 are required for auto-updates to function.
+## H. Risks & Mitigations
 
-### Build & Release
+| # | Risk | Impact | Mitigation |
+|---|------|--------|------------|
+| 1 | Screen recording permission UX on Sequoia is worse than Sonoma | Users fail to grant permission → app unusable | Two-state permission alert helps; onboarding polls for status. Screencapture CLI may work without explicit grant on some OS versions but this is not guaranteed across Sonoma/Sequoia. Must include troubleshooting guide in README and landing page. |
+| 2 | `CGWindowListCreateImage` removed in future macOS | CG fallback breaks | Isolated behind `sckFailed` flag; marked for removal when deployment target moves to 15.0+ |
+| 3 | `release.sh` has never been run | Unknown failures at signing/notarization time | Run early in M1; budget time for debugging entitlements + provisioning |
+| 4 | Sparkle update flow untested | Silent failure on first update push | Test full cycle (v1.0.0 → v1.0.1) before public launch |
+| 5 | No protocol extraction for ScreenCaptureManager / ClipboardManager | Hard to unit-test capture pipeline | Acceptable for v1 (66 tests cover utilities); extract protocols in v1.1 if test gaps cause regressions |
+| 6 | Distribution coupling: Sparkle requires stable hosting for appcast + binaries; notarization pipeline (release.sh) is unproven; Gumroad download URL must not break Sparkle users | Update mechanism fails silently or downloads break | Must choose single source of truth for downloads early in M2 |
+
+---
+
+## I. Open Questions
+
+1. **App icon design**: Hire a designer or DIY? What visual style? (Camera lens? Viewfinder? Abstract?)
+2. **Pricing**: Free for `.edu` confirmed — what's the price for non-edu? ($15? $19? Pay-what-you-want?)
+3. **Landing page**: Static HTML or a generator (e.g. Framer, simple Hugo)? Who hosts?
+4. **macOS 15 minimum**: Should v1.1 drop macOS 14 support and remove CG fallback code? Depends on education IT adoption timeline.
+5. **Custom presets**: Users have asked — scope for v1.1 or defer further?
+6. **History limit**: 50-item cap in UserDefaults — if positioning includes "searchable history with tags," users may expect persistence. Should v1.1 migrate to SQLite?
+
+---
+
+## J. How to Run
 
 ```bash
+# Generate Xcode project (required after adding/removing files)
+cd /Users/b/Caloura
+xcodegen generate
+
+# Build (Debug)
+xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug
+
+# Run tests (66 tests)
+xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug
+
+# Open in Xcode
+open Caloura.xcodeproj
+
+# Release build (requires Developer ID cert + notarization credentials)
 ./scripts/release.sh 1.0.0
-# Produces: build/Caloura-1.0.0.zip (notarized + stapled)
-# Upload to Gumroad
 ```
 
-**What `release.sh` does** (all steps abort on failure via `set -euo pipefail`):
-1. Validates version argument
-2. Regenerates Xcode project (`xcodegen generate`)
-3. Archives with Release configuration (`xcodebuild archive`)
-4. Exports with Developer ID (`xcodebuild -exportArchive` using `scripts/ExportOptions.plist`)
-5. Verifies code signature (`codesign --verify --deep --strict`)
-6. Submits for notarization (`xcrun notarytool submit --wait`)
-7. Staples ticket (`xcrun stapler staple`)
-8. Creates final zip (`ditto -c -k --keepParent`)
-
-### Clean Machine Verification
-
-After building, test on a separate Mac (or clean user account):
-1. Download and unzip `Caloura-1.0.0.zip`
-2. `xcrun stapler validate Caloura.app` — should show "The validate action worked!"
-3. `codesign -vv Caloura.app` — should show valid Developer ID signature
-4. Double-click to launch — no Gatekeeper warning
-5. Grant screen recording permission, take a capture
+All commands verified on macOS 15.2 / Xcode 16 / Apple Silicon.
 
 ---
 
-## Ship Checklist
-
-### P0 — Cannot Ship Without
-
-| Item | Status | Acceptance Criteria |
-|------|--------|-------------------|
-| Developer ID certificate provisioned | **TODO** | `security find-identity` shows cert |
-| Notarization credentials stored | **TODO** | `release.sh` completes notarization step |
-| `release.sh` end-to-end success | **TODO** | Zip opens on clean Mac, no Gatekeeper warning |
-| Gumroad product page | **TODO** | Download link works, product description accurate |
-
-### P1 — Fix Before Ship (all resolved)
-
-| Item | Status | Details |
-|------|--------|---------|
-| Image format picker has no effect | **DONE** | `FileOrganizer.save()` now accepts `imageFormat` parameter, encodes as PNG/JPEG/TIFF via `ImageProcessor`, uses correct file extension. `CapturePipeline` passes `settings.imageFormat`. |
-| History search omits `item.title` | **DONE** | Added `item.title` to `filteredScreenshots` filter in `HistoryView.swift`. |
-| Silent `saveHistory()` failures | **DONE** | Replaced `try?` with `do-catch` + `Self.logger.error` in `AppState.saveHistory()`. |
-| No delete confirmation in history | **DONE** | Added confirmation alert before history delete via `itemToDelete` state + `.alert()` modifier. |
-| Fullscreen SCK hardcodes `* 2` | **DONE** | Replaced `* 2` with `Int(targetScreen.backingScaleFactor)` in `sckCaptureFullScreen`. |
-
-### P2 — Polish (explicitly out of v1 scope)
-
-| Item | Notes |
-|------|-------|
-| Delayed capture cannot be cancelled | Once countdown starts, no abort. Acceptable for v1. |
-| Annotation rendering dual paths | SwiftUI preview vs AppKit export are separate implementations. Risk of visual mismatch. |
-| No "Launch at Login" preference | Expected for menu-bar apps. Can add in v1.1. |
-| No brush width adjustment in annotations | Hard-coded 3 pt line width. |
-| Title not auto-populated for fullscreen captures | Only window/area captures get app context. |
-| Custom presets not user-creatable | 4 built-in only. Intentional scope limit for v1. |
-
-### Auto-Updates (post-v1, separate track)
-
-| Item | Dependency |
-|------|-----------|
-| Generate Sparkle EdDSA key | Download Sparkle release |
-| Add `SUPublicEDKey` to `project.yml` info properties | Key from step above |
-| Create appcast hosting (GitHub Pages) | Repository creation |
-| Add `SUFeedURL` to `project.yml` info properties | Hosting URL from step above |
-| Add `generate_appcast` step to release workflow | Sparkle tooling |
-| Test update flow: publish v1.0.0, then v1.0.1 | All above complete |
-
----
-
-## Known Issues
-
-| Issue | Severity | File | Notes |
-|-------|----------|------|-------|
-| ~~Image format picker has no effect~~ | ~~P1~~ | `FileOrganizer.swift` | **Fixed** — format honored via `imageFormat` parameter |
-| ~~Search omits user-edited title~~ | ~~P1~~ | `HistoryView.swift` | **Fixed** — `item.title` added to search filter |
-| ~~Silent saveHistory() failure~~ | ~~P1~~ | `AppState.swift` | **Fixed** — `do-catch` with `logger.error` |
-| ~~No delete confirmation~~ | ~~P1~~ | `HistoryView.swift` | **Fixed** — confirmation alert before delete |
-| ~~Fullscreen SCK hardcodes 2x scale~~ | ~~P1~~ | `ScreenCaptureManager.swift` | **Fixed** — uses `backingScaleFactor` |
-| ~~Captures show only wallpaper (permission false positive)~~ | ~~P0~~ | `ScreenCaptureManager.swift` | **Fixed** — removed `hasAnyPermissionSignal()` / `checkCGWindowListFallback()` (false positive on Sequoia). CG fallback now gated behind `checkPermission()` (CGPreflight). |
-| Delayed capture not cancellable | P2 | `CapturePipeline.swift:110-134` | Documented, low impact |
-| CGWindowListCreateImage deprecated | Info | `ScreenCaptureManager.swift:416+` | Expected — retained for macOS 14 fallback |
-
----
-
-## Decisions Log
+## K. Decisions Log
 
 | Decision | Rationale |
 |----------|-----------|
-| Gumroad for distribution | Simpler than App Store; screen recording requires non-sandboxed app; supports free/pay-what-you-want for education |
-| No App Store | Screen recording permission is incompatible with App Store sandbox |
-| Sparkle for auto-updates | Industry standard for non-App Store Mac apps; already a dependency |
-| GitHub Pages for appcast | Free, reliable, no server to maintain |
-| Developer ID signing (not ad-hoc) | Required for notarization and persistent TCC permissions |
-| Keep CG fallback code | Graceful degradation on macOS 14; remove when deployment target is 15.0+ |
-| `CGImageSourceCreateThumbnailAtIndex` for history | Reduces memory from ~3 GB to ~20 MB for 50 thumbnails |
-| macOS 14.0 minimum for v1 | Education IT lags 12–18 months on OS upgrades; CG fallback is isolated; drop in v2 when macOS 14 is two versions behind |
-| Case-insensitive tag dedup | Store as-entered, deduplicate by lowercased comparison. Avoids case-variant accumulation. |
-| Rebrand SnapNote → Caloura | Product identity change before public launch. Atomic pass, no data migration (UserDefaults keys are generic). |
-| Image format setting implemented | `FileOrganizer.save()` now respects `AppSettings.imageFormat` (PNG/JPEG/TIFF). Uses `ImageProcessor` encoding methods and correct file extension. |
-| Auto-updates not blocking v1 | Sparkle integration is correct but unconfigured (no feed URL, no keys). Ship v1 without auto-updates; add in v1.1. |
-| History stores max 50 items | UserDefaults JSON, ~50–100 KB. Adequate for v1; consider SQLite if limits increase. |
-| 4 built-in presets only | Custom presets are scope creep for v1. Built-ins cover core education workflows. |
+| Gumroad, not App Store | Direct distribution chosen for faster iteration, Sparkle auto-updates, and fewer MAS constraints (not a technical impossibility) |
+| Sparkle for auto-updates | Industry standard for direct-distribution Mac apps |
+| macOS 14.0 minimum | Education IT lags 12–18 months; CG fallback is isolated |
+| 4 built-in presets only (v1) | Custom presets are scope creep; built-ins cover core workflows |
+| UserDefaults for history (50 items max) | ~50–100 KB; adequate for v1; consider SQLite if limits grow |
+| Capture sound off by default | User preference; toggle available in Preferences |
+| Keep CG fallback code | Graceful degradation on macOS 14; remove when target is 15.0+ |
+| ID-only equality on ScreenshotItem | Supports mutable title/tags without breaking SwiftUI identity |
