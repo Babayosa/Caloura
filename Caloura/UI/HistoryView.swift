@@ -4,6 +4,7 @@ struct HistoryView: View {
     @ObservedObject var appState: AppState
     @State private var searchText = ""
     @State private var selectedItem: ScreenshotItem?
+    @State private var itemToDelete: ScreenshotItem?
 
     private var filteredScreenshots: [ScreenshotItem] {
         if searchText.isEmpty {
@@ -11,6 +12,7 @@ struct HistoryView: View {
         }
         let query = searchText.lowercased()
         return appState.recentScreenshots.filter { item in
+            (item.title?.lowercased().contains(query) ?? false) ||
             (item.sourceAppName?.lowercased().contains(query) ?? false) ||
             (item.sourceWindowTitle?.lowercased().contains(query) ?? false) ||
             (item.ocrText?.lowercased().contains(query) ?? false) ||
@@ -84,8 +86,7 @@ struct HistoryView: View {
                                 }
                                 Divider()
                                 Button(role: .destructive) {
-                                    appState.recentScreenshots.removeAll { $0.id == item.id }
-                                    appState.saveHistory()
+                                    itemToDelete = item
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
@@ -111,6 +112,23 @@ struct HistoryView: View {
             }
             .padding(.horizontal)
             .padding(.vertical, 8)
+        }
+        .alert("Delete Screenshot", isPresented: Binding(
+            get: { itemToDelete != nil },
+            set: { if !$0 { itemToDelete = nil } }
+        )) {
+            Button("Delete", role: .destructive) {
+                if let item = itemToDelete {
+                    appState.recentScreenshots.removeAll { $0.id == item.id }
+                    appState.saveHistory()
+                }
+                itemToDelete = nil
+            }
+            Button("Cancel", role: .cancel) {
+                itemToDelete = nil
+            }
+        } message: {
+            Text("Are you sure you want to remove this screenshot from history?")
         }
         .frame(minWidth: 400, minHeight: 300)
     }
@@ -404,6 +422,7 @@ final class HistoryWindowController {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = hostingView
         window.title = "Caloura History"
         window.center()

@@ -227,6 +227,7 @@ final class PreferencesWindowController {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = hostingView
         window.title = "Caloura Preferences"
         window.setFrameAutosaveName("PreferencesWindow")

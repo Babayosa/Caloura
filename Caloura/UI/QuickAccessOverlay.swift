@@ -22,6 +22,7 @@ final class QuickAccessOverlay {
             backing: .buffered,
             defer: false
         )
+        panel.isReleasedWhenClosed = false
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]

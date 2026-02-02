@@ -292,6 +292,7 @@ final class OnboardingWindowController {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = hostingView
         window.title = "Welcome to Caloura"
         window.center()

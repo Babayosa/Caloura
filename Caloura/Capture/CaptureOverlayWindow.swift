@@ -12,6 +12,7 @@ final class CaptureOverlayWindow: NSWindow {
             defer: false
         )
 
+        self.isReleasedWhenClosed = false
         self.level = .screenSaver
         self.isOpaque = false
         self.backgroundColor = NSColor.black.withAlphaComponent(0.01)

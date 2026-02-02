@@ -246,8 +246,9 @@ final class ScreenCaptureManager {
 
         let filter = SCContentFilter(display: scDisplay, excludingWindows: [])
         let config = SCStreamConfiguration()
-        config.width = scDisplay.width * 2  // Retina
-        config.height = scDisplay.height * 2
+        let scale = Int(targetScreen.backingScaleFactor)
+        config.width = scDisplay.width * scale
+        config.height = scDisplay.height * scale
         config.showsCursor = false
         config.captureResolution = .best
 

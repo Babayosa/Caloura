@@ -41,8 +41,11 @@ final class AppState: ObservableObject {
     }
 
     func saveHistory() {
-        if let data = try? JSONEncoder().encode(recentScreenshots) {
+        do {
+            let data = try JSONEncoder().encode(recentScreenshots)
             UserDefaults.standard.set(data, forKey: historyKey)
+        } catch {
+            Self.logger.error("Failed to encode screenshot history: \(error.localizedDescription)")
         }
     }
 

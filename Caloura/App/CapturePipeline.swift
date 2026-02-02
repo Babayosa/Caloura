@@ -196,7 +196,8 @@ final class CapturePipeline: ObservableObject {
                 let fileURL = try FileOrganizer.save(
                     processed,
                     baseDirectory: settings.saveDirectory,
-                    subfolder: preset.subfolder
+                    subfolder: preset.subfolder,
+                    imageFormat: settings.imageFormat
                 )
                 processed.filePath = fileURL
                 processed.fileName = fileURL.lastPathComponent

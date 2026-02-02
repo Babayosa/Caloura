@@ -2,12 +2,13 @@ import Foundation
 
 struct FileOrganizer {
     /// Save screenshot to disk with organized folder structure
-    /// ~/Pictures/Caloura/YYYY-MM-DD/Caloura_HH-mm-ss_AppName.png
+    /// ~/Pictures/Caloura/YYYY-MM-DD/Caloura_HH-mm-ss_AppName.{png,jpeg,tiff}
     @discardableResult
     static func save(
         _ screenshot: ProcessedScreenshot,
         baseDirectory: String,
-        subfolder: String? = nil
+        subfolder: String? = nil,
+        imageFormat: String = "png"
     ) throws -> URL {
         let baseURL = URL(fileURLWithPath: baseDirectory)
 
@@ -32,17 +33,26 @@ struct FileOrganizer {
         )
 
         // Generate filename
-        let fileName = generateFileName(for: screenshot)
+        let fileName = generateFileName(for: screenshot, imageFormat: imageFormat)
         let fileURL = directoryURL.appendingPathComponent(fileName)
 
-        // Write PNG data
-        try screenshot.pngData.write(to: fileURL)
+        // Encode image in the requested format
+        let imageData: Data
+        switch imageFormat {
+        case "jpeg":
+            imageData = ImageProcessor.jpegRepresentation(of: screenshot.cgImage)
+        case "tiff":
+            imageData = ImageProcessor.tiffRepresentation(of: screenshot.cgImage)
+        default:
+            imageData = screenshot.pngData
+        }
+        try imageData.write(to: fileURL)
 
         return fileURL
     }
 
-    /// Generate filename: Caloura_HH-mm-ss_AppName.png
-    static func generateFileName(for screenshot: ProcessedScreenshot) -> String {
+    /// Generate filename: Caloura_HH-mm-ss_AppName.{ext}
+    static func generateFileName(for screenshot: ProcessedScreenshot, imageFormat: String = "png") -> String {
         let timeFormatter = DateFormatter()
         timeFormatter.locale = Locale(identifier: "en_US_POSIX")
         timeFormatter.dateFormat = "HH-mm-ss"
@@ -53,7 +63,14 @@ struct FileOrganizer {
             .replacingOccurrences(of: "/", with: "-")
             ?? "Unknown"
 
-        return "Caloura_\(timeStr)_\(appName).png"
+        let ext: String
+        switch imageFormat {
+        case "jpeg": ext = "jpeg"
+        case "tiff": ext = "tiff"
+        default: ext = "png"
+        }
+
+        return "Caloura_\(timeStr)_\(appName).\(ext)"
     }
 
     /// Ensure the base save directory exists
