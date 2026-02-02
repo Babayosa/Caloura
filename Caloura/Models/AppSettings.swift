@@ -70,7 +70,7 @@ final class AppSettings: ObservableObject {
         self.autoCopyToClipboard = defaults.object(forKey: Keys.autoCopyToClipboard) as? Bool ?? true
         self.autoSaveToDisk = defaults.object(forKey: Keys.autoSaveToDisk) as? Bool ?? true
         self.smartCropEnabled = defaults.object(forKey: Keys.smartCropEnabled) as? Bool ?? true
-        self.playCaptureSound = defaults.object(forKey: Keys.playCaptureSound) as? Bool ?? true
+        self.playCaptureSound = defaults.object(forKey: Keys.playCaptureSound) as? Bool ?? false
         self.activePreset = defaults.string(forKey: Keys.activePreset) ?? "Quick Capture"
         self.hasCompletedOnboarding = defaults.bool(forKey: Keys.hasCompletedOnboarding)
         self.imageFormat = defaults.string(forKey: Keys.imageFormat) ?? "png"
