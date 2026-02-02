@@ -13,6 +13,8 @@ final class AppState: ObservableObject {
     @Published var captureMode: CaptureMode = .area
     @Published var hasScreenRecordingPermission: Bool = false
     @Published var statusMessage: String = ""
+    @Published var isCountingDown: Bool = false
+    @Published var countdownRemaining: Int = 0
 
     /// Stores the last area capture rect for the repeat capture feature.
     @Published var lastCaptureRect: CGRect?

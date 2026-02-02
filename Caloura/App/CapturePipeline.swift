@@ -12,6 +12,7 @@ final class CapturePipeline: ObservableObject {
     private var overlayWindows: [CaptureOverlayWindow] = []
     private var windowOverlays: [WindowSelectionOverlayWindow] = []
     private var screenOverlays: [ScreenSelectionOverlayWindow] = []
+    private var delayedCaptureTask: Task<Void, Never>?
 
     private init() {}
 
@@ -133,25 +134,52 @@ final class CapturePipeline: ObservableObject {
         appState.isCapturing = true
 
         let delay = max(1, min(seconds, 10))
+        appState.isCountingDown = true
+        appState.countdownRemaining = delay
         appState.statusMessage = "Capturing in \(delay)s..."
 
-        Task {
+        CountdownOverlay.shared.show(seconds: delay) { [weak self] in
+            self?.cancelDelayedCapture()
+        }
+
+        delayedCaptureTask = Task { [weak self] in
+            guard let self = self else { return }
             for remaining in stride(from: delay, through: 1, by: -1) {
-                appState.statusMessage = "Capturing in \(remaining)s..."
-                try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                if Task.isCancelled { return }
+                self.appState.statusMessage = "Capturing in \(remaining)s..."
+                self.appState.countdownRemaining = remaining
+                CountdownOverlay.shared.updateCount(remaining)
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
+
+            if Task.isCancelled { return }
+
+            self.appState.isCountingDown = false
+            self.appState.countdownRemaining = 0
+            CountdownOverlay.shared.dismiss()
 
             switch mode {
             case .area:
-                appState.isCapturing = false
-                captureArea()
+                self.appState.isCapturing = false
+                self.captureArea()
             case .fullscreen:
-                await performFullscreenCapture()
+                await self.performFullscreenCapture()
             case .window:
-                appState.isCapturing = false
-                captureWindow()
+                self.appState.isCapturing = false
+                self.captureWindow()
             }
         }
+    }
+
+    /// Cancel an in-progress delayed capture countdown.
+    func cancelDelayedCapture() {
+        delayedCaptureTask?.cancel()
+        delayedCaptureTask = nil
+        appState.isCountingDown = false
+        appState.countdownRemaining = 0
+        appState.isCapturing = false
+        appState.statusMessage = "Countdown cancelled"
+        CountdownOverlay.shared.dismiss()
     }
 
     // MARK: - Perform Captures

@@ -49,6 +49,7 @@
 		D34AF9C5B8BB93C0DD02DED1 /* FileOrganizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D5287A7A52DB2B5F2880B13 /* FileOrganizer.swift */; };
 		DEA12579A7AFC28207AC32B8 /* AppStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43F77302B11F70E1E6287AC8 /* AppStateTests.swift */; };
 		E6EE2265F03CED46668E6D3F /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21487A51F0B67168191171F1 /* MenuBarView.swift */; };
+		E93270F7D1B4AB7D56C8B8F1 /* CountdownOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBD0CD21F3329B60E6BA4CD0 /* CountdownOverlay.swift */; };
 		EE3E2A11DF2F4C907295560D /* CaptureWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C232FB74F8F8BC03DE3D89 /* CaptureWindow.swift */; };
 		F21C6A5FA1D2683A6982FE4C /* PresetManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC1CE1E0BDEAB15BE65E4C65 /* PresetManagerTests.swift */; };
 		F342D7FB96844B3EF860B7DD /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A7167644A0ADF1B732023BF2 /* Sparkle */; };
@@ -107,6 +108,7 @@
 		E20996E12C67659425FFC3DB /* CaptureMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureMode.swift; sourceTree = "<group>"; };
 		E2692F22CB4A8BF8EDCB4B18 /* UpdateManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateManager.swift; sourceTree = "<group>"; };
 		E5111148C3CD871846C3792E /* MarkdownExporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownExporterTests.swift; sourceTree = "<group>"; };
+		EBD0CD21F3329B60E6BA4CD0 /* CountdownOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountdownOverlay.swift; sourceTree = "<group>"; };
 		EC1CE1E0BDEAB15BE65E4C65 /* PresetManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetManagerTests.swift; sourceTree = "<group>"; };
 		EC3E8A84DF9CCD9D210B6C62 /* CapturePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CapturePipeline.swift; sourceTree = "<group>"; };
 		F50A69E2F11F898BD9B70652 /* URLSchemeHandlerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLSchemeHandlerTests.swift; sourceTree = "<group>"; };
@@ -142,6 +144,7 @@
 			isa = PBXGroup;
 			children = (
 				FCF688CE2838DA6BB11F8B31 /* AnnotationOverlay.swift */,
+				EBD0CD21F3329B60E6BA4CD0 /* CountdownOverlay.swift */,
 				1FE110F9A77CB9CDFB0BEDFD /* HistoryView.swift */,
 				21487A51F0B67168191171F1 /* MenuBarView.swift */,
 				734277A60C0B95BA7A460864 /* OnboardingView.swift */,
@@ -427,6 +430,7 @@
 				EE3E2A11DF2F4C907295560D /* CaptureWindow.swift in Sources */,
 				794544A3823F7C93F9A590D6 /* ClipboardManager.swift in Sources */,
 				34E5324CD7B4F83988C9B5E9 /* ContextDetector.swift in Sources */,
+				E93270F7D1B4AB7D56C8B8F1 /* CountdownOverlay.swift in Sources */,
 				D34AF9C5B8BB93C0DD02DED1 /* FileOrganizer.swift in Sources */,
 				3335DDB8ED877AC807C54A0B /* HistoryView.swift in Sources */,
 				61EFD2076EE0D8B8D8CB3EEA /* HotKeyManager.swift in Sources */,

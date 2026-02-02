@@ -128,6 +128,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        nc.addObserver(forName: .cancelDelayedCapture, object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                CapturePipeline.shared.cancelDelayedCapture()
+            }
+        }
+
         nc.addObserver(forName: .copyLastAsMarkdown, object: nil, queue: .main) { _ in
             Task { @MainActor in
                 CapturePipeline.shared.copyLastAsMarkdown()

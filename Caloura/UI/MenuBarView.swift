@@ -56,6 +56,15 @@ struct MenuBarView: View {
                         Label("Delayed Full Screen (3s)", systemImage: "rectangle.inset.filled")
                     }
                     .disabled(appState.isCapturing)
+
+                    if appState.isCountingDown {
+                        Divider()
+                        Button {
+                            NotificationCenter.default.post(name: .cancelDelayedCapture, object: nil)
+                        } label: {
+                            Label("Cancel Countdown", systemImage: "xmark.circle")
+                        }
+                    }
                 } label: {
                     Label("Delayed Capture", systemImage: "timer")
                 }
@@ -170,4 +179,5 @@ extension Notification.Name {
     static let captureCompleted = Notification.Name("captureCompleted")
     static let showSettings = Notification.Name("showSettings")
     static let showSetupGuide = Notification.Name("showSetupGuide")
+    static let cancelDelayedCapture = Notification.Name("cancelDelayedCapture")
 }
