@@ -1,3 +1,4 @@
+import AppKit
 import ScreenCaptureKit
 
 /// Unified window type that works with both SCK and CG capture paths.
@@ -7,4 +8,5 @@ struct CaptureWindow: Identifiable {
     let appName: String
     let frame: CGRect          // CG coordinates (top-left origin)
     let scWindow: SCWindow?    // nil when using CG path
+    let appIcon: NSImage?
 }

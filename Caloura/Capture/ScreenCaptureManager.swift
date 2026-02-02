@@ -185,18 +185,36 @@ final class ScreenCaptureManager {
         if !sckFailed {
             do {
                 let scWindows = try await sckGetWindows()
-                return scWindows.compactMap { window in
+                var captureWindows = scWindows.compactMap { window -> CaptureWindow? in
                     let frame = window.frame
                     // Skip tiny utility windows and status items
                     guard frame.width >= 50, frame.height >= 50 else { return nil }
+                    let icon: NSImage? = {
+                        guard let bid = window.owningApplication?.bundleIdentifier else { return nil }
+                        return NSRunningApplication.runningApplications(withBundleIdentifier: bid).first?.icon
+                    }()
                     return CaptureWindow(
                         id: window.windowID,
                         title: window.title ?? "Untitled",
                         appName: window.owningApplication?.applicationName ?? "",
                         frame: frame,
-                        scWindow: window
+                        scWindow: window,
+                        appIcon: icon
                     )
                 }
+
+                // SCK does not guarantee z-order — sort by CG front-to-back order
+                let zOrderIDs = zOrderedWindowIDs()
+                if !zOrderIDs.isEmpty {
+                    let orderIndex = Dictionary(
+                        uniqueKeysWithValues: zOrderIDs.enumerated().map { ($1, $0) }
+                    )
+                    captureWindows.sort { a, b in
+                        (orderIndex[a.id] ?? Int.max) < (orderIndex[b.id] ?? Int.max)
+                    }
+                }
+
+                return captureWindows
             } catch {
                 logger.warning("SCK getWindows failed: \(error.localizedDescription)")
                 sckFailed = true
@@ -445,6 +463,21 @@ final class ScreenCaptureManager {
     // DEPRECATED: CGWindowListCopyWindowInfo is deprecated in macOS 15.
     // Remove when deployment target moves to 15.0+.
 
+    /// Returns layer-0 (normal) window IDs in front-to-back z-order using CG metadata.
+    /// No screen recording permission needed for metadata on Sequoia.
+    private func zOrderedWindowIDs() -> [CGWindowID] {
+        guard let windowList = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements],
+            kCGNullWindowID
+        ) as? [[CFString: Any]] else {
+            return []
+        }
+        return windowList.compactMap { info in
+            guard let layer = info[kCGWindowLayer] as? Int, layer == 0 else { return nil }
+            return info[kCGWindowNumber] as? CGWindowID
+        }
+    }
+
     private func getWindowsCG() -> [CaptureWindow] {
         guard let windowList = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements],
@@ -483,12 +516,17 @@ final class ScreenCaptureManager {
             // Skip tiny utility windows and status items
             guard frame.width >= 50, frame.height >= 50 else { continue }
 
+            let icon: NSImage? = (info[kCGWindowOwnerPID] as? pid_t).flatMap {
+                NSRunningApplication(processIdentifier: $0)?.icon
+            }
+
             results.append(CaptureWindow(
                 id: windowID,
                 title: title,
                 appName: ownerName,
                 frame: frame,
-                scWindow: nil
+                scWindow: nil,
+                appIcon: icon
             ))
         }
 

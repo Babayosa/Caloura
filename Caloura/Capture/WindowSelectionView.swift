@@ -9,10 +9,13 @@ final class WindowSelectionView: NSView {
     private var highlightedWindow: CaptureWindow?
 
     // Visual styling
-    private let overlayColor = NSColor.black.withAlphaComponent(0.3)
-    private let highlightBorderColor = NSColor.systemBlue
-    private let highlightFillColor = NSColor.systemBlue.withAlphaComponent(0.08)
-    private let labelFont = NSFont.systemFont(ofSize: 13, weight: .medium)
+    private let overlayColor = NSColor.black.withAlphaComponent(0.45)
+    private let highlightBorderColor = NSColor.white
+    private let cornerRadius: CGFloat = 10
+    private let borderWidth: CGFloat = 2
+    private let glowLayers: [(offset: CGFloat, alpha: CGFloat)] = [
+        (2, 0.20), (4, 0.12), (6, 0.06)
+    ]
 
     init(frame: CGRect, windows: [CaptureWindow], screen: NSScreen) {
         self.windows = windows
@@ -53,7 +56,7 @@ final class WindowSelectionView: NSView {
     // MARK: - Hit Testing
 
     private func windowAtPoint(_ point: NSPoint) -> CaptureWindow? {
-        // Iterate front-to-back (windows are already in z-order from the system)
+        // Iterate front-to-back (windows are sorted in z-order by getWindows())
         for window in windows {
             let rect = viewRect(for: window.frame)
             if rect.contains(point) {
@@ -71,25 +74,32 @@ final class WindowSelectionView: NSView {
         if let highlighted = highlightedWindow {
             let rect = viewRect(for: highlighted.frame)
 
-            // Darkened overlay with cutout for highlighted window
+            // Darkened overlay with rounded-rect cutout for highlighted window
             let overlayPath = NSBezierPath(rect: bounds)
-            let cutout = NSBezierPath(rect: rect)
+            let cutout = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
             overlayPath.append(cutout.reversed)
             overlayColor.setFill()
             overlayPath.fill()
 
-            // Blue border around highlighted window
+            // Glow: concentric rounded-rect strokes with decreasing alpha
+            for layer in glowLayers {
+                let glowRect = rect.insetBy(dx: -layer.offset, dy: -layer.offset)
+                let glowPath = NSBezierPath(roundedRect: glowRect, xRadius: cornerRadius + layer.offset, yRadius: cornerRadius + layer.offset)
+                glowPath.lineWidth = 2
+                NSColor.white.withAlphaComponent(layer.alpha).setStroke()
+                glowPath.stroke()
+            }
+
+            // White border around highlighted window
+            let borderPath = NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius)
+            borderPath.lineWidth = borderWidth
             highlightBorderColor.setStroke()
-            let borderPath = NSBezierPath(rect: rect)
-            borderPath.lineWidth = 2.0
             borderPath.stroke()
 
-            // Subtle fill inside
-            highlightFillColor.setFill()
-            NSBezierPath(rect: rect).fill()
+            // No fill inside cutout — actual window content shows through
 
-            // App name label above the window
-            drawLabel(highlighted.appName, above: rect)
+            // Window label with icon + app name + title
+            drawWindowLabel(for: highlighted, above: rect)
         } else {
             // No window highlighted — draw uniform overlay
             overlayColor.setFill()
@@ -99,50 +109,95 @@ final class WindowSelectionView: NSView {
         drawHintLabel()
     }
 
-    private func drawLabel(_ text: String, above rect: CGRect) {
-        guard !text.isEmpty else { return }
+    private func drawWindowLabel(for window: CaptureWindow, above rect: CGRect) {
+        let appNameFont = NSFont.systemFont(ofSize: 13, weight: .bold)
+        let separatorFont = NSFont.systemFont(ofSize: 13, weight: .regular)
+        let titleFont = NSFont.systemFont(ofSize: 13, weight: .regular)
 
-        let nsText = text as NSString
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: labelFont,
-            .foregroundColor: NSColor.white
-        ]
-        let textSize = nsText.size(withAttributes: attributes)
-        let padding: CGFloat = 8
-        let labelWidth = textSize.width + padding * 2
+        let hasIcon = window.appIcon != nil
+        let iconSize: CGFloat = 16
+        let iconPadding: CGFloat = hasIcon ? 6 : 0
+        let iconWidth: CGFloat = hasIcon ? iconSize + iconPadding : 0
+
+        // Build attributed string: "AppName — Title"
+        let attributed = NSMutableAttributedString()
+
+        // App name (bold white)
+        if !window.appName.isEmpty {
+            attributed.append(NSAttributedString(string: window.appName, attributes: [
+                .font: appNameFont,
+                .foregroundColor: NSColor.white,
+            ]))
+        }
+
+        // Separator + title (if we have a title different from app name)
+        let displayTitle: String = {
+            let t = window.title
+            if t.isEmpty || t == window.appName { return "" }
+            return String(t.prefix(50))
+        }()
+
+        if !displayTitle.isEmpty && !window.appName.isEmpty {
+            attributed.append(NSAttributedString(string: " \u{2014} ", attributes: [
+                .font: separatorFont,
+                .foregroundColor: NSColor.white.withAlphaComponent(0.5),
+            ]))
+            attributed.append(NSAttributedString(string: displayTitle, attributes: [
+                .font: titleFont,
+                .foregroundColor: NSColor.white.withAlphaComponent(0.7),
+            ]))
+        } else if !displayTitle.isEmpty {
+            attributed.append(NSAttributedString(string: displayTitle, attributes: [
+                .font: titleFont,
+                .foregroundColor: NSColor.white.withAlphaComponent(0.7),
+            ]))
+        }
+
+        let textSize = attributed.size()
+        let padding: CGFloat = 10
+        let labelWidth = iconWidth + textSize.width + padding * 2
         let labelHeight = textSize.height + padding
 
         var labelOrigin = CGPoint(
             x: rect.midX - labelWidth / 2,
-            y: rect.maxY + 6
+            y: rect.maxY + 8
         )
 
         // Clamp to view bounds
         labelOrigin.x = max(4, min(labelOrigin.x, bounds.maxX - labelWidth - 4))
         if labelOrigin.y + labelHeight > bounds.maxY - 4 {
-            labelOrigin.y = rect.minY - labelHeight - 6
+            // Flip below window if near top
+            labelOrigin.y = rect.minY - labelHeight - 8
         }
 
         let labelRect = CGRect(origin: labelOrigin, size: CGSize(width: labelWidth, height: labelHeight))
 
         // Background pill
-        let bgPath = NSBezierPath(roundedRect: labelRect, xRadius: 5, yRadius: 5)
-        NSColor.black.withAlphaComponent(0.75).setFill()
+        let bgPath = NSBezierPath(roundedRect: labelRect, xRadius: 8, yRadius: 8)
+        NSColor.black.withAlphaComponent(0.80).setFill()
         bgPath.fill()
+
+        // App icon
+        var textX = labelRect.origin.x + padding
+        if hasIcon, let icon = window.appIcon {
+            let iconY = labelRect.origin.y + (labelHeight - iconSize) / 2
+            icon.draw(in: CGRect(x: textX, y: iconY, width: iconSize, height: iconSize))
+            textX += iconSize + iconPadding
+        }
 
         // Text
         let textOrigin = CGPoint(
-            x: labelRect.origin.x + padding,
+            x: textX,
             y: labelRect.origin.y + (labelHeight - textSize.height) / 2
         )
-        nsText.draw(at: textOrigin, withAttributes: attributes)
+        attributed.draw(at: textOrigin)
     }
 
     private func drawHintLabel() {
-        let text = "Click to capture window  |  ESC to cancel" as NSString
+        let text = "Click to capture  \u{00B7}  ESC to cancel" as NSString
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 14, weight: .medium),
-            .foregroundColor: NSColor.white
+            .foregroundColor: NSColor.white.withAlphaComponent(0.9)
         ]
         let textSize = text.size(withAttributes: attributes)
         let padding: CGFloat = 10
@@ -151,12 +206,12 @@ final class WindowSelectionView: NSView {
 
         let labelRect = CGRect(
             x: bounds.midX - labelWidth / 2,
-            y: 30,
+            y: 24,
             width: labelWidth,
             height: labelHeight
         )
-        let bgPath = NSBezierPath(roundedRect: labelRect, xRadius: 6, yRadius: 6)
-        NSColor.black.withAlphaComponent(0.6).setFill()
+        let bgPath = NSBezierPath(roundedRect: labelRect, xRadius: 8, yRadius: 8)
+        NSColor.black.withAlphaComponent(0.55).setFill()
         bgPath.fill()
 
         let textOrigin = CGPoint(

@@ -11,6 +11,7 @@ final class CapturePipeline: ObservableObject {
     private let presetManager = PresetManager.shared
     private var overlayWindows: [CaptureOverlayWindow] = []
     private var windowOverlays: [WindowSelectionOverlayWindow] = []
+    private var screenOverlays: [ScreenSelectionOverlayWindow] = []
 
     private init() {}
 
@@ -47,8 +48,26 @@ final class CapturePipeline: ObservableObject {
         guard !appState.isCapturing else { return }
         appState.isCapturing = true
 
-        Task {
-            await performFullscreenCapture()
+        if NSScreen.screens.count > 1 {
+            screenOverlays = ScreenSelectionOverlayWindow.showOnAllScreens(
+                onScreenSelected: { [weak self] selectedScreen in
+                    guard let self = self else { return }
+                    Task { @MainActor in
+                        self.screenOverlays = []
+                        await self.performFullscreenCapture(screen: selectedScreen)
+                    }
+                },
+                onCancelled: { [weak self] in
+                    Task { @MainActor in
+                        self?.screenOverlays = []
+                        self?.appState.isCapturing = false
+                    }
+                }
+            )
+        } else {
+            Task {
+                await performFullscreenCapture()
+            }
         }
     }
 
@@ -143,11 +162,11 @@ final class CapturePipeline: ObservableObject {
         }
     }
 
-    private func performFullscreenCapture() async {
-        // Brief delay to let menu bar close
+    private func performFullscreenCapture(screen: NSScreen? = nil) async {
+        // Brief delay to let menu bar close / overlays dismiss
         try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
         await performCapture(mode: .fullscreen) {
-            try await self.captureManager.captureFullScreen()
+            try await self.captureManager.captureFullScreen(screen: screen)
         }
     }
 
