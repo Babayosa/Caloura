@@ -68,12 +68,17 @@ struct HistoryView: View {
                                 appState: appState
                             )
                             .onTapGesture(count: 2) {
-                                openInFinder(item)
+                                openInPreview(item)
                             }
                             .onTapGesture {
                                 selectedItem = item
                             }
                             .contextMenu {
+                                Button {
+                                    openInPreview(item)
+                                } label: {
+                                    Label("Open", systemImage: "eye")
+                                }
                                 Button {
                                     copyImage(item)
                                 } label: {
@@ -131,6 +136,10 @@ struct HistoryView: View {
             Text("Are you sure you want to remove this screenshot from history?")
         }
         .frame(minWidth: 400, minHeight: 300)
+    }
+
+    private func openInPreview(_ item: ScreenshotItem) {
+        NSWorkspace.shared.open(URL(fileURLWithPath: item.filePath))
     }
 
     private func openInFinder(_ item: ScreenshotItem) {

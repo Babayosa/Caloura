@@ -5,5 +5,6 @@ struct CaptureWindow: Identifiable {
     let id: CGWindowID
     let title: String
     let appName: String
-    let scWindow: SCWindow?  // nil when using CG path
+    let frame: CGRect          // CG coordinates (top-left origin)
+    let scWindow: SCWindow?    // nil when using CG path
 }

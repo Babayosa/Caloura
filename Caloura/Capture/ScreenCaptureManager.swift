@@ -185,11 +185,15 @@ final class ScreenCaptureManager {
         if !sckFailed {
             do {
                 let scWindows = try await sckGetWindows()
-                return scWindows.map { window in
-                    CaptureWindow(
+                return scWindows.compactMap { window in
+                    let frame = window.frame
+                    // Skip tiny utility windows and status items
+                    guard frame.width >= 50, frame.height >= 50 else { return nil }
+                    return CaptureWindow(
                         id: window.windowID,
                         title: window.title ?? "Untitled",
                         appName: window.owningApplication?.applicationName ?? "",
+                        frame: frame,
                         scWindow: window
                     )
                 }
@@ -270,6 +274,8 @@ final class ScreenCaptureManager {
     private func sckCaptureWindow(_ window: SCWindow) async throws -> CGImage {
         let filter = SCContentFilter(desktopIndependentWindow: window)
         let config = SCStreamConfiguration()
+        config.width = Int(filter.contentRect.width * CGFloat(filter.pointPixelScale))
+        config.height = Int(filter.contentRect.height * CGFloat(filter.pointPixelScale))
         config.showsCursor = false
         config.captureResolution = .best
         config.shouldBeOpaque = true
@@ -468,10 +474,20 @@ final class ScreenCaptureManager {
             let title = info[kCGWindowName] as? String ?? ""
             guard !title.isEmpty else { continue }
 
+            // Extract window bounds
+            guard let boundsDict = info[kCGWindowBounds] as? NSDictionary as CFDictionary?,
+                  let frame = CGRect(dictionaryRepresentation: boundsDict) else {
+                continue
+            }
+
+            // Skip tiny utility windows and status items
+            guard frame.width >= 50, frame.height >= 50 else { continue }
+
             results.append(CaptureWindow(
                 id: windowID,
                 title: title,
                 appName: ownerName,
+                frame: frame,
                 scWindow: nil
             ))
         }

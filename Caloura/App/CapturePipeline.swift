@@ -10,7 +10,7 @@ final class CapturePipeline: ObservableObject {
     private let appState = AppState.shared
     private let presetManager = PresetManager.shared
     private var overlayWindows: [CaptureOverlayWindow] = []
-    private let windowPicker = WindowPickerPanel()
+    private var windowOverlays: [WindowSelectionOverlayWindow] = []
 
     private init() {}
 
@@ -65,16 +65,18 @@ final class CapturePipeline: ObservableObject {
                     return
                 }
 
-                windowPicker.show(
+                windowOverlays = WindowSelectionOverlayWindow.showOnAllScreens(
                     windows: windows,
-                    onSelected: { [weak self] window in
+                    onWindowSelected: { [weak self] window in
                         guard let self = self else { return }
                         Task { @MainActor in
+                            self.windowOverlays = []
                             await self.performWindowCapture(window: window)
                         }
                     },
                     onCancelled: { [weak self] in
                         Task { @MainActor in
+                            self?.windowOverlays = []
                             self?.appState.isCapturing = false
                         }
                     }
