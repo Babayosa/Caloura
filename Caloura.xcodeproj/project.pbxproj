@@ -373,7 +373,6 @@
 				TargetAttributes = {
 					0677E52AAC43F24A87BCE1B0 = {
 						DevelopmentTeam = NG4ML6Q47T;
-						ProvisioningStyle = Automatic;
 					};
 					20096A5CEE467CBA0569775E = {
 						DevelopmentTeam = NG4ML6Q47T;
@@ -565,7 +564,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Caloura/Resources/Caloura.entitlements;
 				CODE_SIGN_IDENTITY = "Developer ID Application";
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEVELOPMENT_TEAM = NG4ML6Q47T;
 				ENABLE_HARDENED_RUNTIME = YES;

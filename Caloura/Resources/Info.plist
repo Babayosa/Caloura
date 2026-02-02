@@ -26,5 +26,7 @@
 	<true/>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Caloura needs screen recording access to capture screenshots.</string>
+	<key>SUPublicEDKey</key>
+	<string>jvH62SR8OsHYcY9lPGDneNLbOWijs5GGempwmXnEUL8=</string>
 </dict>
 </plist>
