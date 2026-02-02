@@ -1,6 +1,6 @@
 # Caloura
 
-A fast, lightweight macOS menu-bar screenshot tool for students, educators, and knowledge workers.
+A fast, lightweight macOS menu-bar screenshot tool for knowledge workers.
 
 <!-- TODO: Add screenshot here -->
 
