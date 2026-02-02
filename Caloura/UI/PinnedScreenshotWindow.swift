@@ -9,11 +9,22 @@ final class PinnedScreenshotManager {
 
     private var pinnedWindows: [NSPanel] = []
     private var observers: [NSPanel: NSObjectProtocol] = [:]
+    private var panelsByKey: [String: NSPanel] = [:]
 
     private init() {}
 
+    private func dedupKey(for screenshot: ProcessedScreenshot) -> String {
+        screenshot.filePath?.absoluteString ?? "\(ObjectIdentifier(screenshot))"
+    }
+
     /// Pin a screenshot as a floating always-on-top window.
     func pin(_ screenshot: ProcessedScreenshot) {
+        let key = dedupKey(for: screenshot)
+        if let existing = panelsByKey[key], pinnedWindows.contains(where: { $0 === existing }) {
+            existing.orderFrontRegardless()
+            return
+        }
+
         let image = screenshot.image
         let imageSize = image.size
 
@@ -60,6 +71,7 @@ final class PinnedScreenshotManager {
 
         // Track for cleanup
         pinnedWindows.append(panel)
+        panelsByKey[key] = panel
 
         // Remove from tracking when closed, and clean up the observer itself
         let observer = NotificationCenter.default.addObserver(
@@ -71,6 +83,7 @@ final class PinnedScreenshotManager {
             Task { @MainActor in
                 guard let self = self else { return }
                 self.pinnedWindows.removeAll { $0 === closedPanel }
+                self.panelsByKey = self.panelsByKey.filter { $0.value !== closedPanel }
                 if let token = self.observers.removeValue(forKey: closedPanel) {
                     NotificationCenter.default.removeObserver(token)
                 }
@@ -89,6 +102,7 @@ final class PinnedScreenshotManager {
         // Clear tracking state first so willCloseNotification callbacks are no-ops
         pinnedWindows.removeAll()
         observers.removeAll()
+        panelsByKey.removeAll()
 
         // Close panels before removing observers so willCloseNotification fires
         // while observers are still valid (avoiding stale-state callbacks)
