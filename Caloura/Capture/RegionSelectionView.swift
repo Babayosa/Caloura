@@ -8,17 +8,17 @@ final class RegionSelectionView: NSView {
     private var selectionEnd: NSPoint?
     private var isSelecting = false
     private var currentMouseLocation: NSPoint?
+    private var trackingArea: NSTrackingArea?
 
     // Crosshair styling
-    private let crosshairLineColor = NSColor.white.withAlphaComponent(0.6)
-    private let crosshairShadowColor = NSColor.black.withAlphaComponent(0.3)
-    private let crosshairGapRadius: CGFloat = 10
-    private let crosshairLineWidth: CGFloat = 1
+    private let crosshairColor = NSColor.white.withAlphaComponent(0.45)
+    private let crosshairWidth: CGFloat = 0.5
 
-    private let selectionBorderColor = NSColor.systemBlue
-    private let selectionFillColor = NSColor.systemBlue.withAlphaComponent(0.1)
-    private let overlayColor = NSColor.black.withAlphaComponent(0.3)
-    private let sizeFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
+    // Selection styling
+    private let selectionBorderColor = NSColor.white
+    private let overlayColor = NSColor.black.withAlphaComponent(0.40)
+    private let idleOverlayColor = NSColor.black.withAlphaComponent(0.15)
+    private let sizeFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
     private var cursorHidden = false
 
     override var acceptsFirstResponder: Bool { true }
@@ -46,45 +46,54 @@ final class RegionSelectionView: NSView {
         super.removeFromSuperview()
     }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = trackingArea {
+            removeTrackingArea(existing)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
     // MARK: - Drawing
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        // Show hint when not yet selecting
-        if !isSelecting {
-            drawEscHint()
-        }
-
         if isSelecting, let start = selectionStart, let end = selectionEnd {
             let rect = normalizedRect(from: start, to: end)
 
-            // Draw darkened overlay with cutout
+            // Darkened overlay with cutout
             let path = NSBezierPath(rect: bounds)
             let cutout = NSBezierPath(rect: rect)
             path.append(cutout.reversed)
             overlayColor.setFill()
             path.fill()
 
-            // Draw selection border
-            selectionBorderColor.setStroke()
+            // Selection border — thin white
+            selectionBorderColor.withAlphaComponent(0.9).setStroke()
             let borderPath = NSBezierPath(rect: rect)
-            borderPath.lineWidth = 1.5
+            borderPath.lineWidth = 1
             borderPath.stroke()
 
-            // Draw selection fill
-            selectionFillColor.setFill()
-            NSBezierPath(rect: rect).fill()
-
-            // Draw size label
+            // Size label
             drawSizeLabel(for: rect)
         } else {
-            // Draw subtle overlay when not selecting
-            NSColor.black.withAlphaComponent(0.15).setFill()
+            // Subtle idle overlay
+            idleOverlayColor.setFill()
             NSBezierPath(rect: bounds).fill()
+
+            // Hint when not selecting
+            drawHintLabel()
         }
 
-        // Draw custom crosshair on top of everything
+        // Crosshair on top
         if let mouseLocation = currentMouseLocation {
             drawCrosshair(at: mouseLocation)
         }
@@ -92,11 +101,11 @@ final class RegionSelectionView: NSView {
 
     private func drawSizeLabel(for rect: CGRect) {
         let scale = window?.backingScaleFactor ?? 2.0
-        let sizeText = "\(Int(rect.width * scale)) x \(Int(rect.height * scale))" as NSString
+        let sizeText = "\(Int(rect.width * scale)) \u{00D7} \(Int(rect.height * scale))" as NSString
 
         let attributes: [NSAttributedString.Key: Any] = [
             .font: sizeFont,
-            .foregroundColor: NSColor.white
+            .foregroundColor: NSColor.white.withAlphaComponent(0.9)
         ]
 
         let textSize = sizeText.size(withAttributes: attributes)
@@ -104,30 +113,26 @@ final class RegionSelectionView: NSView {
         let labelWidth = textSize.width + padding * 2
         let labelHeight = textSize.height + padding
 
-        // Position label below the selection rect
+        // Position below selection rect
         var labelOrigin = CGPoint(
             x: rect.midX - labelWidth / 2,
-            y: rect.minY - labelHeight - 8
+            y: rect.minY - labelHeight - 6
         )
 
-        // If label would go off screen below, try above
-        if labelOrigin.y < 0 {
-            labelOrigin.y = rect.maxY + 8
+        // Flip above if off-screen below
+        if labelOrigin.y < 4 {
+            labelOrigin.y = rect.maxY + 6
         }
 
-        // If label would go off screen above too, put inside the selection
-        if labelOrigin.y + labelHeight > bounds.maxY {
-            labelOrigin.y = rect.maxY - labelHeight - 8
-        }
+        // Clamp horizontal
+        labelOrigin.x = max(4, min(labelOrigin.x, bounds.maxX - labelWidth - 4))
 
         let labelRect = CGRect(origin: labelOrigin, size: CGSize(width: labelWidth, height: labelHeight))
 
-        // Background pill
         let bgPath = NSBezierPath(roundedRect: labelRect, xRadius: 4, yRadius: 4)
-        NSColor.black.withAlphaComponent(0.7).setFill()
+        NSColor.black.withAlphaComponent(0.65).setFill()
         bgPath.fill()
 
-        // Text
         let textOrigin = CGPoint(
             x: labelRect.origin.x + padding,
             y: labelRect.origin.y + (labelHeight - textSize.height) / 2
@@ -135,11 +140,11 @@ final class RegionSelectionView: NSView {
         sizeText.draw(at: textOrigin, withAttributes: attributes)
     }
 
-    private func drawEscHint() {
-        let text = "ESC to cancel" as NSString
+    private func drawHintLabel() {
+        let text = "Drag to select  \u{00B7}  ESC to cancel" as NSString
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 14, weight: .medium),
-            .foregroundColor: NSColor.white
+            .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+            .foregroundColor: NSColor.white.withAlphaComponent(0.8)
         ]
         let textSize = text.size(withAttributes: attributes)
         let padding: CGFloat = 10
@@ -148,12 +153,12 @@ final class RegionSelectionView: NSView {
 
         let labelRect = CGRect(
             x: bounds.midX - labelWidth / 2,
-            y: bounds.midY - labelHeight / 2 - 40,
+            y: 24,
             width: labelWidth,
             height: labelHeight
         )
-        let bgPath = NSBezierPath(roundedRect: labelRect, xRadius: 6, yRadius: 6)
-        NSColor.black.withAlphaComponent(0.6).setFill()
+        let bgPath = NSBezierPath(roundedRect: labelRect, xRadius: 8, yRadius: 8)
+        NSColor.black.withAlphaComponent(0.50).setFill()
         bgPath.fill()
 
         let textOrigin = CGPoint(
@@ -188,11 +193,16 @@ final class RegionSelectionView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard isSelecting, let start = selectionStart else { return }
-        let end = convert(event.locationInWindow, from: nil)
+        let point = convert(event.locationInWindow, from: nil)
+        currentMouseLocation = point
+
+        guard isSelecting, let start = selectionStart else {
+            needsDisplay = true
+            return
+        }
         isSelecting = false
 
-        let rect = normalizedRect(from: start, to: end)
+        let rect = normalizedRect(from: start, to: point)
 
         // Minimum selection size (10x10)
         if rect.width >= 10 && rect.height >= 10 {
@@ -203,6 +213,9 @@ final class RegionSelectionView: NSView {
             selectionEnd = nil
             needsDisplay = true
         }
+
+        // Re-assert first responder so mouseMoved keeps firing
+        window?.makeFirstResponder(self)
     }
 
     // MARK: - Keyboard Events
@@ -216,48 +229,19 @@ final class RegionSelectionView: NSView {
     // MARK: - Crosshair
 
     private func drawCrosshair(at point: NSPoint) {
-        let gap = crosshairGapRadius
+        crosshairColor.setStroke()
 
-        // Shadow pass (slightly offset and thicker for contrast)
-        crosshairShadowColor.setStroke()
-        let shadowWidth: CGFloat = crosshairLineWidth + 1
-
-        // Horizontal shadow
-        let hShadow = NSBezierPath()
-        hShadow.lineWidth = shadowWidth
-        hShadow.move(to: NSPoint(x: bounds.minX, y: point.y + 0.5))
-        hShadow.line(to: NSPoint(x: point.x - gap, y: point.y + 0.5))
-        hShadow.move(to: NSPoint(x: point.x + gap, y: point.y + 0.5))
-        hShadow.line(to: NSPoint(x: bounds.maxX, y: point.y + 0.5))
-        hShadow.stroke()
-
-        // Vertical shadow
-        let vShadow = NSBezierPath()
-        vShadow.lineWidth = shadowWidth
-        vShadow.move(to: NSPoint(x: point.x + 0.5, y: bounds.minY))
-        vShadow.line(to: NSPoint(x: point.x + 0.5, y: point.y - gap))
-        vShadow.move(to: NSPoint(x: point.x + 0.5, y: point.y + gap))
-        vShadow.line(to: NSPoint(x: point.x + 0.5, y: bounds.maxY))
-        vShadow.stroke()
-
-        // Main pass (white lines on top)
-        crosshairLineColor.setStroke()
-
-        // Horizontal line
+        // Horizontal line — full width
         let hLine = NSBezierPath()
-        hLine.lineWidth = crosshairLineWidth
+        hLine.lineWidth = crosshairWidth
         hLine.move(to: NSPoint(x: bounds.minX, y: point.y))
-        hLine.line(to: NSPoint(x: point.x - gap, y: point.y))
-        hLine.move(to: NSPoint(x: point.x + gap, y: point.y))
         hLine.line(to: NSPoint(x: bounds.maxX, y: point.y))
         hLine.stroke()
 
-        // Vertical line
+        // Vertical line — full height
         let vLine = NSBezierPath()
-        vLine.lineWidth = crosshairLineWidth
+        vLine.lineWidth = crosshairWidth
         vLine.move(to: NSPoint(x: point.x, y: bounds.minY))
-        vLine.line(to: NSPoint(x: point.x, y: point.y - gap))
-        vLine.move(to: NSPoint(x: point.x, y: point.y + gap))
         vLine.line(to: NSPoint(x: point.x, y: bounds.maxY))
         vLine.stroke()
     }
