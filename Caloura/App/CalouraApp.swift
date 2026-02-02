@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftUI
 import KeyboardShortcuts
 
@@ -50,6 +51,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Ensure save directory exists
         try? FileOrganizer.ensureBaseDirectory(AppSettings.shared.saveDirectory)
+
+        // Sync launch-at-login state with system
+        syncLaunchAtLoginState()
 
         // Check screen recording permission and handle onboarding
         AppState.shared.hasScreenRecordingPermission = ScreenCaptureManager.shared.checkPermission()
@@ -180,6 +184,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 self?.onboardingController.show(settings: AppSettings.shared)
             }
+        }
+    }
+
+    private func syncLaunchAtLoginState() {
+        let settings = AppSettings.shared
+        let status = SMAppService.mainApp.status
+        if status == .enabled && !settings.launchAtLogin {
+            settings.launchAtLogin = true
+        } else if status != .enabled && settings.launchAtLogin {
+            settings.launchAtLogin = false
+        }
+        if settings.launchAtLogin {
+            try? SMAppService.mainApp.register()
         }
     }
 }

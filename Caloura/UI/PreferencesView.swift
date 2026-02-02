@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftUI
 import KeyboardShortcuts
 
@@ -51,6 +52,18 @@ struct GeneralPreferencesView: View {
                 Toggle("Smart crop (trim whitespace)", isOn: $settings.smartCropEnabled)
                 Toggle("Play capture sound", isOn: $settings.playCaptureSound)
                 Toggle("Auto-detect context", isOn: $settings.autoContextDetection)
+                Toggle("Launch at Login", isOn: $settings.launchAtLogin)
+                    .onChange(of: settings.launchAtLogin) { _, newValue in
+                        do {
+                            if newValue {
+                                try SMAppService.mainApp.register()
+                            } else {
+                                try SMAppService.mainApp.unregister()
+                            }
+                        } catch {
+                            settings.launchAtLogin = !newValue
+                        }
+                    }
             }
 
             Section {

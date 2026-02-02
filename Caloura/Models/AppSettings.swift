@@ -17,6 +17,7 @@ final class AppSettings: ObservableObject {
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
         static let imageFormat = "imageFormat"
         static let autoContextDetection = "autoContextDetection"
+        static let launchAtLogin = "launchAtLogin"
     }
 
     @Published var saveDirectory: String {
@@ -55,6 +56,10 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(autoContextDetection, forKey: Keys.autoContextDetection) }
     }
 
+    @Published var launchAtLogin: Bool {
+        didSet { defaults.set(launchAtLogin, forKey: Keys.launchAtLogin) }
+    }
+
     var saveDirectoryURL: URL {
         URL(fileURLWithPath: saveDirectory)
     }
@@ -75,5 +80,6 @@ final class AppSettings: ObservableObject {
         self.hasCompletedOnboarding = defaults.bool(forKey: Keys.hasCompletedOnboarding)
         self.imageFormat = defaults.string(forKey: Keys.imageFormat) ?? "png"
         self.autoContextDetection = defaults.object(forKey: Keys.autoContextDetection) as? Bool ?? true
+        self.launchAtLogin = defaults.object(forKey: Keys.launchAtLogin) as? Bool ?? false
     }
 }
