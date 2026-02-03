@@ -102,9 +102,9 @@ echo "==> Verifying code signature..."
 codesign --verify --deep --strict "$APP_PATH"
 echo "    Signature valid"
 
-# Create zip for notarization
+# Create zip for notarization (--sequesterRsrc preserves resource forks for Gatekeeper)
 echo "==> Creating zip for notarization..."
-ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
+ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
 
 # Notarize
 echo "==> Submitting for notarization (this may take a few minutes)..."
@@ -116,9 +116,9 @@ xcrun notarytool submit "$ZIP_PATH" \
 echo "==> Stapling notarization ticket..."
 xcrun stapler staple "$APP_PATH"
 
-# Re-create zip with the stapled app
+# Re-create zip with the stapled app (--sequesterRsrc preserves resource forks for Gatekeeper)
 rm "$ZIP_PATH"
-ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
+ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
 
 # Summary
 echo ""
