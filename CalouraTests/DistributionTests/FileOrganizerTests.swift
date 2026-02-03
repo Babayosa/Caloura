@@ -58,7 +58,7 @@ final class FileOrganizerTests: XCTestCase {
 
     // MARK: - Save writes to disk
 
-    func testSave_writesFileToDisk() throws {
+    func testSave_writesFileToDisk() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -70,7 +70,7 @@ final class FileOrganizerTests: XCTestCase {
         )
         let screenshot = makeProcessedScreenshot(context: context)
 
-        let fileURL = try FileOrganizer.save(
+        let fileURL = try await FileOrganizer.save(
             screenshot,
             baseDirectory: tempDir.path,
             subfolder: nil
@@ -82,7 +82,7 @@ final class FileOrganizerTests: XCTestCase {
 
     // MARK: - Creates subfolder
 
-    func testSave_createsSubfolder() throws {
+    func testSave_createsSubfolder() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -94,7 +94,7 @@ final class FileOrganizerTests: XCTestCase {
         )
         let screenshot = makeProcessedScreenshot(context: context)
 
-        let fileURL = try FileOrganizer.save(
+        let fileURL = try await FileOrganizer.save(
             screenshot,
             baseDirectory: tempDir.path,
             subfolder: "Lectures"

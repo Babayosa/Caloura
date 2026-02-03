@@ -1,42 +1,92 @@
 import Foundation
 
 struct FileOrganizer {
-    /// Save screenshot to disk with organized folder structure
-    /// ~/Pictures/Caloura/YYYY-MM-DD/Caloura_HH-mm-ss_AppName.{png,jpeg,tiff}
+    // MARK: - Cached Formatters (avoid recreating on every save)
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH-mm-ss"
+        return formatter
+    }()
+
+    /// Save screenshot to disk with organized folder structure.
+    /// Runs file I/O on a background thread to avoid blocking the main thread.
     @discardableResult
     static func save(
         _ screenshot: ProcessedScreenshot,
         baseDirectory: String,
         subfolder: String? = nil,
         imageFormat: String = "png"
-    ) throws -> URL {
+    ) async throws -> URL {
+        // Prepare all data on current thread (fast)
         let baseURL = URL(fileURLWithPath: baseDirectory)
-
-        // Date-based subfolder
-        let dateFormatter = DateFormatter()
-        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
-        dateFormatter.dateFormat = "yyyy-MM-dd"
         let dateFolder = dateFormatter.string(from: screenshot.context.timestamp)
 
         var directoryURL = baseURL.appendingPathComponent(dateFolder)
-
-        // Optional context subfolder (e.g., "Lectures", "Code")
         if let subfolder = subfolder, !subfolder.isEmpty {
             directoryURL = baseURL.appendingPathComponent(subfolder).appendingPathComponent(dateFolder)
         }
 
-        // Create directory if needed
+        let fileName = generateFileName(for: screenshot, imageFormat: imageFormat)
+        let fileURL = directoryURL.appendingPathComponent(fileName)
+
+        // Get image data (PNG is already cached, others need encoding)
+        let imageData: Data
+        switch imageFormat {
+        case "jpeg":
+            imageData = ImageProcessor.jpegRepresentation(of: screenshot.cgImage)
+        case "tiff":
+            imageData = ImageProcessor.tiffRepresentation(of: screenshot.cgImage)
+        default:
+            imageData = screenshot.pngData
+        }
+
+        // Move file I/O to background thread
+        return try await Task.detached(priority: .userInitiated) {
+            try FileManager.default.createDirectory(
+                at: directoryURL,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+            try imageData.write(to: fileURL)
+            return fileURL
+        }.value
+    }
+
+    /// Synchronous save for cases where async isn't available.
+    /// Prefer the async version when possible.
+    @discardableResult
+    static func saveSync(
+        _ screenshot: ProcessedScreenshot,
+        baseDirectory: String,
+        subfolder: String? = nil,
+        imageFormat: String = "png"
+    ) throws -> URL {
+        let baseURL = URL(fileURLWithPath: baseDirectory)
+        let dateFolder = dateFormatter.string(from: screenshot.context.timestamp)
+
+        var directoryURL = baseURL.appendingPathComponent(dateFolder)
+        if let subfolder = subfolder, !subfolder.isEmpty {
+            directoryURL = baseURL.appendingPathComponent(subfolder).appendingPathComponent(dateFolder)
+        }
+
         try FileManager.default.createDirectory(
             at: directoryURL,
             withIntermediateDirectories: true,
             attributes: nil
         )
 
-        // Generate filename
         let fileName = generateFileName(for: screenshot, imageFormat: imageFormat)
         let fileURL = directoryURL.appendingPathComponent(fileName)
 
-        // Encode image in the requested format
         let imageData: Data
         switch imageFormat {
         case "jpeg":
@@ -53,9 +103,6 @@ struct FileOrganizer {
 
     /// Generate filename: Caloura_HH-mm-ss_AppName.{ext}
     static func generateFileName(for screenshot: ProcessedScreenshot, imageFormat: String = "png") -> String {
-        let timeFormatter = DateFormatter()
-        timeFormatter.locale = Locale(identifier: "en_US_POSIX")
-        timeFormatter.dateFormat = "HH-mm-ss"
         let timeStr = timeFormatter.string(from: screenshot.context.timestamp)
 
         let appName = screenshot.context.sourceAppName?

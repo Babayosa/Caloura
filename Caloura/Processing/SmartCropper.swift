@@ -6,75 +6,100 @@ struct SmartCropper {
     private static let minCropThreshold: CGFloat = 0.15
     /// Padding factor around salient region
     private static let paddingFactor: CGFloat = 0.05
+    /// Maximum time to wait for Vision processing before falling back
+    private static let visionTimeout: UInt64 = 300_000_000 // 300ms
 
-    /// Auto-crop using Vision saliency analysis
-    /// Returns the cropped image, or the original if cropping isn't beneficial
+    /// Auto-crop using Vision saliency analysis.
+    /// Runs entirely off the main thread for performance.
     static func autoCrop(_ cgImage: CGImage) async -> CGImage {
-        // Try saliency-based crop first
-        if let saliencyCropped = try? await saliencyCrop(cgImage) {
-            return saliencyCropped
+        // Run Vision processing on background thread with timeout
+        let saliencyResult = await withTaskGroup(of: CGImage?.self) { group in
+            group.addTask {
+                try? await saliencyCrop(cgImage)
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: visionTimeout)
+                return nil // Timeout sentinel
+            }
+
+            // Return first non-nil result, or nil if timeout wins
+            for await result in group {
+                if result != nil {
+                    group.cancelAll()
+                    return result
+                }
+            }
+            return nil
         }
 
-        // Fallback: trim uniform borders
-        if let borderTrimmed = trimUniformBorders(cgImage) {
-            return borderTrimmed
+        if let cropped = saliencyResult {
+            return cropped
+        }
+
+        // Fallback: trim uniform borders (fast, CPU-based)
+        let borderTrimmed = await Task.detached(priority: .userInitiated) {
+            return trimUniformBorders(cgImage)
+        }.value
+
+        if let cropped = borderTrimmed {
+            return cropped
         }
 
         return cgImage
     }
 
-    // MARK: - Saliency Crop
+    // MARK: - Saliency Crop (runs on background thread)
 
     private static func saliencyCrop(_ cgImage: CGImage) async throws -> CGImage? {
-        let request = VNGenerateAttentionBasedSaliencyImageRequest()
+        // Offload Vision work to background thread
+        return try await Task.detached(priority: .userInitiated) {
+            let request = VNGenerateAttentionBasedSaliencyImageRequest()
+            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            try handler.perform([request])
 
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        try handler.perform([request])
-
-        guard let results = request.results,
-              !results.isEmpty else {
-            return nil
-        }
-
-        // Union all salient object bounding boxes
-        var unionRect = CGRect.null
-        for observation in results {
-            for salientObject in observation.salientObjects ?? [] {
-                let bbox = salientObject.boundingBox
-                unionRect = unionRect.union(bbox)
+            guard let results = request.results, !results.isEmpty else {
+                return nil
             }
-        }
 
-        guard !unionRect.isNull else { return nil }
+            // Union all salient object bounding boxes
+            var unionRect = CGRect.null
+            for observation in results {
+                for salientObject in observation.salientObjects ?? [] {
+                    unionRect = unionRect.union(salientObject.boundingBox)
+                }
+            }
 
-        // Add padding
-        let paddingX = unionRect.width * paddingFactor
-        let paddingY = unionRect.height * paddingFactor
-        let paddedRect = unionRect.insetBy(dx: -paddingX, dy: -paddingY)
+            guard !unionRect.isNull else { return nil }
 
-        // Clamp to image bounds (normalized 0..1 coordinates)
-        let clampedRect = paddedRect.intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
+            // Add padding
+            let paddingX = unionRect.width * paddingFactor
+            let paddingY = unionRect.height * paddingFactor
+            let paddedRect = unionRect.insetBy(dx: -paddingX, dy: -paddingY)
 
-        // Convert normalized coordinates to pixel coordinates
-        let imageWidth = CGFloat(cgImage.width)
-        let imageHeight = CGFloat(cgImage.height)
-        let pixelRect = CGRect(
-            x: clampedRect.origin.x * imageWidth,
-            y: (1.0 - clampedRect.origin.y - clampedRect.height) * imageHeight, // Flip Y for CG coords
-            width: clampedRect.width * imageWidth,
-            height: clampedRect.height * imageHeight
-        ).integral
+            // Clamp to image bounds (normalized 0..1 coordinates)
+            let clampedRect = paddedRect.intersection(CGRect(x: 0, y: 0, width: 1, height: 1))
 
-        // Check if crop removes enough area
-        let originalArea = imageWidth * imageHeight
-        let croppedArea = pixelRect.width * pixelRect.height
-        let removedRatio = 1.0 - (croppedArea / originalArea)
+            // Convert normalized coordinates to pixel coordinates
+            let imageWidth = CGFloat(cgImage.width)
+            let imageHeight = CGFloat(cgImage.height)
+            let pixelRect = CGRect(
+                x: clampedRect.origin.x * imageWidth,
+                y: (1.0 - clampedRect.origin.y - clampedRect.height) * imageHeight,
+                width: clampedRect.width * imageWidth,
+                height: clampedRect.height * imageHeight
+            ).integral
 
-        guard removedRatio >= minCropThreshold else {
-            return nil // Not enough to crop
-        }
+            // Check if crop removes enough area
+            let originalArea = imageWidth * imageHeight
+            let croppedArea = pixelRect.width * pixelRect.height
+            let removedRatio = 1.0 - (croppedArea / originalArea)
 
-        return cgImage.cropping(to: pixelRect)
+            guard removedRatio >= minCropThreshold else {
+                return nil
+            }
+
+            return cgImage.cropping(to: pixelRect)
+        }.value
     }
 
     // MARK: - Border Trim Fallback
@@ -101,6 +126,7 @@ struct SmartCropper {
 
         let tolerance: UInt8 = 10
 
+        @inline(__always)
         func pixelMatchesRef(x: Int, y: Int) -> Bool {
             let offset = y * bytesPerRow + x * bytesPerPixel
             return abs(Int(pointer[offset]) - Int(refR)) <= Int(tolerance) &&
@@ -108,10 +134,13 @@ struct SmartCropper {
                    abs(Int(pointer[offset + 2]) - Int(refB)) <= Int(tolerance)
         }
 
+        // Use larger stride for faster scanning (8 pixels instead of 4)
+        let stride = 8
+
         // Find top border
         var top = 0
         outer_top: for y in 0..<height {
-            for x in stride(from: 0, to: width, by: 4) {
+            for x in Swift.stride(from: 0, to: width, by: stride) {
                 if !pixelMatchesRef(x: x, y: y) { break outer_top }
             }
             top = y + 1
@@ -119,8 +148,8 @@ struct SmartCropper {
 
         // Find bottom border
         var bottom = height
-        outer_bottom: for y in stride(from: height - 1, through: 0, by: -1) {
-            for x in stride(from: 0, to: width, by: 4) {
+        outer_bottom: for y in Swift.stride(from: height - 1, through: 0, by: -1) {
+            for x in Swift.stride(from: 0, to: width, by: stride) {
                 if !pixelMatchesRef(x: x, y: y) { break outer_bottom }
             }
             bottom = y
@@ -129,7 +158,7 @@ struct SmartCropper {
         // Find left border
         var left = 0
         outer_left: for x in 0..<width {
-            for y in stride(from: top, to: bottom, by: 4) {
+            for y in Swift.stride(from: top, to: bottom, by: stride) {
                 if !pixelMatchesRef(x: x, y: y) { break outer_left }
             }
             left = x + 1
@@ -137,8 +166,8 @@ struct SmartCropper {
 
         // Find right border
         var right = width
-        outer_right: for x in stride(from: width - 1, through: 0, by: -1) {
-            for y in stride(from: top, to: bottom, by: 4) {
+        outer_right: for x in Swift.stride(from: width - 1, through: 0, by: -1) {
+            for y in Swift.stride(from: top, to: bottom, by: stride) {
                 if !pixelMatchesRef(x: x, y: y) { break outer_right }
             }
             right = x

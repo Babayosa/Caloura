@@ -13,7 +13,25 @@ final class ScreenCaptureManager {
     /// to avoid repeated system prompts and latency.
     private var sckFailed: Bool = false
 
-    private init() {}
+    /// Cache app icons by bundle ID to avoid repeated lookups
+    private var iconCache = NSCache<NSString, NSImage>()
+
+    private init() {
+        iconCache.countLimit = 50 // Limit cache size
+    }
+
+    /// Get app icon, using cache to avoid repeated lookups
+    private func cachedIcon(for bundleID: String) -> NSImage? {
+        let key = bundleID as NSString
+        if let cached = iconCache.object(forKey: key) {
+            return cached
+        }
+        if let icon = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.icon {
+            iconCache.setObject(icon, forKey: key)
+            return icon
+        }
+        return nil
+    }
 
     // MARK: - Permission
 
@@ -159,6 +177,27 @@ final class ScreenCaptureManager {
 
     // MARK: - Window Capture
 
+    /// Capture directly from an SCContentFilter (used by WindowPickerManager).
+    /// This is the fastest path — no window lookup needed.
+    func captureWindow(filter: SCContentFilter) async throws -> CGImage {
+        let config = SCStreamConfiguration()
+        config.width = Int(filter.contentRect.width * CGFloat(filter.pointPixelScale))
+        config.height = Int(filter.contentRect.height * CGFloat(filter.pointPixelScale))
+        config.showsCursor = false
+        config.captureResolution = .best
+        config.shouldBeOpaque = true
+
+        return try await SCScreenshotManager.captureImage(
+            contentFilter: filter,
+            configuration: config
+        )
+    }
+
+    /// Capture a window directly from an SCWindow reference.
+    func captureWindow(scWindow: SCWindow) async throws -> CGImage {
+        return try await sckCaptureWindow(scWindow)
+    }
+
     func captureWindow(_ window: CaptureWindow) async throws -> CGImage {
         if let scWindow = window.scWindow, !sckFailed {
             do {
@@ -189,9 +228,10 @@ final class ScreenCaptureManager {
                     let frame = window.frame
                     // Skip tiny utility windows and status items
                     guard frame.width >= 50, frame.height >= 50 else { return nil }
+                    // Use cached icon lookup
                     let icon: NSImage? = {
                         guard let bid = window.owningApplication?.bundleIdentifier else { return nil }
-                        return NSRunningApplication.runningApplications(withBundleIdentifier: bid).first?.icon
+                        return cachedIcon(for: bid)
                     }()
                     return CaptureWindow(
                         id: window.windowID,

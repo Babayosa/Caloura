@@ -24,6 +24,10 @@ final class AppState: ObservableObject {
     private let maxRecentItems = 50
     private let historyKey = "screenshotHistory"
 
+    // Debounce save operations to avoid hammering UserDefaults
+    private var saveTask: Task<Void, Never>?
+    private let saveDebounceInterval: UInt64 = 500_000_000 // 500ms
+
     private init() {
         loadHistory()
     }
@@ -33,20 +37,43 @@ final class AppState: ObservableObject {
         if recentScreenshots.count > maxRecentItems {
             recentScreenshots = Array(recentScreenshots.prefix(maxRecentItems))
         }
-        saveHistory()
+        debouncedSaveHistory()
     }
 
     func clearHistory() {
         recentScreenshots.removeAll()
-        saveHistory()
+        saveHistoryNow()
     }
 
+    /// Schedule a debounced save (coalesces rapid changes)
+    private func debouncedSaveHistory() {
+        saveTask?.cancel()
+        saveTask = Task {
+            try? await Task.sleep(nanoseconds: saveDebounceInterval)
+            guard !Task.isCancelled else { return }
+            saveHistoryNow()
+        }
+    }
+
+    /// Immediately persist history (called by debounce timer or clearHistory)
     func saveHistory() {
-        do {
-            let data = try JSONEncoder().encode(recentScreenshots)
-            UserDefaults.standard.set(data, forKey: historyKey)
-        } catch {
-            Self.logger.error("Failed to encode screenshot history: \(error.localizedDescription)")
+        debouncedSaveHistory()
+    }
+
+    /// Force immediate save without debouncing
+    private func saveHistoryNow() {
+        saveTask?.cancel()
+        saveTask = nil
+
+        // Offload encoding to background thread
+        let items = recentScreenshots
+        Task.detached(priority: .utility) {
+            do {
+                let data = try JSONEncoder().encode(items)
+                UserDefaults.standard.set(data, forKey: self.historyKey)
+            } catch {
+                Self.logger.error("Failed to encode screenshot history: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -69,7 +96,7 @@ final class AppState: ObservableObject {
                 }
                 Self.logger.info("Recovered \(recovered.count) of \(jsonArray.count) history items")
                 recentScreenshots = recovered
-                saveHistory()
+                saveHistoryNow()
             }
         }
     }

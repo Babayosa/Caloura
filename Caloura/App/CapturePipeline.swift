@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ScreenCaptureKit
 
 @MainActor
 final class CapturePipeline: ObservableObject {
@@ -10,7 +11,6 @@ final class CapturePipeline: ObservableObject {
     private let appState = AppState.shared
     private let presetManager = PresetManager.shared
     private var overlayWindows: [CaptureOverlayWindow] = []
-    private var windowOverlays: [WindowSelectionOverlayWindow] = []
     private var screenOverlays: [ScreenSelectionOverlayWindow] = []
     private var delayedCaptureTask: Task<Void, Never>?
 
@@ -77,37 +77,12 @@ final class CapturePipeline: ObservableObject {
         appState.isCapturing = true
 
         Task {
-            do {
-                let windows = try await captureManager.getWindows()
-                if windows.isEmpty {
-                    appState.isCapturing = false
-                    appState.statusMessage = "No windows available to capture."
-                    return
-                }
-
-                windowOverlays = WindowSelectionOverlayWindow.showOnAllScreens(
-                    windows: windows,
-                    onWindowSelected: { [weak self] window in
-                        guard let self = self else { return }
-                        Task { @MainActor in
-                            self.windowOverlays = []
-                            await self.performWindowCapture(window: window)
-                        }
-                    },
-                    onCancelled: { [weak self] in
-                        Task { @MainActor in
-                            self?.windowOverlays = []
-                            self?.appState.isCapturing = false
-                        }
-                    }
-                )
-            } catch CaptureError.noPermission {
+            // Use the system picker for window selection
+            guard let filter = await WindowPickerManager.shared.pickWindow() else {
                 appState.isCapturing = false
-                captureManager.showPermissionAlert()
-            } catch {
-                appState.isCapturing = false
-                appState.statusMessage = "Failed to enumerate windows: \(error.localizedDescription)"
+                return
             }
+            await performWindowCapture(filter: filter)
         }
     }
 
@@ -198,9 +173,9 @@ final class CapturePipeline: ObservableObject {
         }
     }
 
-    private func performWindowCapture(window: CaptureWindow) async {
+    private func performWindowCapture(filter: SCContentFilter) async {
         await performCapture(mode: .window) {
-            try await self.captureManager.captureWindow(window)
+            try await self.captureManager.captureWindow(filter: filter)
         }
     }
 
@@ -240,9 +215,9 @@ final class CapturePipeline: ObservableObject {
                 smartCropEnabled: shouldCrop
             )
 
-            // Save to disk
+            // Save to disk (async, runs on background thread)
             if settings.autoSaveToDisk {
-                let fileURL = try FileOrganizer.save(
+                let fileURL = try await FileOrganizer.save(
                     processed,
                     baseDirectory: settings.saveDirectory,
                     subfolder: preset.subfolder,

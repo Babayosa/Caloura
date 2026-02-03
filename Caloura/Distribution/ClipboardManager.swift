@@ -7,14 +7,9 @@ struct ClipboardManager {
     /// Copy image to clipboard as TIFF + PNG
     static func copyImage(_ screenshot: ProcessedScreenshot) {
         pasteboard.clearContents()
-        pasteboard.setData(
-            ImageProcessor.tiffRepresentation(of: screenshot.cgImage),
-            forType: .tiff
-        )
-        pasteboard.setData(
-            screenshot.pngData,
-            forType: .png
-        )
+        // Use cached tiffData instead of re-encoding
+        pasteboard.setData(screenshot.tiffData, forType: .tiff)
+        pasteboard.setData(screenshot.pngData, forType: .png)
     }
 
     /// Copy as Markdown text: ![alt](filename)
@@ -42,15 +37,9 @@ struct ClipboardManager {
     static func copyMultiFormat(_ screenshot: ProcessedScreenshot) {
         pasteboard.clearContents()
 
-        // Image formats
-        pasteboard.setData(
-            ImageProcessor.tiffRepresentation(of: screenshot.cgImage),
-            forType: .tiff
-        )
-        pasteboard.setData(
-            screenshot.pngData,
-            forType: .png
-        )
+        // Image formats (use cached data)
+        pasteboard.setData(screenshot.tiffData, forType: .tiff)
+        pasteboard.setData(screenshot.pngData, forType: .png)
 
         // Plain text (Markdown)
         let markdown = MarkdownExporter.markdownImageTag(for: screenshot)

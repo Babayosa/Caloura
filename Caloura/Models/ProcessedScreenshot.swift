@@ -13,6 +13,17 @@ final class ProcessedScreenshot {
     var width: Int { cgImage.width }
     var height: Int { cgImage.height }
 
+    // Lazy-cached TIFF representation (only computed when needed for clipboard)
+    private var _tiffData: Data?
+    var tiffData: Data {
+        if let cached = _tiffData {
+            return cached
+        }
+        let data = ImageProcessor.tiffRepresentation(of: cgImage)
+        _tiffData = data
+        return data
+    }
+
     init(
         image: NSImage,
         cgImage: CGImage,

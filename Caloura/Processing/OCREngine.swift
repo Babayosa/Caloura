@@ -2,37 +2,41 @@ import Vision
 import AppKit
 
 struct OCREngine {
-    /// Recognize text in the given image
+    /// Recognize text in the given image.
+    /// Runs on a background thread with fast recognition settings for better performance.
     static func recognizeText(in cgImage: CGImage) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            let request = VNRecognizeTextRequest { request, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                    return
-                }
+        // Offload to background thread to avoid blocking
+        return try await Task.detached(priority: .utility) {
+            try performOCR(cgImage: cgImage)
+        }.value
+    }
 
-                guard let observations = request.results as? [VNRecognizedTextObservation] else {
-                    continuation.resume(returning: "")
-                    return
-                }
+    /// Synchronous OCR implementation (called from background thread)
+    private static func performOCR(cgImage: CGImage) throws -> String {
+        var recognizedText = ""
 
-                let text = observations.compactMap { observation in
-                    observation.topCandidates(1).first?.string
-                }.joined(separator: "\n")
-
-                continuation.resume(returning: text)
+        let request = VNRecognizeTextRequest { request, error in
+            guard error == nil,
+                  let observations = request.results as? [VNRecognizedTextObservation] else {
+                return
             }
 
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-            request.automaticallyDetectsLanguage = true
-
-            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-            do {
-                try handler.perform([request])
-            } catch {
-                continuation.resume(throwing: error)
-            }
+            recognizedText = observations.compactMap { observation in
+                observation.topCandidates(1).first?.string
+            }.joined(separator: "\n")
         }
+
+        // Use fast recognition for better performance
+        // .accurate adds 3-5x latency with marginal quality improvement for screenshots
+        request.recognitionLevel = .fast
+
+        // Disable expensive post-processing options
+        request.usesLanguageCorrection = false
+        request.automaticallyDetectsLanguage = false
+
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        try handler.perform([request])
+
+        return recognizedText
     }
 }
