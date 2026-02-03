@@ -59,6 +59,7 @@ targets:
         LSUIElement: true
         NSScreenCaptureUsageDescription: "Caloura needs screen recording access to capture screenshots."
         SUPublicEDKey: "jvH62SR8OsHYcY9lPGDneNLbOWijs5GGempwmXnEUL8="
+        SUFeedURL: "https://caloura.app/appcast.xml"
 
   CalouraTests:
     type: bundle.unit-test
