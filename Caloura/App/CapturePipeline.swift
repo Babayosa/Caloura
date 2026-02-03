@@ -55,15 +55,37 @@ final class CapturePipeline: ObservableObject {
         }
     }
 
-    /// Capture all screens instantly for freeze mode
+    /// Capture all screens instantly for freeze mode (parallel for multi-monitor)
     private func captureAllScreens() async -> [NSScreen: CGImage] {
-        var images: [NSScreen: CGImage] = [:]
-        for screen in NSScreen.screens {
+        let screens = NSScreen.screens
+
+        // Single screen: no need for TaskGroup overhead
+        if screens.count == 1, let screen = screens.first {
             if let image = try? await captureManager.captureFullScreen(screen: screen) {
-                images[screen] = image
+                return [screen: image]
             }
+            return [:]
         }
-        return images
+
+        // Multi-monitor: capture all screens in parallel
+        return await withTaskGroup(of: (NSScreen, CGImage)?.self) { group in
+            for screen in screens {
+                group.addTask {
+                    if let image = try? await self.captureManager.captureFullScreen(screen: screen) {
+                        return (screen, image)
+                    }
+                    return nil
+                }
+            }
+
+            var images: [NSScreen: CGImage] = [:]
+            for await result in group {
+                if let (screen, image) = result {
+                    images[screen] = image
+                }
+            }
+            return images
+        }
     }
 
     func captureFullscreen() {

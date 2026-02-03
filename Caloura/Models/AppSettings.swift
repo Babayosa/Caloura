@@ -7,6 +7,10 @@ final class AppSettings: ObservableObject {
 
     private let defaults = UserDefaults.standard
 
+    // Debounce settings saves to avoid hammering UserDefaults
+    private var saveTask: Task<Void, Never>?
+    private let saveDebounceInterval: UInt64 = 300_000_000 // 300ms
+
     private enum Keys {
         static let saveDirectory = "saveDirectory"
         static let autoCopyToClipboard = "autoCopyToClipboard"
@@ -25,59 +29,59 @@ final class AppSettings: ObservableObject {
     }
 
     @Published var saveDirectory: String {
-        didSet { defaults.set(saveDirectory, forKey: Keys.saveDirectory) }
+        didSet { debouncedSave() }
     }
 
     @Published var autoCopyToClipboard: Bool {
-        didSet { defaults.set(autoCopyToClipboard, forKey: Keys.autoCopyToClipboard) }
+        didSet { debouncedSave() }
     }
 
     @Published var autoSaveToDisk: Bool {
-        didSet { defaults.set(autoSaveToDisk, forKey: Keys.autoSaveToDisk) }
+        didSet { debouncedSave() }
     }
 
     @Published var smartCropEnabled: Bool {
-        didSet { defaults.set(smartCropEnabled, forKey: Keys.smartCropEnabled) }
+        didSet { debouncedSave() }
     }
 
     @Published var playCaptureSound: Bool {
-        didSet { defaults.set(playCaptureSound, forKey: Keys.playCaptureSound) }
+        didSet { debouncedSave() }
     }
 
     @Published var activePreset: String {
-        didSet { defaults.set(activePreset, forKey: Keys.activePreset) }
+        didSet { debouncedSave() }
     }
 
     @Published var hasCompletedOnboarding: Bool {
-        didSet { defaults.set(hasCompletedOnboarding, forKey: Keys.hasCompletedOnboarding) }
+        didSet { debouncedSave() }
     }
 
     @Published var imageFormat: String {
-        didSet { defaults.set(imageFormat, forKey: Keys.imageFormat) }
+        didSet { debouncedSave() }
     }
 
     @Published var autoContextDetection: Bool {
-        didSet { defaults.set(autoContextDetection, forKey: Keys.autoContextDetection) }
+        didSet { debouncedSave() }
     }
 
     @Published var launchAtLogin: Bool {
-        didSet { defaults.set(launchAtLogin, forKey: Keys.launchAtLogin) }
+        didSet { debouncedSave() }
     }
 
     @Published var checkForUpdatesAutomatically: Bool {
-        didSet { defaults.set(checkForUpdatesAutomatically, forKey: Keys.checkForUpdatesAutomatically) }
+        didSet { debouncedSave() }
     }
 
     @Published var firstLaunchDate: Date {
-        didSet { defaults.set(firstLaunchDate, forKey: Keys.firstLaunchDate) }
+        didSet { debouncedSave() }
     }
 
     @Published var licenseKey: String {
-        didSet { defaults.set(licenseKey, forKey: Keys.licenseKey) }
+        didSet { debouncedSave() }
     }
 
     @Published var isLicenseActivated: Bool {
-        didSet { defaults.set(isLicenseActivated, forKey: Keys.isLicenseActivated) }
+        didSet { debouncedSave() }
     }
 
     var saveDirectoryURL: URL {
@@ -90,6 +94,36 @@ final class AppSettings: ObservableObject {
         }
         return pictures.appendingPathComponent("Caloura").path
     }
+
+    // MARK: - Debounced Save
+
+    private func debouncedSave() {
+        saveTask?.cancel()
+        saveTask = Task {
+            try? await Task.sleep(nanoseconds: saveDebounceInterval)
+            guard !Task.isCancelled else { return }
+            saveAllSettings()
+        }
+    }
+
+    private func saveAllSettings() {
+        defaults.set(saveDirectory, forKey: Keys.saveDirectory)
+        defaults.set(autoCopyToClipboard, forKey: Keys.autoCopyToClipboard)
+        defaults.set(autoSaveToDisk, forKey: Keys.autoSaveToDisk)
+        defaults.set(smartCropEnabled, forKey: Keys.smartCropEnabled)
+        defaults.set(playCaptureSound, forKey: Keys.playCaptureSound)
+        defaults.set(activePreset, forKey: Keys.activePreset)
+        defaults.set(hasCompletedOnboarding, forKey: Keys.hasCompletedOnboarding)
+        defaults.set(imageFormat, forKey: Keys.imageFormat)
+        defaults.set(autoContextDetection, forKey: Keys.autoContextDetection)
+        defaults.set(launchAtLogin, forKey: Keys.launchAtLogin)
+        defaults.set(checkForUpdatesAutomatically, forKey: Keys.checkForUpdatesAutomatically)
+        defaults.set(firstLaunchDate, forKey: Keys.firstLaunchDate)
+        defaults.set(licenseKey, forKey: Keys.licenseKey)
+        defaults.set(isLicenseActivated, forKey: Keys.isLicenseActivated)
+    }
+
+    // MARK: - Init
 
     private init() {
         let defaultDir = Self.defaultSaveDirectory

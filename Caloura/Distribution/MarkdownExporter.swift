@@ -1,6 +1,12 @@
 import Foundation
 
 struct MarkdownExporter {
+    // Cached formatter to avoid repeated allocations
+    private static let citationDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, yyyy h:mm a"
+        return formatter
+    }()
     /// ![Screenshot from AppName](filename.png)
     static func markdownImageTag(for screenshot: ProcessedScreenshot) -> String {
         let altText = altTextFor(screenshot)
@@ -34,9 +40,7 @@ struct MarkdownExporter {
     }
 
     private static func citationLine(for screenshot: ProcessedScreenshot) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d, yyyy h:mm a"
-        let dateStr = formatter.string(from: screenshot.context.timestamp)
+        let dateStr = citationDateFormatter.string(from: screenshot.context.timestamp)
 
         var parts: [String] = []
 
