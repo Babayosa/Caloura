@@ -11,25 +11,38 @@ enum PermissionDetail {
 struct OnboardingView: View {
     @ObservedObject var settings: AppSettings
     @State private var currentStep = 0
+    @State private var previousStep = 0  // Track direction for animation
     @State private var hasPermission = false
     @State private var permissionDetail: PermissionDetail = .notGranted
+    @State private var pollCount = 0  // Track polls to show "Continue Anyway" after a few tries
     var onComplete: () -> Void
+
+    /// Transition that moves in correct direction based on navigation
+    private var stepTransition: AnyTransition {
+        let isForward = currentStep > previousStep
+        return .asymmetric(
+            insertion: .move(edge: isForward ? .trailing : .leading).combined(with: .opacity),
+            removal: .move(edge: isForward ? .leading : .trailing).combined(with: .opacity)
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Progress dots
-            HStack(spacing: 8) {
+            // Progress indicator - minimal line style
+            HStack(spacing: 0) {
                 ForEach(0..<4) { index in
-                    Circle()
-                        .fill(index <= currentStep ? Color.accentColor : Color.gray.opacity(0.3))
-                        .frame(width: 8, height: 8)
+                    Rectangle()
+                        .fill(index <= currentStep ? Color.accentColor : Color.gray.opacity(0.2))
+                        .frame(height: 3)
                 }
             }
-            .padding(.top, 20)
+            .clipShape(RoundedRectangle(cornerRadius: 1.5))
+            .padding(.horizontal, 40)
+            .padding(.top, 24)
 
             Spacer()
 
-            // Step content
+            // Step content with directional animation
             Group {
                 switch currentStep {
                 case 0:
@@ -44,23 +57,26 @@ struct OnboardingView: View {
                     EmptyView()
                 }
             }
-            .transition(.slide)
+            .id(currentStep)  // Force view identity change for transition
+            .transition(stepTransition)
 
             Spacer()
 
-            // Navigation buttons
+            // Navigation buttons - cleaner styling
             HStack {
                 if currentStep > 0 {
                     Button("Back") {
-                        withAnimation { currentStep -= 1 }
+                        navigate(to: currentStep - 1)
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
                 if currentStep < 3 {
-                    Button("Next") {
-                        withAnimation { currentStep += 1 }
+                    Button("Continue") {
+                        navigate(to: currentStep + 1)
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(currentStep == 1 && !hasPermission)
@@ -72,20 +88,28 @@ struct OnboardingView: View {
                     .buttonStyle(.borderedProminent)
                 }
             }
-            .padding(20)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
         }
-        .frame(width: 480, height: 400)
+        .frame(width: 480, height: 380)
         .onAppear {
             recheckPermission()
         }
         .task(id: currentStep) {
-            // Auto-poll every 2 seconds while on the permission step
+            // Auto-poll every 2 seconds while on the permission step, until granted
             guard currentStep == 1 else { return }
-            while !Task.isCancelled {
+            while !Task.isCancelled && !hasPermission {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 guard !Task.isCancelled else { break }
                 await recheckPermissionAsync()
             }
+        }
+    }
+
+    private func navigate(to step: Int) {
+        previousStep = currentStep
+        withAnimation(.easeInOut(duration: 0.25)) {
+            currentStep = step
         }
     }
 
@@ -96,22 +120,61 @@ struct OnboardingView: View {
     }
 
     private func recheckPermissionAsync() async {
-        // SCK is the authoritative check — if it works, permission is fully functional
-        let sckOK = await ScreenCaptureManager.shared.checkSCKAccess()
-        if sckOK {
-            hasPermission = true
-            permissionDetail = .working
-            return
-        }
+        pollCount += 1
 
-        // SCK failed — check CGPreflight (authoritative OS-level check).
-        // CGWindowList fallback was removed: it gives false positives on Sequoia.
-        if ScreenCaptureManager.shared.checkPermission() {
-            hasPermission = true
-            permissionDetail = .grantedNotWorking
+        // First check CGPreflight — this is non-intrusive and won't trigger prompts
+        let cgGranted = ScreenCaptureManager.shared.checkPermission()
+
+        if cgGranted {
+            // Permission granted at OS level. Check if SCK actually works.
+            // Only do this check ONCE when we first detect permission granted,
+            // not on every poll (SCK check can trigger system prompts on some versions).
+            if permissionDetail == .notGranted {
+                // First time seeing permission granted — do one SCK check
+                let sckOK = await ScreenCaptureManager.shared.checkSCKAccess()
+                if sckOK {
+                    hasPermission = true
+                    permissionDetail = .working
+                } else {
+                    hasPermission = true
+                    permissionDetail = .grantedNotWorking
+                }
+            } else {
+                // Already checked SCK before, keep current state but ensure hasPermission is true
+                hasPermission = true
+            }
         } else {
-            hasPermission = false
-            permissionDetail = .notGranted
+            // CGPreflight returned false, but it can be unreliable on Sequoia.
+            // Try a practical test: screencapture CLI works if system-level permission exists.
+            if await testScreencaptureCLI() {
+                hasPermission = true
+                permissionDetail = .working
+            } else {
+                hasPermission = false
+                permissionDetail = .notGranted
+            }
+        }
+    }
+
+    /// Test if screencapture CLI can capture (system binary, doesn't need app permission)
+    private func testScreencaptureCLI() async -> Bool {
+        await withCheckedContinuation { continuation in
+            Task.detached {
+                let tempPath = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("caloura-test-\(UUID().uuidString).png").path
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+                process.arguments = ["-x", "-t", "png", "-R0,0,1,1", tempPath]
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                    let success = process.terminationStatus == 0
+                    try? FileManager.default.removeItem(atPath: tempPath)
+                    continuation.resume(returning: success)
+                } catch {
+                    continuation.resume(returning: false)
+                }
+            }
         }
     }
 
@@ -162,11 +225,18 @@ struct OnboardingView: View {
                     .foregroundStyle(.green)
 
             case .grantedNotWorking:
-                Label("Permission granted", systemImage: "checkmark.circle.fill")
+                Label("Permission granted!", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
-                Text("App restart may be needed for captures to work.")
+
+                Text("Please quit and reopen Caloura to activate screen capture.")
                     .font(.callout)
                     .foregroundStyle(.orange)
+                    .multilineTextAlignment(.center)
+
+                Button("Quit Caloura") {
+                    NSApplication.shared.terminate(nil)
+                }
+                .buttonStyle(.borderedProminent)
 
             case .notGranted:
                 Button("Grant Permission") {
@@ -187,6 +257,22 @@ struct OnboardingView: View {
 
                 Button("Check Again") {
                     recheckPermission()
+                }
+
+                // Show escape hatch after 3 poll cycles (user has been waiting ~6+ seconds)
+                if pollCount >= 3 {
+                    Divider()
+                        .padding(.vertical, 8)
+
+                    Text("Already granted permission?")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+
+                    Button("Continue Anyway") {
+                        hasPermission = true
+                        permissionDetail = .working
+                    }
+                    .buttonStyle(.bordered)
                 }
             }
         }
@@ -283,7 +369,7 @@ final class OnboardingWindowController {
         }
 
         let hostingView = NSHostingView(rootView: onboardingView)
-        hostingView.frame = CGRect(x: 0, y: 0, width: 480, height: 400)
+        hostingView.frame = CGRect(x: 0, y: 0, width: 480, height: 380)
 
         let window = NSWindow(
             contentRect: hostingView.frame,

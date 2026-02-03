@@ -18,6 +18,7 @@ final class AppSettings: ObservableObject {
         static let imageFormat = "imageFormat"
         static let autoContextDetection = "autoContextDetection"
         static let launchAtLogin = "launchAtLogin"
+        static let checkForUpdatesAutomatically = "checkForUpdatesAutomatically"
         static let firstLaunchDate = "firstLaunchDate"
         static let licenseKey = "licenseKey"
         static let isLicenseActivated = "isLicenseActivated"
@@ -63,6 +64,10 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(launchAtLogin, forKey: Keys.launchAtLogin) }
     }
 
+    @Published var checkForUpdatesAutomatically: Bool {
+        didSet { defaults.set(checkForUpdatesAutomatically, forKey: Keys.checkForUpdatesAutomatically) }
+    }
+
     @Published var firstLaunchDate: Date {
         didSet { defaults.set(firstLaunchDate, forKey: Keys.firstLaunchDate) }
     }
@@ -98,6 +103,7 @@ final class AppSettings: ObservableObject {
         self.imageFormat = defaults.string(forKey: Keys.imageFormat) ?? "png"
         self.autoContextDetection = defaults.object(forKey: Keys.autoContextDetection) as? Bool ?? true
         self.launchAtLogin = defaults.object(forKey: Keys.launchAtLogin) as? Bool ?? false
+        self.checkForUpdatesAutomatically = defaults.object(forKey: Keys.checkForUpdatesAutomatically) as? Bool ?? true
 
         // Trial clock: set on first launch, immutable thereafter
         if let stored = defaults.object(forKey: Keys.firstLaunchDate) as? Date {

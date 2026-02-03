@@ -11,9 +11,9 @@ final class RegionSelectionView: NSView {
     private var trackingArea: NSTrackingArea?
 
     // Cursor dot styling
-    private let dotRadius: CGFloat = 3
-    private let dotColor = NSColor.white.withAlphaComponent(0.9)
-    private let dotShadowColor = NSColor.black.withAlphaComponent(0.45)
+    private let dotRadius: CGFloat = 2.5
+    private let dotColor = NSColor.white.withAlphaComponent(0.95)
+    private let dotShadowColor = NSColor.black.withAlphaComponent(0.5)
 
     // Selection styling
     private let selectionBorderColor = NSColor.white
@@ -26,6 +26,18 @@ final class RegionSelectionView: NSView {
         if let window = window {
             window.makeFirstResponder(self)
             window.acceptsMouseMovedEvents = true
+
+            // Initialize cursor position immediately so dot appears right away
+            let screenMouseLocation = NSEvent.mouseLocation
+            if let screenFrame = window.screen?.frame {
+                // Convert screen coordinates to window coordinates
+                let windowPoint = NSPoint(
+                    x: screenMouseLocation.x - screenFrame.origin.x,
+                    y: screenMouseLocation.y - screenFrame.origin.y
+                )
+                currentMouseLocation = windowPoint
+                needsDisplay = true
+            }
         }
     }
 

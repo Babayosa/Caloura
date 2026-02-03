@@ -42,32 +42,36 @@ struct PreferencesView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Icon tab bar
-            HStack(spacing: 0) {
+            HStack(spacing: 2) {
                 ForEach(PreferencesTab.allCases) { tab in
                     Button {
-                        selectedTab = tab
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            selectedTab = tab
+                        }
                     } label: {
                         VStack(spacing: 4) {
                             Image(systemName: tab.icon)
-                                .font(.system(size: 18))
+                                .font(.system(size: 20, weight: selectedTab == tab ? .medium : .regular))
                             Text(tab.label)
-                                .font(.system(size: 10))
+                                .font(.system(size: 10, weight: selectedTab == tab ? .medium : .regular))
                         }
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 10)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(selectedTab == tab ? .primary : .secondary)
-                    .background(
-                        selectedTab == tab
-                            ? Color.accentColor.opacity(0.1)
-                            : Color.clear
-                    )
+                    .background {
+                        if selectedTab == tab {
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.accentColor.opacity(0.12))
+                        }
+                    }
                 }
             }
-            .padding(.horizontal, 4)
-            .padding(.top, 4)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+            .background(Color(nsColor: .windowBackgroundColor))
 
             Divider()
 
@@ -88,7 +92,7 @@ struct PreferencesView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 480, minHeight: 360)
+        .frame(minWidth: 500, minHeight: 400)
     }
 }
 
@@ -99,22 +103,7 @@ struct GeneralPreferencesView: View {
 
     var body: some View {
         Form {
-            Section {
-                HStack {
-                    TextField("Save location:", text: $settings.saveDirectory)
-                        .textFieldStyle(.roundedBorder)
-                    Button("Browse...") {
-                        chooseDirectory()
-                    }
-                }
-            }
-
-            Section {
-                Toggle("Auto-copy to clipboard", isOn: $settings.autoCopyToClipboard)
-                Toggle("Auto-save to disk", isOn: $settings.autoSaveToDisk)
-                Toggle("Smart crop (trim whitespace)", isOn: $settings.smartCropEnabled)
-                Toggle("Play capture sound", isOn: $settings.playCaptureSound)
-                Toggle("Auto-detect context", isOn: $settings.autoContextDetection)
+            Section("Startup") {
                 Toggle("Launch at Login", isOn: $settings.launchAtLogin)
                     .onChange(of: settings.launchAtLogin) { _, newValue in
                         do {
@@ -127,10 +116,36 @@ struct GeneralPreferencesView: View {
                             settings.launchAtLogin = !newValue
                         }
                     }
+                Toggle("Check for Updates Automatically", isOn: $settings.checkForUpdatesAutomatically)
             }
 
-            Section {
-                Picker("Image format:", selection: $settings.imageFormat) {
+            Section("Capture") {
+                Toggle("Smart crop (trim whitespace)", isOn: $settings.smartCropEnabled)
+                Toggle("Play capture sound", isOn: $settings.playCaptureSound)
+                Toggle("Auto-detect context", isOn: $settings.autoContextDetection)
+            }
+
+            Section("After Capture") {
+                Toggle("Copy to clipboard", isOn: $settings.autoCopyToClipboard)
+                Toggle("Save to disk", isOn: $settings.autoSaveToDisk)
+            }
+
+            Section("Output") {
+                LabeledContent("Save location") {
+                    HStack {
+                        Text(settings.saveDirectory)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.secondary)
+                        Button("Browse...") {
+                            chooseDirectory()
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+
+                Picker("Image format", selection: $settings.imageFormat) {
                     Text("PNG").tag("png")
                     Text("JPEG").tag("jpeg")
                     Text("TIFF").tag("tiff")
@@ -138,7 +153,7 @@ struct GeneralPreferencesView: View {
                 .pickerStyle(.segmented)
             }
         }
-        .padding()
+        .formStyle(.grouped)
     }
 
     private func chooseDirectory() {
@@ -169,52 +184,19 @@ struct ShortcutsPreferencesView: View {
     var body: some View {
         Form {
             Section("Capture") {
-                HStack {
-                    Text("Capture Area:")
-                    Spacer()
-                    KeyboardShortcuts.Recorder(for: .captureArea)
-                }
-
-                HStack {
-                    Text("Capture Window:")
-                    Spacer()
-                    KeyboardShortcuts.Recorder(for: .captureWindow)
-                }
-
-                HStack {
-                    Text("Capture Full Screen:")
-                    Spacer()
-                    KeyboardShortcuts.Recorder(for: .captureFullscreen)
-                }
-
-                HStack {
-                    Text("Repeat Last Area:")
-                    Spacer()
-                    KeyboardShortcuts.Recorder(for: .captureRepeat)
-                }
+                KeyboardShortcuts.Recorder("Capture Area", name: .captureArea)
+                KeyboardShortcuts.Recorder("Capture Window", name: .captureWindow)
+                KeyboardShortcuts.Recorder("Capture Full Screen", name: .captureFullscreen)
+                KeyboardShortcuts.Recorder("Repeat Last Area", name: .captureRepeat)
             }
 
-            Section("Distribution") {
-                HStack {
-                    Text("Copy as Markdown:")
-                    Spacer()
-                    KeyboardShortcuts.Recorder(for: .copyAsMarkdown)
-                }
-
-                HStack {
-                    Text("Copy with Citation:")
-                    Spacer()
-                    KeyboardShortcuts.Recorder(for: .copyWithCitation)
-                }
-
-                HStack {
-                    Text("Copy Text (OCR):")
-                    Spacer()
-                    KeyboardShortcuts.Recorder(for: .copyOCRText)
-                }
+            Section("Clipboard") {
+                KeyboardShortcuts.Recorder("Copy as Markdown", name: .copyAsMarkdown)
+                KeyboardShortcuts.Recorder("Copy with Citation", name: .copyWithCitation)
+                KeyboardShortcuts.Recorder("Copy Text (OCR)", name: .copyOCRText)
             }
         }
-        .padding()
+        .formStyle(.grouped)
     }
 }
 
@@ -225,26 +207,40 @@ struct PresetsPreferencesView: View {
 
     var body: some View {
         Form {
-            Section("Active Preset") {
-                Picker("Preset:", selection: $settings.activePreset) {
+            Section {
+                Picker("Active Preset", selection: $settings.activePreset) {
                     ForEach(PresetManager.builtInPresetNames, id: \.self) { name in
                         Text(name).tag(name)
                     }
                 }
             }
 
-            Section("Preset Details") {
-                if let preset = PresetManager.shared.preset(named: settings.activePreset) {
-                    LabeledContent("Smart Crop", value: preset.smartCropEnabled ? "On" : "Off")
-                    LabeledContent("Copy Mode", value: preset.copyMode.rawValue)
-                    LabeledContent("Subfolder", value: preset.subfolder ?? "None")
-                } else {
-                    Text("Select a preset to see details.")
-                        .foregroundStyle(.secondary)
+            if let preset = PresetManager.shared.preset(named: settings.activePreset) {
+                Section("Preset Configuration") {
+                    LabeledContent("Smart Crop") {
+                        Text(preset.smartCropEnabled ? "Enabled" : "Disabled")
+                            .foregroundStyle(.secondary)
+                    }
+                    LabeledContent("Copy Mode") {
+                        Text(preset.copyMode.rawValue.capitalized)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let subfolder = preset.subfolder {
+                        LabeledContent("Subfolder") {
+                            Text(subfolder)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
+
+            Section {
+                Text("Presets automatically adjust capture settings based on your workflow. Choose a preset that matches what you're capturing.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .padding()
+        .formStyle(.grouped)
     }
 }
 
@@ -257,46 +253,36 @@ struct LicensePreferencesView: View {
     @State private var isActivating = false
 
     var body: some View {
-        VStack(spacing: 20) {
-            // Status badge
-            Group {
-                switch license.activationState {
-                case .licensed:
-                    Label("Licensed", systemImage: "checkmark.seal.fill")
-                        .font(.title2)
-                        .foregroundStyle(.green)
-                case .trial(let days):
-                    Label("Free Trial \u{2014} \(days) day\(days == 1 ? "" : "s") remaining", systemImage: "clock")
-                        .font(.title2)
-                        .foregroundStyle(.blue)
-                case .expired:
-                    Label("Trial Expired", systemImage: "clock.badge.exclamationmark")
-                        .font(.title2)
-                        .foregroundStyle(.orange)
-                case .checking:
-                    ProgressView()
-                        .controlSize(.small)
-                case .activationFailed(let msg):
-                    Label(msg, systemImage: "xmark.circle")
-                        .font(.callout)
-                        .foregroundStyle(.red)
+        Form {
+            // Status section
+            Section {
+                HStack {
+                    Spacer()
+                    statusBadge
+                    Spacer()
                 }
+                .padding(.vertical, 8)
             }
 
+            // Activation section (only shown when not licensed)
             if !settings.isLicenseActivated {
-                Divider()
-
-                VStack(spacing: 12) {
+                Section("Activate License") {
                     TextField("License key", text: $keyInput)
                         .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 320)
 
-                    HStack(spacing: 12) {
-                        Button("Activate") {
+                    HStack {
+                        Button {
                             isActivating = true
                             Task {
                                 await license.activate(licenseKey: keyInput)
                                 isActivating = false
+                            }
+                        } label: {
+                            if isActivating {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Text("Activate")
                             }
                         }
                         .buttonStyle(.borderedProminent)
@@ -308,41 +294,140 @@ struct LicensePreferencesView: View {
                         .buttonStyle(.bordered)
                     }
                 }
-            }
 
-            Spacer()
+                Section {
+                    Text("Purchase a license to remove the trial reminder and support development. Your license key will be emailed after purchase.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                // Licensed state - show license info
+                Section("License Details") {
+                    LabeledContent("Status") {
+                        Text("Active")
+                            .foregroundStyle(.green)
+                    }
+                    if !settings.licenseKey.isEmpty {
+                        LabeledContent("License Key") {
+                            Text(maskedLicenseKey)
+                                .foregroundStyle(.secondary)
+                                .font(.system(.body, design: .monospaced))
+                        }
+                    }
+                }
+
+                Section {
+                    Text("Thank you for supporting Caloura!")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .formStyle(.grouped)
         .onAppear {
             keyInput = settings.licenseKey
         }
+    }
+
+    @ViewBuilder
+    private var statusBadge: some View {
+        switch license.activationState {
+        case .licensed:
+            Label("Licensed", systemImage: "checkmark.seal.fill")
+                .font(.title2.bold())
+                .foregroundStyle(.green)
+        case .trial(let days):
+            Label("Free Trial \u{2014} \(days) day\(days == 1 ? "" : "s") remaining", systemImage: "clock")
+                .font(.title2.bold())
+                .foregroundStyle(.blue)
+        case .expired:
+            Label("Trial Expired", systemImage: "clock.badge.exclamationmark")
+                .font(.title2.bold())
+                .foregroundStyle(.orange)
+        case .checking:
+            ProgressView()
+                .controlSize(.regular)
+        case .activationFailed(let msg):
+            Label(msg, systemImage: "xmark.circle")
+                .font(.callout)
+                .foregroundStyle(.red)
+        }
+    }
+
+    private var maskedLicenseKey: String {
+        let key = settings.licenseKey
+        guard key.count > 8 else { return key }
+        let prefix = String(key.prefix(4))
+        let suffix = String(key.suffix(4))
+        return "\(prefix)••••••••\(suffix)"
     }
 }
 
 // MARK: - About View
 
 struct AboutView: View {
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+    }
+
+    private var buildNumber: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
+    }
+
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "camera.viewfinder")
-                .font(.system(size: 48))
-                .foregroundStyle(Color.accentColor)
+        VStack(spacing: 16) {
+            Spacer()
 
-            Text("Caloura")
-                .font(.title)
-                .fontWeight(.bold)
+            // App icon and info
+            if let appIcon = NSApp.applicationIconImage {
+                Image(nsImage: appIcon)
+                    .resizable()
+                    .frame(width: 80, height: 80)
+            } else {
+                Image(systemName: "camera.viewfinder")
+                    .font(.system(size: 56))
+                    .foregroundStyle(Color.accentColor)
+            }
 
-            Text("Version 1.0.0")
-                .foregroundStyle(.secondary)
+            VStack(spacing: 4) {
+                Text("Caloura")
+                    .font(.title.bold())
+
+                Text("Version \(appVersion) (\(buildNumber))")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
 
             Text("The fastest screenshot tool for students and educators.")
+                .font(.body)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
+                .padding(.horizontal, 24)
 
             Spacer()
 
-            Text("\u{00A9} 2026 Caloura")
+            // Links
+            HStack(spacing: 20) {
+                Button("Website") {
+                    NSWorkspace.shared.open(URL(string: "https://caloura.app")!)
+                }
+                .buttonStyle(.link)
+
+                Button("Support") {
+                    NSWorkspace.shared.open(URL(string: "https://caloura.app/#faq")!)
+                }
+                .buttonStyle(.link)
+
+                Button("Twitter") {
+                    NSWorkspace.shared.open(URL(string: "https://twitter.com/calouraapp")!)
+                }
+                .buttonStyle(.link)
+            }
+            .font(.callout)
+
+            Spacer()
+
+            Text("\u{00A9} 2026 Caloura. All rights reserved.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
@@ -371,7 +456,7 @@ final class PreferencesWindowController {
 
         let preferencesView = PreferencesView(selectedTab: tab ?? .general)
         let hostingView = NSHostingView(rootView: preferencesView)
-        hostingView.frame = CGRect(x: 0, y: 0, width: 480, height: 360)
+        hostingView.frame = CGRect(x: 0, y: 0, width: 500, height: 420)
 
         let window = NSWindow(
             contentRect: hostingView.frame,
@@ -409,7 +494,7 @@ final class PreferencesWindowController {
         guard let window else { return }
         let preferencesView = PreferencesView(selectedTab: tab)
         let hostingView = NSHostingView(rootView: preferencesView)
-        hostingView.frame = window.contentView?.frame ?? CGRect(x: 0, y: 0, width: 480, height: 360)
+        hostingView.frame = window.contentView?.frame ?? CGRect(x: 0, y: 0, width: 500, height: 420)
         window.contentView = hostingView
     }
 }

@@ -51,8 +51,8 @@ targets:
         CFBundleName: Caloura
         CFBundleDisplayName: Caloura
         CFBundleIdentifier: com.caloura.app
-        CFBundleVersion: "1"
-        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "3"
+        CFBundleShortVersionString: "1.0.2"
         CFBundlePackageType: APPL
         CFBundleExecutable: Caloura
         LSMinimumSystemVersion: "14.0"
