@@ -13,11 +13,10 @@ enum ActivationState: Equatable {
 final class LicenseManager: ObservableObject {
     static let shared = LicenseManager()
 
-    // Placeholder until Gumroad product is created
-    static let gumroadProductID = "CALOURA_PRODUCT_ID"
+    static let gumroadProductID = "bmokl"
     static let gumroadVerifyURL = URL(string: "https://api.gumroad.com/v2/licenses/verify")!
-    static let gumroadPurchaseURL = URL(string: "https://caloura.gumroad.com/l/caloura")!
-    static let trialDurationDays = 30
+    static let gumroadPurchaseURL = URL(string: "https://babayosa.gumroad.com/l/bmokl")!
+    static let trialDurationDays = 7
 
     private let logger = Logger(subsystem: "com.caloura.app", category: "License")
 

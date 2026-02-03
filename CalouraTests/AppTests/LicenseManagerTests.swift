@@ -40,17 +40,17 @@ final class LicenseManagerTests: XCTestCase {
     func testTrialDaysRemaining_day1() {
         settings.firstLaunchDate = Date()
         let days = license.trialDaysRemaining(settings: settings)
-        XCTAssertEqual(days, 30)
+        XCTAssertEqual(days, 7)
     }
 
-    func testTrialDaysRemaining_day15() {
-        settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -15, to: Date())!
+    func testTrialDaysRemaining_day4() {
+        settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -4, to: Date())!
         let days = license.trialDaysRemaining(settings: settings)
-        XCTAssertEqual(days, 15)
+        XCTAssertEqual(days, 3)
     }
 
-    func testTrialDaysRemaining_day31() {
-        settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -31, to: Date())!
+    func testTrialDaysRemaining_day8() {
+        settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -8, to: Date())!
         let days = license.trialDaysRemaining(settings: settings)
         XCTAssertEqual(days, 0)
     }
@@ -63,12 +63,12 @@ final class LicenseManagerTests: XCTestCase {
     }
 
     func testIsTrialExpired_afterTrial() {
-        settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -31, to: Date())!
+        settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -8, to: Date())!
         XCTAssertTrue(license.isTrialExpired(settings: settings))
     }
 
     func testIsTrialExpired_whenLicensed() {
-        settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -31, to: Date())!
+        settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -8, to: Date())!
         settings.isLicenseActivated = true
         XCTAssertFalse(license.isTrialExpired(settings: settings))
     }
@@ -81,12 +81,12 @@ final class LicenseManagerTests: XCTestCase {
     }
 
     func testShouldShowNag_expiredAndUnlicensed() {
-        settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -31, to: Date())!
+        settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -8, to: Date())!
         XCTAssertTrue(license.shouldShowNag(settings: settings))
     }
 
     func testShouldShowNag_expiredAndLicensed() {
-        settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -31, to: Date())!
+        settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -8, to: Date())!
         settings.isLicenseActivated = true
         XCTAssertFalse(license.shouldShowNag(settings: settings))
     }
@@ -102,11 +102,11 @@ final class LicenseManagerTests: XCTestCase {
     func testActivationState_trial() {
         settings.firstLaunchDate = Date()
         license.refreshState(settings: settings)
-        XCTAssertEqual(license.activationState, .trial(daysRemaining: 30))
+        XCTAssertEqual(license.activationState, .trial(daysRemaining: 7))
     }
 
     func testActivationState_expired() {
-        settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -31, to: Date())!
+        settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -8, to: Date())!
         license.refreshState(settings: settings)
         XCTAssertEqual(license.activationState, .expired)
     }
