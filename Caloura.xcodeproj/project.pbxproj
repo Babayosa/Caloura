@@ -12,6 +12,7 @@
 		111010296F957D4661F2CBE7 /* UpdateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2692F22CB4A8BF8EDCB4B18 /* UpdateManager.swift */; };
 		19CCBB9C35F4508A0BD841CC /* ScreenshotItemTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46BF3953A403BDB295C6F00B /* ScreenshotItemTests.swift */; };
 		21B0332B75BD9E09DBBB3FAD /* LicenseManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A7A42423314D5FD004AD25 /* LicenseManagerTests.swift */; };
+		29AB177B65A4DF8FBFB6DC47 /* WindowPickerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82948024B51A509DFED7716F /* WindowPickerManager.swift */; };
 		2C1592BEABAB4F44DAFA2D3C /* NagDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0F1A4A2A0AF6324F1F5C0E7 /* NagDialog.swift */; };
 		2D60260CDD124631BA134F02 /* AnnotationOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCF688CE2838DA6BB11F8B31 /* AnnotationOverlay.swift */; };
 		2F333241B06FC23FC0E1134F /* PinnedScreenshotWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B8872C4995AF76343335E2F /* PinnedScreenshotWindow.swift */; };
@@ -49,7 +50,6 @@
 		C73257C53A31A97FCEF09493 /* CaptureMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20996E12C67659425FFC3DB /* CaptureMode.swift */; };
 		D34AF9C5B8BB93C0DD02DED1 /* FileOrganizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D5287A7A52DB2B5F2880B13 /* FileOrganizer.swift */; };
 		DEA12579A7AFC28207AC32B8 /* AppStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43F77302B11F70E1E6287AC8 /* AppStateTests.swift */; };
-		E23C6748FDC902E3FFD30A2E /* WindowPickerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18BBF1103297123EFE1120CC /* WindowPickerManager.swift */; };
 		E6EE2265F03CED46668E6D3F /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21487A51F0B67168191171F1 /* MenuBarView.swift */; };
 		E93270F7D1B4AB7D56C8B8F1 /* CountdownOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBD0CD21F3329B60E6BA4CD0 /* CountdownOverlay.swift */; };
 		EE3E2A11DF2F4C907295560D /* CaptureWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C232FB74F8F8BC03DE3D89 /* CaptureWindow.swift */; };
@@ -71,7 +71,6 @@
 /* Begin PBXFileReference section */
 		0B8872C4995AF76343335E2F /* PinnedScreenshotWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinnedScreenshotWindow.swift; sourceTree = "<group>"; };
 		13369308B84323BF6FF56F59 /* Caloura.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Caloura.entitlements; sourceTree = "<group>"; };
-		18BBF1103297123EFE1120CC /* WindowPickerManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WindowPickerManager.swift; sourceTree = "<group>"; };
 		19E5C77BB0E1610921ED4A40 /* ScreenSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenSelectionView.swift; sourceTree = "<group>"; };
 		1D008E3CE2F4992B00ECAB6A /* ImageProcessorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageProcessorTests.swift; sourceTree = "<group>"; };
 		1FE110F9A77CB9CDFB0BEDFD /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
@@ -99,6 +98,7 @@
 		764C6C1C3A6A9EAB8A9DC743 /* LicenseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseManager.swift; sourceTree = "<group>"; };
 		7925DB8C1184AAB81FC7B6C6 /* ScreenSelectionOverlayWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenSelectionOverlayWindow.swift; sourceTree = "<group>"; };
 		7F927F3F38D11E649DA526CF /* HotKeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotKeyManager.swift; sourceTree = "<group>"; };
+		82948024B51A509DFED7716F /* WindowPickerManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowPickerManager.swift; sourceTree = "<group>"; };
 		94717F3B4A2F7CD0E0C4CC64 /* CalouraApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalouraApp.swift; sourceTree = "<group>"; };
 		94D8761A69116ED194469385 /* CaptureOverlayWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureOverlayWindow.swift; sourceTree = "<group>"; };
 		A0F1A4A2A0AF6324F1F5C0E7 /* NagDialog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NagDialog.swift; sourceTree = "<group>"; };
@@ -252,7 +252,7 @@
 				B1DD9D277EFECD2B891B3667 /* ScreenCaptureManager.swift */,
 				7925DB8C1184AAB81FC7B6C6 /* ScreenSelectionOverlayWindow.swift */,
 				19E5C77BB0E1610921ED4A40 /* ScreenSelectionView.swift */,
-				18BBF1103297123EFE1120CC /* WindowPickerManager.swift */,
+				82948024B51A509DFED7716F /* WindowPickerManager.swift */,
 			);
 			path = Capture;
 			sourceTree = "<group>";
@@ -399,7 +399,6 @@
 				D98312425B9DCD21765A2DA6 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
 				45E4C63451AB8AA26EFC64F3 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
-			productRefGroup = 041E6E24662782CF0DFDEC0A /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -460,7 +459,7 @@
 				89A5F88A36DB16CA961261BA /* SmartCropper.swift in Sources */,
 				61F17436491E814EED105C21 /* URLSchemeHandler.swift in Sources */,
 				111010296F957D4661F2CBE7 /* UpdateManager.swift in Sources */,
-				E23C6748FDC902E3FFD30A2E /* WindowPickerManager.swift in Sources */,
+				29AB177B65A4DF8FBFB6DC47 /* WindowPickerManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

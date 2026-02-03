@@ -80,6 +80,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Show nag once per launch if trial expired and unlicensed
             if AppSettings.shared.hasCompletedOnboarding {
                 nagController.showIfNeeded()
+
+                // Show preferences window on launch (after onboarding is complete)
+                PreferencesWindowController.shared.show()
             }
         }
     }
