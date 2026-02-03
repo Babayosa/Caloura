@@ -18,6 +18,9 @@ final class AppSettings: ObservableObject {
         static let imageFormat = "imageFormat"
         static let autoContextDetection = "autoContextDetection"
         static let launchAtLogin = "launchAtLogin"
+        static let firstLaunchDate = "firstLaunchDate"
+        static let licenseKey = "licenseKey"
+        static let isLicenseActivated = "isLicenseActivated"
     }
 
     @Published var saveDirectory: String {
@@ -60,6 +63,18 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(launchAtLogin, forKey: Keys.launchAtLogin) }
     }
 
+    @Published var firstLaunchDate: Date {
+        didSet { defaults.set(firstLaunchDate, forKey: Keys.firstLaunchDate) }
+    }
+
+    @Published var licenseKey: String {
+        didSet { defaults.set(licenseKey, forKey: Keys.licenseKey) }
+    }
+
+    @Published var isLicenseActivated: Bool {
+        didSet { defaults.set(isLicenseActivated, forKey: Keys.isLicenseActivated) }
+    }
+
     var saveDirectoryURL: URL {
         URL(fileURLWithPath: saveDirectory)
     }
@@ -83,5 +98,16 @@ final class AppSettings: ObservableObject {
         self.imageFormat = defaults.string(forKey: Keys.imageFormat) ?? "png"
         self.autoContextDetection = defaults.object(forKey: Keys.autoContextDetection) as? Bool ?? true
         self.launchAtLogin = defaults.object(forKey: Keys.launchAtLogin) as? Bool ?? false
+
+        // Trial clock: set on first launch, immutable thereafter
+        if let stored = defaults.object(forKey: Keys.firstLaunchDate) as? Date {
+            self.firstLaunchDate = stored
+        } else {
+            let now = Date()
+            self.firstLaunchDate = now
+            defaults.set(now, forKey: Keys.firstLaunchDate)
+        }
+        self.licenseKey = defaults.string(forKey: Keys.licenseKey) ?? ""
+        self.isLicenseActivated = defaults.bool(forKey: Keys.isLicenseActivated)
     }
 }

@@ -1,51 +1,39 @@
-# Menu Bar Redesign: Emulate Shottr Layout
+# 2-Tier Pricing Model + Preferences UI Overhaul + Landing Page Updates
 
 ## Plan
 
-- [x] 1. Change `.menuBarExtraStyle(.window)` → `.menuBarExtraStyle(.menu)` in CalouraApp.swift
-- [x] 2. Rewrite MenuBarView.swift body for native menu layout:
-  - Remove `VStack`/`Section` wrappers (not needed for `.menu` style)
-  - Remove inline shortcut text `(⌃⇧4)` etc from labels
-  - Promote OCR to top-level (disabled when no capture)
-  - Add "More" submenu containing: Repeat, Delayed, post-capture actions, Preset
-  - Restructure bottom: History → divider → Preferences/Updates/Quit
-  - Remove Setup Guide from top-level menu
-- [x] 3. `xcodebuild build` — clean compile
-- [x] 4. `xcodebuild test` — all 66 tests pass
-- [x] 5. Add verification evidence
+- [x] 1. **AppSettings** — Add `firstLaunchDate`, `licenseKey`, `isLicenseActivated` properties
+- [x] 2. **LicenseManager.swift** (new) — Trial tracking, activation state, Gumroad API
+- [x] 3. **NagDialog.swift** (new) — Post-trial nag dialog + window controller
+- [x] 4. **CalouraApp.swift** — Wire nag into `applicationDidFinishLaunching`
+- [x] 5. **PreferencesView.swift** — Shottr-style icon tab bar + License tab
+- [x] 6. **Landing page** — Pricing section, nav link, image placeholders, responsive cards
+- [x] 7. **LicenseManagerTests.swift** (new) — 12 unit tests for trial/license logic
+- [x] 8. **Verification** — Run all tests (66 existing + 12 new), confirm build, document results
 
-## Verification
+## Review / Evidence
 
-- **Build**: BUILD SUCCEEDED — no new warnings (only pre-existing CGWindowListCreateImage deprecation)
-- **Tests**: 66 tests executed, 0 failures — TEST SUCCEEDED
-- **Files changed**: `Caloura/App/CalouraApp.swift` (line 15), `Caloura/UI/MenuBarView.swift` (full body rewrite)
-- **No notification names changed** — all CalouraApp.swift handlers untouched
-- **Notification extension kept intact** — `.showSetupGuide` still declared (used by onboarding), just removed from top-level menu
+### Build
+- `xcodebuild build` — **BUILD SUCCEEDED** (no new warnings except pre-existing CGWindowListCreateImage deprecation)
+- `xcodegen generate` — project regenerated successfully with 3 new source files auto-discovered
 
-### Menu structure (new)
-```
-Capture Area              ⌃⇧4
-Capture Window            ⌃⇧5
-Capture Full Screen       ⌃⇧3
-Copy Text (OCR)                     ← disabled if no capture
----
-More ▸
-  Repeat Last Area
-  Delayed Capture ▸
-    Delayed Area (3s)
-    Delayed Full Screen (3s)
-    [Cancel Countdown]
-  ---
-  Copy as Markdown                  ← disabled if no capture
-  Copy with Citation                ← disabled if no capture
-  Annotate Last                     ← disabled if no capture
-  Pin Screenshot                    ← disabled if no capture
-  ---
-  Preset: [name] ▸
----
-History
----
-Preferences...            ⌘,
-Check for Updates...
-Quit Caloura              ⌘Q
-```
+### Tests
+- **78 tests executed, 0 failures — TEST SUCCEEDED**
+- 66 existing tests: all pass (no regressions)
+- 12 new `LicenseManagerTests`: all pass
+  - Trial days: day 1 (30), day 15 (15), day 31 (0)
+  - Trial expired: within trial (false), after trial (true), when licensed (false)
+  - Nag logic: during trial (false), expired+unlicensed (true), expired+licensed (false)
+  - Activation state: licensed, trial, expired
+
+### Files Changed/Created
+| File | Action |
+|------|--------|
+| `Caloura/Models/AppSettings.swift` | Modified — 3 new license properties |
+| `Caloura/App/LicenseManager.swift` | **New** — Trial tracking, activation state, Gumroad API |
+| `Caloura/UI/NagDialog.swift` | **New** — Post-trial nag dialog + window controller |
+| `Caloura/App/CalouraApp.swift` | Modified — nag controller + showIfNeeded wiring |
+| `Caloura/UI/PreferencesView.swift` | Modified — Shottr-style icon tab bar + License tab |
+| `Documents/caloura-site/index.html` | Modified — pricing section, nav links, image slots |
+| `Documents/caloura-site/style.css` | Modified — pricing cards, screenshot slots, nav links, responsive |
+| `CalouraTests/AppTests/LicenseManagerTests.swift` | **New** — 12 unit tests |

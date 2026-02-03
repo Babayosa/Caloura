@@ -11,6 +11,8 @@
 		0E2F8952CD675A7B9956700C /* CaptureContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699F1C771C0800F37394839E /* CaptureContext.swift */; };
 		111010296F957D4661F2CBE7 /* UpdateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2692F22CB4A8BF8EDCB4B18 /* UpdateManager.swift */; };
 		19CCBB9C35F4508A0BD841CC /* ScreenshotItemTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46BF3953A403BDB295C6F00B /* ScreenshotItemTests.swift */; };
+		21B0332B75BD9E09DBBB3FAD /* LicenseManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A7A42423314D5FD004AD25 /* LicenseManagerTests.swift */; };
+		2C1592BEABAB4F44DAFA2D3C /* NagDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0F1A4A2A0AF6324F1F5C0E7 /* NagDialog.swift */; };
 		2D60260CDD124631BA134F02 /* AnnotationOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCF688CE2838DA6BB11F8B31 /* AnnotationOverlay.swift */; };
 		2F333241B06FC23FC0E1134F /* PinnedScreenshotWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B8872C4995AF76343335E2F /* PinnedScreenshotWindow.swift */; };
 		3335DDB8ED877AC807C54A0B /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE110F9A77CB9CDFB0BEDFD /* HistoryView.swift */; };
@@ -35,6 +37,7 @@
 		89A5F88A36DB16CA961261BA /* SmartCropper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 250C93B46F9ABD7486125649 /* SmartCropper.swift */; };
 		8D630796EF04969739319DC5 /* PresetManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47A03B0C83EC120BD081782F /* PresetManager.swift */; };
 		9659EF15338E0C604A37C181 /* ScreenshotItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B131A95AA0CB9DB7610F6C91 /* ScreenshotItem.swift */; };
+		9AC2AC8EEC4E9DA487B163E0 /* LicenseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 764C6C1C3A6A9EAB8A9DC743 /* LicenseManager.swift */; };
 		9DB24705C225653804855080 /* ImageProcessorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D008E3CE2F4992B00ECAB6A /* ImageProcessorTests.swift */; };
 		A19416F135431777D7F7DBDA /* CalouraApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94717F3B4A2F7CD0E0C4CC64 /* CalouraApp.swift */; };
 		A289B62A27C3630066441D10 /* CaptureOverlayWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94D8761A69116ED194469385 /* CaptureOverlayWindow.swift */; };
@@ -84,6 +87,7 @@
 		47A03B0C83EC120BD081782F /* PresetManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetManager.swift; sourceTree = "<group>"; };
 		533CC7B48D3BE5A191E6BD89 /* QuickAccessOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickAccessOverlay.swift; sourceTree = "<group>"; };
 		56C232FB74F8F8BC03DE3D89 /* CaptureWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureWindow.swift; sourceTree = "<group>"; };
+		57A7A42423314D5FD004AD25 /* LicenseManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseManagerTests.swift; sourceTree = "<group>"; };
 		5A9E497EC87D04C8480FFF42 /* PreferencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferencesView.swift; sourceTree = "<group>"; };
 		63B72CF2B77F7F7B35963265 /* ProcessedScreenshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessedScreenshot.swift; sourceTree = "<group>"; };
 		6588C1017CD45E3C02DE6588 /* Caloura.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Caloura.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -92,11 +96,13 @@
 		70B82A42272A01F52D3058AF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		734277A60C0B95BA7A460864 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		761C0501FF605DE3B70832ED /* URLSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLSchemeHandler.swift; sourceTree = "<group>"; };
+		764C6C1C3A6A9EAB8A9DC743 /* LicenseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseManager.swift; sourceTree = "<group>"; };
 		7925DB8C1184AAB81FC7B6C6 /* ScreenSelectionOverlayWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenSelectionOverlayWindow.swift; sourceTree = "<group>"; };
 		7F927F3F38D11E649DA526CF /* HotKeyManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotKeyManager.swift; sourceTree = "<group>"; };
 		94717F3B4A2F7CD0E0C4CC64 /* CalouraApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalouraApp.swift; sourceTree = "<group>"; };
 		94D8761A69116ED194469385 /* CaptureOverlayWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureOverlayWindow.swift; sourceTree = "<group>"; };
 		978143A1B7E28B25D6DE5B03 /* WindowSelectionOverlayWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowSelectionOverlayWindow.swift; sourceTree = "<group>"; };
+		A0F1A4A2A0AF6324F1F5C0E7 /* NagDialog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NagDialog.swift; sourceTree = "<group>"; };
 		B131A95AA0CB9DB7610F6C91 /* ScreenshotItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotItem.swift; sourceTree = "<group>"; };
 		B1DD9D277EFECD2B891B3667 /* ScreenCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureManager.swift; sourceTree = "<group>"; };
 		BC35B127FD103884C4B34BF5 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
@@ -147,6 +153,7 @@
 				EBD0CD21F3329B60E6BA4CD0 /* CountdownOverlay.swift */,
 				1FE110F9A77CB9CDFB0BEDFD /* HistoryView.swift */,
 				21487A51F0B67168191171F1 /* MenuBarView.swift */,
+				A0F1A4A2A0AF6324F1F5C0E7 /* NagDialog.swift */,
 				734277A60C0B95BA7A460864 /* OnboardingView.swift */,
 				0B8872C4995AF76343335E2F /* PinnedScreenshotWindow.swift */,
 				5A9E497EC87D04C8480FFF42 /* PreferencesView.swift */,
@@ -176,6 +183,7 @@
 		4A8FC996C33513E445E7A081 /* AppTests */ = {
 			isa = PBXGroup;
 			children = (
+				57A7A42423314D5FD004AD25 /* LicenseManagerTests.swift */,
 				F50A69E2F11F898BD9B70652 /* URLSchemeHandlerTests.swift */,
 			);
 			path = AppTests;
@@ -307,6 +315,7 @@
 			children = (
 				94717F3B4A2F7CD0E0C4CC64 /* CalouraApp.swift */,
 				EC3E8A84DF9CCD9D210B6C62 /* CapturePipeline.swift */,
+				764C6C1C3A6A9EAB8A9DC743 /* LicenseManager.swift */,
 				E2692F22CB4A8BF8EDCB4B18 /* UpdateManager.swift */,
 				761C0501FF605DE3B70832ED /* URLSchemeHandler.swift */,
 			);
@@ -434,8 +443,10 @@
 				3335DDB8ED877AC807C54A0B /* HistoryView.swift in Sources */,
 				61EFD2076EE0D8B8D8CB3EEA /* HotKeyManager.swift in Sources */,
 				6613EC7FEB356A540D48C5C2 /* ImageProcessor.swift in Sources */,
+				9AC2AC8EEC4E9DA487B163E0 /* LicenseManager.swift in Sources */,
 				6F71C453D4F5762ADE3384B3 /* MarkdownExporter.swift in Sources */,
 				E6EE2265F03CED46668E6D3F /* MenuBarView.swift in Sources */,
+				2C1592BEABAB4F44DAFA2D3C /* NagDialog.swift in Sources */,
 				B79591DAD850D58CDA0911BC /* OCREngine.swift in Sources */,
 				FFB0C3628A49C172CFA199F1 /* OnboardingView.swift in Sources */,
 				2F333241B06FC23FC0E1134F /* PinnedScreenshotWindow.swift in Sources */,
@@ -464,6 +475,7 @@
 				827206A8A001871337FF4B60 /* ContextDetectorTests.swift in Sources */,
 				AE3227098958A74B3E910B08 /* FileOrganizerTests.swift in Sources */,
 				9DB24705C225653804855080 /* ImageProcessorTests.swift in Sources */,
+				21B0332B75BD9E09DBBB3FAD /* LicenseManagerTests.swift in Sources */,
 				B6F2DEB21F0072D13E7522DE /* MarkdownExporterTests.swift in Sources */,
 				F21C6A5FA1D2683A6982FE4C /* PresetManagerTests.swift in Sources */,
 				19CCBB9C35F4508A0BD841CC /* ScreenshotItemTests.swift in Sources */,

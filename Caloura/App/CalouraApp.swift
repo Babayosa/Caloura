@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let onboardingController = OnboardingWindowController()
     private let historyController = HistoryWindowController()
     private let annotationController = AnnotationWindowController()
+    private let nagController = NagWindowController()
     private var isInitialLaunch = true
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -74,6 +75,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if state == .neverGranted {
                     onboardingController.show(settings: AppSettings.shared)
                 }
+            }
+
+            // Show nag once per launch if trial expired and unlicensed
+            if AppSettings.shared.hasCompletedOnboarding {
+                nagController.showIfNeeded()
             }
         }
     }

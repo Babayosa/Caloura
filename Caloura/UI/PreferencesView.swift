@@ -2,28 +2,91 @@ import ServiceManagement
 import SwiftUI
 import KeyboardShortcuts
 
+// MARK: - Tab Enum
+
+enum PreferencesTab: String, CaseIterable, Identifiable {
+    case general
+    case shortcuts
+    case presets
+    case license
+    case about
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .general: "General"
+        case .shortcuts: "Shortcuts"
+        case .presets: "Presets"
+        case .license: "License"
+        case .about: "About"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .general: "gear"
+        case .shortcuts: "keyboard"
+        case .presets: "slider.horizontal.3"
+        case .license: "dollarsign.circle"
+        case .about: "info.circle"
+        }
+    }
+}
+
+// MARK: - Preferences View
+
 struct PreferencesView: View {
+    @State var selectedTab: PreferencesTab = .general
+
     var body: some View {
-        TabView {
-            GeneralPreferencesView()
-                .tabItem {
-                    Label("General", systemImage: "gear")
+        VStack(spacing: 0) {
+            // Icon tab bar
+            HStack(spacing: 0) {
+                ForEach(PreferencesTab.allCases) { tab in
+                    Button {
+                        selectedTab = tab
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: tab.icon)
+                                .font(.system(size: 18))
+                            Text(tab.label)
+                                .font(.system(size: 10))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(selectedTab == tab ? .primary : .secondary)
+                    .background(
+                        selectedTab == tab
+                            ? Color.accentColor.opacity(0.1)
+                            : Color.clear
+                    )
                 }
+            }
+            .padding(.horizontal, 4)
+            .padding(.top, 4)
 
-            ShortcutsPreferencesView()
-                .tabItem {
-                    Label("Shortcuts", systemImage: "keyboard")
-                }
+            Divider()
 
-            PresetsPreferencesView()
-                .tabItem {
-                    Label("Presets", systemImage: "tray.2")
+            // Tab content
+            Group {
+                switch selectedTab {
+                case .general:
+                    GeneralPreferencesView()
+                case .shortcuts:
+                    ShortcutsPreferencesView()
+                case .presets:
+                    PresetsPreferencesView()
+                case .license:
+                    LicensePreferencesView()
+                case .about:
+                    AboutView()
                 }
-
-            AboutView()
-                .tabItem {
-                    Label("About", systemImage: "info.circle")
-                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 480, minHeight: 360)
     }
@@ -185,6 +248,78 @@ struct PresetsPreferencesView: View {
     }
 }
 
+// MARK: - License Preferences
+
+struct LicensePreferencesView: View {
+    @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var license = LicenseManager.shared
+    @State private var keyInput = ""
+    @State private var isActivating = false
+
+    var body: some View {
+        VStack(spacing: 20) {
+            // Status badge
+            Group {
+                switch license.activationState {
+                case .licensed:
+                    Label("Licensed", systemImage: "checkmark.seal.fill")
+                        .font(.title2)
+                        .foregroundStyle(.green)
+                case .trial(let days):
+                    Label("Free Trial \u{2014} \(days) day\(days == 1 ? "" : "s") remaining", systemImage: "clock")
+                        .font(.title2)
+                        .foregroundStyle(.blue)
+                case .expired:
+                    Label("Trial Expired", systemImage: "clock.badge.exclamationmark")
+                        .font(.title2)
+                        .foregroundStyle(.orange)
+                case .checking:
+                    ProgressView()
+                        .controlSize(.small)
+                case .activationFailed(let msg):
+                    Label(msg, systemImage: "xmark.circle")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            if !settings.isLicenseActivated {
+                Divider()
+
+                VStack(spacing: 12) {
+                    TextField("License key", text: $keyInput)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 320)
+
+                    HStack(spacing: 12) {
+                        Button("Activate") {
+                            isActivating = true
+                            Task {
+                                await license.activate(licenseKey: keyInput)
+                                isActivating = false
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(keyInput.trimmingCharacters(in: .whitespaces).isEmpty || isActivating)
+
+                        Button("Buy License") {
+                            NSWorkspace.shared.open(LicenseManager.gumroadPurchaseURL)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+            }
+
+            Spacer()
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            keyInput = settings.licenseKey
+        }
+    }
+}
+
 // MARK: - About View
 
 struct AboutView: View {
@@ -224,14 +359,18 @@ final class PreferencesWindowController {
     private var window: NSWindow?
     private var closeObserver: NSObjectProtocol?
 
-    func show() {
+    func show(tab: PreferencesTab? = nil) {
         if let existing = window, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            if let tab {
+                setTab(tab)
+            }
             return
         }
 
-        let hostingView = NSHostingView(rootView: PreferencesView())
+        let preferencesView = PreferencesView(selectedTab: tab ?? .general)
+        let hostingView = NSHostingView(rootView: preferencesView)
         hostingView.frame = CGRect(x: 0, y: 0, width: 480, height: 360)
 
         let window = NSWindow(
@@ -263,5 +402,14 @@ final class PreferencesWindowController {
         }
 
         self.window = window
+    }
+
+    private func setTab(_ tab: PreferencesTab) {
+        // Re-create the hosting view with the desired tab selected
+        guard let window else { return }
+        let preferencesView = PreferencesView(selectedTab: tab)
+        let hostingView = NSHostingView(rootView: preferencesView)
+        hostingView.frame = window.contentView?.frame ?? CGRect(x: 0, y: 0, width: 480, height: 360)
+        window.contentView = hostingView
     }
 }
