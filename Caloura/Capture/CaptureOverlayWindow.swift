@@ -4,6 +4,15 @@ final class CaptureOverlayWindow: NSWindow {
     var onRegionSelected: ((CGRect, NSScreen) -> Void)?
     var onCancelled: (() -> Void)?
 
+    private var selectionView: RegionSelectionView?
+
+    /// Set the frozen screenshot to display as background
+    var frozenImage: CGImage? {
+        didSet {
+            selectionView?.frozenImage = frozenImage
+        }
+    }
+
     convenience init(for screen: NSScreen) {
         self.init(
             contentRect: screen.frame,
@@ -15,7 +24,7 @@ final class CaptureOverlayWindow: NSWindow {
         self.isReleasedWhenClosed = false
         self.level = .screenSaver
         self.isOpaque = false
-        self.backgroundColor = NSColor.black.withAlphaComponent(0.01)
+        self.backgroundColor = NSColor.clear
         self.hasShadow = false
         self.ignoresMouseEvents = false
         self.acceptsMouseMovedEvents = true
@@ -36,6 +45,7 @@ final class CaptureOverlayWindow: NSWindow {
         selectionView.onCancelled = { [weak self] in
             self?.onCancelled?()
         }
+        self.selectionView = selectionView
         self.contentView = selectionView
     }
 
@@ -43,6 +53,7 @@ final class CaptureOverlayWindow: NSWindow {
     override var canBecomeMain: Bool { true }
 
     static func showOnAllScreens(
+        frozenImages: [NSScreen: CGImage]? = nil,
         onRegionSelected: @escaping (CGRect, NSScreen) -> Void,
         onCancelled: @escaping () -> Void
     ) -> [CaptureOverlayWindow] {
@@ -54,6 +65,12 @@ final class CaptureOverlayWindow: NSWindow {
 
         for screen in NSScreen.screens {
             let overlay = CaptureOverlayWindow(for: screen)
+
+            // Set frozen image for this screen if provided
+            if let frozenImages = frozenImages, let image = frozenImages[screen] {
+                overlay.frozenImage = image
+            }
+
             overlay.onRegionSelected = { rect, screen in
                 NSCursor.unhide()
                 for w in windows {

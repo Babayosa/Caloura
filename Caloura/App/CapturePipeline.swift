@@ -23,7 +23,12 @@ final class CapturePipeline: ObservableObject {
         appState.isCapturing = true
 
         Task {
+            // Freeze capture: take screenshots of all screens first
+            // This preserves menus/tooltips that would close when overlay appears
+            let frozenImages = await captureAllScreens()
+
             overlayWindows = CaptureOverlayWindow.showOnAllScreens(
+                frozenImages: frozenImages,
                 onRegionSelected: { [weak self] rect, screen in
                     guard let self = self else { return }
                     Task { @MainActor in
@@ -31,7 +36,12 @@ final class CapturePipeline: ObservableObject {
                         // Store for repeat capture
                         self.appState.lastCaptureRect = rect
                         self.appState.lastCaptureScreen = screen
-                        await self.performAreaCapture(rect: rect, screen: screen)
+                        // Use the frozen image instead of capturing again
+                        if let frozenImage = frozenImages[screen] {
+                            await self.performFrozenAreaCapture(rect: rect, screen: screen, frozenImage: frozenImage)
+                        } else {
+                            await self.performAreaCapture(rect: rect, screen: screen)
+                        }
                     }
                 },
                 onCancelled: { [weak self] in
@@ -43,6 +53,17 @@ final class CapturePipeline: ObservableObject {
                 }
             )
         }
+    }
+
+    /// Capture all screens instantly for freeze mode
+    private func captureAllScreens() async -> [NSScreen: CGImage] {
+        var images: [NSScreen: CGImage] = [:]
+        for screen in NSScreen.screens {
+            if let image = try? await captureManager.captureFullScreen(screen: screen) {
+                images[screen] = image
+            }
+        }
+        return images
     }
 
     func captureFullscreen() {
@@ -162,6 +183,29 @@ final class CapturePipeline: ObservableObject {
     private func performAreaCapture(rect: CGRect, screen: NSScreen) async {
         await performCapture(mode: .area) {
             try await self.captureManager.captureArea(rect: rect, screen: screen)
+        }
+    }
+
+    /// Crop from an already-captured frozen image (for freeze capture mode)
+    private func performFrozenAreaCapture(rect: CGRect, screen: NSScreen, frozenImage: CGImage) async {
+        await performCapture(mode: .area) {
+            // Convert screen coordinates to image coordinates
+            let scale = screen.backingScaleFactor
+            let screenFrame = screen.frame
+
+            // Calculate crop rect relative to this screen's image
+            let imageRect = CGRect(
+                x: (rect.origin.x - screenFrame.origin.x) * scale,
+                y: (rect.origin.y - screenFrame.origin.y) * scale,
+                width: rect.width * scale,
+                height: rect.height * scale
+            )
+
+            // Crop the frozen image
+            guard let croppedImage = frozenImage.cropping(to: imageRect) else {
+                throw CaptureError.captureFailed("Failed to crop frozen image")
+            }
+            return croppedImage
         }
     }
 

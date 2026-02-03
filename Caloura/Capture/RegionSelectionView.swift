@@ -4,6 +4,11 @@ final class RegionSelectionView: NSView {
     var onRegionSelected: ((CGRect) -> Void)?
     var onCancelled: (() -> Void)?
 
+    /// Frozen screenshot to display as background (enables menu capture)
+    var frozenImage: CGImage? {
+        didSet { needsDisplay = true }
+    }
+
     private var selectionStart: NSPoint?
     private var selectionEnd: NSPoint?
     private var isSelecting = false
@@ -61,10 +66,21 @@ final class RegionSelectionView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
+        // Draw frozen screenshot as background (enables menu capture)
+        if let frozenImage = frozenImage {
+            let context = NSGraphicsContext.current?.cgContext
+            context?.draw(frozenImage, in: bounds)
+        }
+
         if isSelecting, let start = selectionStart, let end = selectionEnd {
             let rect = normalizedRect(from: start, to: end)
 
-            // Selection border — thin white, no dimming overlay
+            // Dim area outside selection when frozen image is shown
+            if frozenImage != nil {
+                drawDimmingMask(excluding: rect)
+            }
+
+            // Selection border — thin white
             selectionBorderColor.withAlphaComponent(0.9).setStroke()
             let borderPath = NSBezierPath(rect: rect)
             borderPath.lineWidth = 1
@@ -73,7 +89,7 @@ final class RegionSelectionView: NSView {
             // Size label
             drawSizeLabel(for: rect)
         } else {
-            // No overlay — screen stays at full clarity
+            // Show hint label
             drawHintLabel()
         }
 
@@ -81,6 +97,20 @@ final class RegionSelectionView: NSView {
         if let mouseLocation = currentMouseLocation {
             drawCursorDot(at: mouseLocation)
         }
+    }
+
+    private func drawDimmingMask(excluding rect: CGRect) {
+        NSColor.black.withAlphaComponent(0.4).setFill()
+
+        // Draw four rectangles around the selection
+        // Top
+        NSBezierPath(rect: CGRect(x: 0, y: rect.maxY, width: bounds.width, height: bounds.maxY - rect.maxY)).fill()
+        // Bottom
+        NSBezierPath(rect: CGRect(x: 0, y: 0, width: bounds.width, height: rect.minY)).fill()
+        // Left
+        NSBezierPath(rect: CGRect(x: 0, y: rect.minY, width: rect.minX, height: rect.height)).fill()
+        // Right
+        NSBezierPath(rect: CGRect(x: rect.maxX, y: rect.minY, width: bounds.maxX - rect.maxX, height: rect.height)).fill()
     }
 
     private func drawSizeLabel(for rect: CGRect) {
