@@ -1,6 +1,9 @@
 import AppKit
 import Foundation
+import os.log
 import ScreenCaptureKit
+
+private let logger = Logger(subsystem: "com.caloura.app", category: "CapturePipeline")
 
 @MainActor
 final class CapturePipeline: ObservableObject {
@@ -248,12 +251,14 @@ final class CapturePipeline: ObservableObject {
     // MARK: - Pipeline
 
     private func performCapture(mode: CaptureMode, capture: () async throws -> CGImage) async {
+        logger.info("Starting capture: mode=\(mode.rawValue)")
         do {
             // Detect context before capture
             let (appName, windowTitle, category) = ContextDetector.detectContext()
 
             // Capture
             let cgImage = try await capture()
+            logger.info("Capture succeeded: \(cgImage.width)x\(cgImage.height)")
 
             // Build context
             let context = CaptureContext(
@@ -280,6 +285,7 @@ final class CapturePipeline: ObservableObject {
                 context: context,
                 smartCropEnabled: shouldCrop
             )
+            processed.presetName = preset.name
 
             // Save to disk (async, runs on background thread)
             if settings.autoSaveToDisk {
@@ -314,39 +320,36 @@ final class CapturePipeline: ObservableObject {
 
             // Update state
             appState.lastScreenshot = processed
-            appState.addScreenshot(processed.toScreenshotItem())
             appState.statusMessage = "Captured!"
 
-            // Show Quick Access Overlay
-            QuickAccessOverlay.shared.show(for: processed)
+            // Only add to history and run OCR if saving to disk (otherwise no file to reference)
+            if settings.autoSaveToDisk {
+                let newItem = processed.toScreenshotItem()
+                let screenshotID = newItem.id  // Capture ID before adding to avoid race condition
+                appState.addScreenshot(newItem)
 
-            // Notify URL scheme handler and other listeners
-            NotificationCenter.default.post(name: .captureCompleted, object: nil)
-
-            // Background OCR — capture the item's UUID so we update the correct entry
-            // even if another capture completes before OCR finishes.
-            let cgImageForOCR = processed.cgImage
-            let screenshotID = appState.recentScreenshots.first?.id
-            Task.detached {
-                if let text = try? await OCREngine.recognizeText(in: cgImageForOCR),
-                   !text.isEmpty,
-                   let targetID = screenshotID {
-                    await MainActor.run {
-                        let state = AppState.shared
-                        guard let index = state.recentScreenshots.firstIndex(where: { $0.id == targetID }) else { return }
-                        let item = state.recentScreenshots[index]
-                        let updated = ScreenshotItem(
-                            id: item.id,
-                            timestamp: item.timestamp,
-                            filePath: item.filePath,
-                            fileName: item.fileName,
-                            sourceAppName: item.sourceAppName,
-                            sourceWindowTitle: item.sourceWindowTitle,
-                            captureMode: item.captureMode,
-                            presetName: item.presetName,
-                            ocrText: text,
-                            width: item.width,
-                            height: item.height,
+                // Background OCR — use the captured UUID to update the correct entry
+                // even if another capture completes before OCR finishes.
+                let cgImageForOCR = processed.cgImage
+                Task.detached {
+                    if let text = try? await OCREngine.recognizeText(in: cgImageForOCR),
+                       !text.isEmpty {
+                        await MainActor.run {
+                            let state = AppState.shared
+                            guard let index = state.recentScreenshots.firstIndex(where: { $0.id == screenshotID }) else { return }
+                            let item = state.recentScreenshots[index]
+                            let updated = ScreenshotItem(
+                                id: item.id,
+                                timestamp: item.timestamp,
+                                filePath: item.filePath,
+                                fileName: item.fileName,
+                                sourceAppName: item.sourceAppName,
+                                sourceWindowTitle: item.sourceWindowTitle,
+                                captureMode: item.captureMode,
+                                presetName: item.presetName,
+                                ocrText: text,
+                                width: item.width,
+                                height: item.height,
                             title: item.title,
                             tags: item.tags
                         )
@@ -354,11 +357,20 @@ final class CapturePipeline: ObservableObject {
                         state.saveHistory()
                     }
                 }
+                }
             }
 
+            // Show Quick Access Overlay
+            QuickAccessOverlay.shared.show(for: processed)
+
+            // Notify URL scheme handler and other listeners
+            NotificationCenter.default.post(name: .captureCompleted, object: nil)
+
         } catch CaptureError.noPermission {
+            logger.warning("Capture failed: no permission")
             captureManager.showPermissionAlert()
         } catch {
+            logger.error("Capture failed: \(error.localizedDescription)")
             appState.statusMessage = "Capture failed: \(error.localizedDescription)"
         }
 

@@ -9,6 +9,7 @@ final class ProcessedScreenshot {
     let ocrText: String?
     var filePath: URL?
     var fileName: String
+    var presetName: String?
 
     var width: Int { cgImage.width }
     var height: Int { cgImage.height }
@@ -31,7 +32,8 @@ final class ProcessedScreenshot {
         context: CaptureContext,
         ocrText: String? = nil,
         filePath: URL? = nil,
-        fileName: String = ""
+        fileName: String = "",
+        presetName: String? = nil
     ) {
         self.image = image
         self.cgImage = cgImage
@@ -40,6 +42,7 @@ final class ProcessedScreenshot {
         self.ocrText = ocrText
         self.filePath = filePath
         self.fileName = fileName
+        self.presetName = presetName
     }
 
     func toScreenshotItem() -> ScreenshotItem {
@@ -49,6 +52,7 @@ final class ProcessedScreenshot {
             sourceAppName: context.sourceAppName,
             sourceWindowTitle: context.sourceWindowTitle,
             captureMode: context.mode.rawValue,
+            presetName: presetName,
             ocrText: ocrText,
             width: width,
             height: height,

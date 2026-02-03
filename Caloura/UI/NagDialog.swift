@@ -52,6 +52,7 @@ struct NagDialogView: View {
 @MainActor
 final class NagWindowController {
     private var window: NSWindow?
+    private var closeObserver: NSObjectProtocol?
 
     func showIfNeeded() {
         let settings = AppSettings.shared
@@ -100,13 +101,19 @@ final class NagWindowController {
 
         self.window = window
 
-        NotificationCenter.default.addObserver(
+        // Store observer token to avoid memory leak
+        closeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.window = nil
+                guard let self = self else { return }
+                if let token = self.closeObserver {
+                    NotificationCenter.default.removeObserver(token)
+                    self.closeObserver = nil
+                }
+                self.window = nil
             }
         }
     }

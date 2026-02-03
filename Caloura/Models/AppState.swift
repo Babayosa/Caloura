@@ -3,6 +3,8 @@ import Foundation
 import os.log
 import SwiftUI
 
+private let appStateLogger = Logger(subsystem: "com.caloura.app", category: "AppState")
+
 @MainActor
 final class AppState: ObservableObject {
     static let shared = AppState()
@@ -65,26 +67,25 @@ final class AppState: ObservableObject {
         saveTask?.cancel()
         saveTask = nil
 
-        // Offload encoding to background thread
-        let items = recentScreenshots
+        // Copy array to avoid data race - background thread reads the copy
+        let itemsCopy = Array(recentScreenshots)
+        let key = historyKey
         Task.detached(priority: .utility) {
             do {
-                let data = try JSONEncoder().encode(items)
-                UserDefaults.standard.set(data, forKey: self.historyKey)
+                let data = try JSONEncoder().encode(itemsCopy)
+                UserDefaults.standard.set(data, forKey: key)
             } catch {
-                Self.logger.error("Failed to encode screenshot history: \(error.localizedDescription)")
+                appStateLogger.error("Failed to encode screenshot history: \(error.localizedDescription)")
             }
         }
     }
-
-    private static let logger = Logger(subsystem: "com.caloura.app", category: "AppState")
 
     private func loadHistory() {
         guard let data = UserDefaults.standard.data(forKey: historyKey) else { return }
         do {
             recentScreenshots = try JSONDecoder().decode([ScreenshotItem].self, from: data)
         } catch {
-            Self.logger.error("Failed to decode screenshot history: \(error.localizedDescription). Attempting partial recovery.")
+            appStateLogger.error("Failed to decode screenshot history: \(error.localizedDescription). Attempting partial recovery.")
             // Attempt to recover individual items from the array
             if let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
                 var recovered: [ScreenshotItem] = []
@@ -94,7 +95,7 @@ final class AppState: ObservableObject {
                         recovered.append(item)
                     }
                 }
-                Self.logger.info("Recovered \(recovered.count) of \(jsonArray.count) history items")
+                appStateLogger.info("Recovered \(recovered.count) of \(jsonArray.count) history items")
                 recentScreenshots = recovered
                 saveHistoryNow()
             }

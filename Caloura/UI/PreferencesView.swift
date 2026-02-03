@@ -5,6 +5,7 @@ import KeyboardShortcuts
 // MARK: - Tab Enum
 
 enum PreferencesTab: String, CaseIterable, Identifiable {
+    case welcome
     case general
     case shortcuts
     case presets
@@ -15,6 +16,7 @@ enum PreferencesTab: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
+        case .welcome: "Welcome"
         case .general: "General"
         case .shortcuts: "Shortcuts"
         case .presets: "Presets"
@@ -25,6 +27,7 @@ enum PreferencesTab: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
+        case .welcome: "hand.wave"
         case .general: "gear"
         case .shortcuts: "keyboard"
         case .presets: "slider.horizontal.3"
@@ -32,21 +35,49 @@ enum PreferencesTab: String, CaseIterable, Identifiable {
         case .about: "info.circle"
         }
     }
+
+    /// Tabs to show based on whether user has seen welcome
+    static func visibleTabs(hasSeenWelcome: Bool) -> [PreferencesTab] {
+        if hasSeenWelcome {
+            return [.general, .shortcuts, .presets, .license, .about]
+        } else {
+            return [.welcome, .general, .shortcuts, .presets, .license, .about]
+        }
+    }
 }
 
 // MARK: - Preferences View
 
 struct PreferencesView: View {
-    @State var selectedTab: PreferencesTab = .general
+    @ObservedObject private var settings = AppSettings.shared
+    @State private var selectedTab: PreferencesTab
+
+    init(selectedTab: PreferencesTab? = nil) {
+        if let selectedTab {
+            _selectedTab = State(initialValue: selectedTab)
+        } else {
+            // Start on welcome tab if user hasn't seen it yet
+            _selectedTab = State(initialValue: AppSettings.shared.hasSeenWelcome ? .general : .welcome)
+        }
+    }
+
+    private var visibleTabs: [PreferencesTab] {
+        PreferencesTab.visibleTabs(hasSeenWelcome: settings.hasSeenWelcome)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             // Icon tab bar
             HStack(spacing: 2) {
-                ForEach(PreferencesTab.allCases) { tab in
+                ForEach(visibleTabs) { tab in
                     Button {
+                        let wasOnWelcome = selectedTab == .welcome
                         withAnimation(.easeInOut(duration: 0.15)) {
                             selectedTab = tab
+                        }
+                        // Mark welcome as seen when user navigates away from it
+                        if wasOnWelcome && tab != .welcome && !settings.hasSeenWelcome {
+                            settings.hasSeenWelcome = true
                         }
                     } label: {
                         VStack(spacing: 4) {
@@ -78,6 +109,13 @@ struct PreferencesView: View {
             // Tab content
             Group {
                 switch selectedTab {
+                case .welcome:
+                    WelcomePreferencesView {
+                        settings.hasSeenWelcome = true
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            selectedTab = .general
+                        }
+                    }
                 case .general:
                     GeneralPreferencesView()
                 case .shortcuts:
@@ -93,6 +131,77 @@ struct PreferencesView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 500, minHeight: 400)
+    }
+}
+
+// MARK: - Welcome Preferences
+
+struct WelcomePreferencesView: View {
+    var onContinue: () -> Void
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            Image(systemName: "hand.wave.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(Color.accentColor)
+
+            VStack(spacing: 8) {
+                Text("Hi there!")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+
+                Text("Welcome to Caloura")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("You're all set up and ready to capture.\nExplore the tabs above to customize your experience.")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+
+            VStack(spacing: 12) {
+                HStack(spacing: 8) {
+                    Image(systemName: "keyboard")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20)
+                    Text("**Shortcuts** — Customize your capture hotkeys")
+                        .font(.callout)
+                }
+
+                HStack(spacing: 8) {
+                    Image(systemName: "slider.horizontal.3")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20)
+                    Text("**Presets** — Different modes for different workflows")
+                        .font(.callout)
+                }
+
+                HStack(spacing: 8) {
+                    Image(systemName: "gear")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20)
+                    Text("**General** — Output format, save location, and more")
+                        .font(.callout)
+                }
+            }
+            .padding()
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(8)
+
+            Button("Let's Go") {
+                onContinue()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
     }
 }
 
@@ -125,32 +234,41 @@ struct GeneralPreferencesView: View {
                 Toggle("Auto-detect context", isOn: $settings.autoContextDetection)
             }
 
-            Section("After Capture") {
+            Section {
                 Toggle("Copy to clipboard", isOn: $settings.autoCopyToClipboard)
                 Toggle("Save to disk", isOn: $settings.autoSaveToDisk)
+                if !settings.autoSaveToDisk {
+                    Text("Screenshots will only be copied to clipboard and won't use disk space.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("After Capture")
             }
 
-            Section("Output") {
-                LabeledContent("Save location") {
-                    HStack {
-                        Text(settings.saveDirectory)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .foregroundStyle(.secondary)
-                        Button("Browse...") {
-                            chooseDirectory()
+            if settings.autoSaveToDisk {
+                Section("Output") {
+                    LabeledContent("Save location") {
+                        HStack {
+                            Text(settings.saveDirectory)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .foregroundStyle(.secondary)
+                            Button("Browse...") {
+                                chooseDirectory()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
                     }
-                }
 
-                Picker("Image format", selection: $settings.imageFormat) {
-                    Text("PNG").tag("png")
-                    Text("JPEG").tag("jpeg")
-                    Text("TIFF").tag("tiff")
+                    Picker("Image format", selection: $settings.imageFormat) {
+                        Text("PNG").tag("png")
+                        Text("JPEG").tag("jpeg")
+                        Text("TIFF").tag("tiff")
+                    }
+                    .pickerStyle(.segmented)
                 }
-                .pickerStyle(.segmented)
             }
         }
         .formStyle(.grouped)

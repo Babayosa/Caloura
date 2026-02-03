@@ -349,6 +349,7 @@ struct OnboardingView: View {
 @MainActor
 final class OnboardingWindowController {
     private var window: NSWindow?
+    private var closeObserver: NSObjectProtocol?
 
     func showIfNeeded(settings: AppSettings) {
         guard !settings.hasCompletedOnboarding else { return }
@@ -386,14 +387,19 @@ final class OnboardingWindowController {
 
         self.window = window
 
-        // Nil out window reference when closed via the close button
-        NotificationCenter.default.addObserver(
+        // Store observer token to avoid memory leak
+        closeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.window = nil
+                guard let self = self else { return }
+                if let token = self.closeObserver {
+                    NotificationCenter.default.removeObserver(token)
+                    self.closeObserver = nil
+                }
+                self.window = nil
             }
         }
     }

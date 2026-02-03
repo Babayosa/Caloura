@@ -81,8 +81,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if AppSettings.shared.hasCompletedOnboarding {
                 nagController.showIfNeeded()
 
-                // Show preferences window on launch (after onboarding is complete)
-                PreferencesWindowController.shared.show()
+                // Show preferences window with welcome tab only on first launch after onboarding
+                if !AppSettings.shared.hasSeenWelcome {
+                    PreferencesWindowController.shared.show()
+                }
             }
         }
     }

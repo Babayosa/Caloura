@@ -270,7 +270,9 @@ final class ScreenCaptureManager {
 
     private func sckCaptureFullScreen(screen: NSScreen?) async throws -> CGImage {
         let content = try await SCShareableContent.current
-        let targetScreen = screen ?? NSScreen.main!
+        guard let targetScreen = screen ?? NSScreen.main ?? NSScreen.screens.first else {
+            throw CaptureError.noDisplay
+        }
 
         guard let scDisplay = content.displays.first(where: { display in
             display.displayID == targetScreen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
@@ -295,7 +297,9 @@ final class ScreenCaptureManager {
 
     private func sckCaptureArea(rect: CGRect, screen: NSScreen?) async throws -> CGImage {
         let content = try await SCShareableContent.current
-        let targetScreen = screen ?? NSScreen.main!
+        guard let targetScreen = screen ?? NSScreen.main ?? NSScreen.screens.first else {
+            throw CaptureError.noDisplay
+        }
 
         guard let scDisplay = content.displays.first(where: { display in
             display.displayID == targetScreen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
@@ -409,7 +413,9 @@ final class ScreenCaptureManager {
     }
 
     private func screencaptureFullScreen(screen: NSScreen?) async throws -> CGImage {
-        let targetScreen = screen ?? NSScreen.main!
+        guard let targetScreen = screen ?? NSScreen.main ?? NSScreen.screens.first else {
+            throw CaptureError.noDisplay
+        }
         guard let displayID = targetScreen.deviceDescription[
             NSDeviceDescriptionKey("NSScreenNumber")
         ] as? CGDirectDisplayID else {
@@ -422,7 +428,9 @@ final class ScreenCaptureManager {
     }
 
     private func screencaptureArea(rect: CGRect, screen: NSScreen?) async throws -> CGImage {
-        let targetScreen = screen ?? NSScreen.main!
+        guard let targetScreen = screen ?? NSScreen.main ?? NSScreen.screens.first else {
+            throw CaptureError.noDisplay
+        }
         guard let displayID = targetScreen.deviceDescription[
             NSDeviceDescriptionKey("NSScreenNumber")
         ] as? CGDirectDisplayID else {
@@ -456,7 +464,9 @@ final class ScreenCaptureManager {
     // Prefer ScreenCaptureKit (SCK) for all capture operations.
 
     private func cgCaptureFullScreen(screen: NSScreen?) throws -> CGImage {
-        let targetScreen = screen ?? NSScreen.main!
+        guard let targetScreen = screen ?? NSScreen.main ?? NSScreen.screens.first else {
+            throw CaptureError.noDisplay
+        }
         guard let displayID = targetScreen.deviceDescription[
             NSDeviceDescriptionKey("NSScreenNumber")
         ] as? CGDirectDisplayID else {
@@ -472,7 +482,9 @@ final class ScreenCaptureManager {
     }
 
     private func cgCaptureArea(rect: CGRect, screen: NSScreen?) throws -> CGImage {
-        let targetScreen = screen ?? NSScreen.main!
+        guard let targetScreen = screen ?? NSScreen.main ?? NSScreen.screens.first else {
+            throw CaptureError.noDisplay
+        }
         let screenFrame = targetScreen.frame
         // Convert AppKit coords (bottom-left) to CG coords (top-left)
         let cgRect = CGRect(

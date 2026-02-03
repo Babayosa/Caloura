@@ -26,6 +26,7 @@ final class AppSettings: ObservableObject {
         static let firstLaunchDate = "firstLaunchDate"
         static let licenseKey = "licenseKey"
         static let isLicenseActivated = "isLicenseActivated"
+        static let hasSeenWelcome = "hasSeenWelcome"
     }
 
     @Published var saveDirectory: String {
@@ -84,6 +85,10 @@ final class AppSettings: ObservableObject {
         didSet { debouncedSave() }
     }
 
+    @Published var hasSeenWelcome: Bool {
+        didSet { debouncedSave() }
+    }
+
     var saveDirectoryURL: URL {
         URL(fileURLWithPath: saveDirectory)
     }
@@ -121,6 +126,7 @@ final class AppSettings: ObservableObject {
         defaults.set(firstLaunchDate, forKey: Keys.firstLaunchDate)
         defaults.set(licenseKey, forKey: Keys.licenseKey)
         defaults.set(isLicenseActivated, forKey: Keys.isLicenseActivated)
+        defaults.set(hasSeenWelcome, forKey: Keys.hasSeenWelcome)
     }
 
     // MARK: - Init
@@ -149,5 +155,6 @@ final class AppSettings: ObservableObject {
         }
         self.licenseKey = defaults.string(forKey: Keys.licenseKey) ?? ""
         self.isLicenseActivated = defaults.bool(forKey: Keys.isLicenseActivated)
+        self.hasSeenWelcome = defaults.bool(forKey: Keys.hasSeenWelcome)
     }
 }

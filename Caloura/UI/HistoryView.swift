@@ -279,7 +279,7 @@ struct HistoryGridItem: View {
         .task(id: item.id) {
             thumbnail = await loadThumbnailAsync()
         }
-        .onChange(of: isSelected) { selected in
+        .onChange(of: isSelected) { _, selected in
             if !selected {
                 isEditingTitle = false
                 isAddingTag = false
