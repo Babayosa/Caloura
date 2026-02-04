@@ -5,16 +5,43 @@ import XCTest
 final class AppStateTests: XCTestCase {
 
     private var appState: AppState!
+    private var defaults: UserDefaults!
+    private var historyFileURL: URL!
+    private var tempRoot: URL!
+    private var defaultsSuite: String!
 
     override func setUp() {
         super.setUp()
-        appState = AppState.shared
+        defaultsSuite = "com.caloura.tests.appstate.core.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: defaultsSuite)
+        defaults.removePersistentDomain(forName: defaultsSuite)
+
+        tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("caloura-appstate-tests-\(UUID().uuidString)")
+        historyFileURL = tempRoot.appendingPathComponent("history.enc")
+        try? FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        HistoryCrypto.setSecurityDirectoryForTesting(tempRoot.appendingPathComponent("security"))
+        HistoryCrypto.resetCachedKeyForTesting()
+
+        appState = AppState(defaults: defaults, historyStoreURL: historyFileURL)
         appState.clearHistory()
     }
 
     override func tearDown() {
         appState.clearHistory()
         appState = nil
+        if let defaultsSuite {
+            defaults.removePersistentDomain(forName: defaultsSuite)
+        }
+        defaults = nil
+        defaultsSuite = nil
+        HistoryCrypto.setSecurityDirectoryForTesting(nil)
+        HistoryCrypto.resetCachedKeyForTesting()
+        if let tempRoot {
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+        tempRoot = nil
+        historyFileURL = nil
         super.tearDown()
     }
 

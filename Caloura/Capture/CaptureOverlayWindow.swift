@@ -3,6 +3,7 @@ import AppKit
 final class CaptureOverlayWindow: NSWindow {
     var onRegionSelected: ((CGRect, NSScreen) -> Void)?
     var onCancelled: (() -> Void)?
+    var onFirstMouseDown: (() -> Void)?
 
     private var selectionView: RegionSelectionView?
 
@@ -42,6 +43,9 @@ final class CaptureOverlayWindow: NSWindow {
         selectionView.onCancelled = { [weak self] in
             self?.onCancelled?()
         }
+        selectionView.onFirstMouseDown = { [weak self] in
+            self?.onFirstMouseDown?()
+        }
         self.selectionView = selectionView
         self.contentView = selectionView
     }
@@ -52,20 +56,13 @@ final class CaptureOverlayWindow: NSWindow {
     static func showOnAllScreens(
         frozenImages: [NSScreen: CGImage]? = nil,
         onRegionSelected: @escaping (CGRect, NSScreen) -> Void,
-        onCancelled: @escaping () -> Void
+        onCancelled: @escaping () -> Void,
+        onFirstMouseDown: (() -> Void)? = nil
     ) -> [CaptureOverlayWindow] {
         var windows: [CaptureOverlayWindow] = []
-        var cursorRestored = false
-
-        func restoreCursorIfNeeded() {
-            guard !cursorRestored else { return }
-            cursorRestored = true
-            NSCursor.pop()
-        }
 
         // Activate app so the first click is a real mouseDown, not a window-activation click
         NSApp.activate(ignoringOtherApps: true)
-        NSCursor.crosshair.push()
 
         for screen in NSScreen.screens {
             let overlay = CaptureOverlayWindow(for: screen)
@@ -76,23 +73,24 @@ final class CaptureOverlayWindow: NSWindow {
             }
 
             overlay.onRegionSelected = { rect, screen in
-                restoreCursorIfNeeded()
                 for w in windows {
                     w.onRegionSelected = nil
                     w.onCancelled = nil
+                    w.onFirstMouseDown = nil
                     w.close()
                 }
                 onRegionSelected(rect, screen)
             }
             overlay.onCancelled = {
-                restoreCursorIfNeeded()
                 for w in windows {
                     w.onRegionSelected = nil
                     w.onCancelled = nil
+                    w.onFirstMouseDown = nil
                     w.close()
                 }
                 onCancelled()
             }
+            overlay.onFirstMouseDown = onFirstMouseDown
             overlay.makeKeyAndOrderFront(nil)
             windows.append(overlay)
         }

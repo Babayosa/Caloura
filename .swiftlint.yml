@@ -1,0 +1,18 @@
+# Keep linting scoped to repo sources (avoid SwiftPM checkouts).
+included:
+  - Caloura
+  - CalouraTests
+  - Package.swift
+
+excluded:
+  - .build
+  - build
+  - DerivedData
+  - Caloura.xcodeproj
+
+# Disable rules that currently fail on legacy code; revisit as part of cleanup work.
+disabled_rules:
+  - identifier_name
+  - line_length
+  - type_body_length
+  - function_body_length

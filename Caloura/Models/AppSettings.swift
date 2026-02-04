@@ -1,14 +1,19 @@
 import Foundation
 import SwiftUI
+import os.log
 
 @MainActor
 final class AppSettings: ObservableObject {
+    typealias LegacyLicenseMigration = () -> LegacyKeychainReadResult
+
     static let shared = AppSettings()
-    private static let keychainService = Bundle.main.bundleIdentifier ?? "com.caloura.app"
+    nonisolated private static let keychainService = Bundle.main.bundleIdentifier ?? "com.caloura.app"
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
+    private let legacyLicenseMigration: LegacyLicenseMigration
+    private let logger = Logger(subsystem: "com.caloura.app", category: "AppSettings")
 
-    // Debounce settings saves to avoid hammering UserDefaults
+    // Debounce settings saves to avoid hammering UserDefaults.
     private var saveTask: Task<Void, Never>?
     private let saveDebounceInterval: UInt64 = 300_000_000 // 300ms
 
@@ -28,6 +33,7 @@ final class AppSettings: ObservableObject {
         static let licenseKey = "licenseKey"
         static let isLicenseActivated = "isLicenseActivated"
         static let hasSeenWelcome = "hasSeenWelcome"
+        static let hasAttemptedLegacyLicenseMigration = "hasAttemptedLegacyLicenseMigration"
     }
 
     @Published var saveDirectory: String {
@@ -79,11 +85,14 @@ final class AppSettings: ObservableObject {
     }
 
     @Published var licenseKey: String {
-        didSet { saveLicenseKey() }
+        didSet { persistLicenseState() }
     }
 
     @Published var isLicenseActivated: Bool {
-        didSet { debouncedSave() }
+        didSet {
+            persistLicenseState()
+            debouncedSave()
+        }
     }
 
     @Published var hasSeenWelcome: Bool {
@@ -99,6 +108,10 @@ final class AppSettings: ObservableObject {
             return NSHomeDirectory() + "/Pictures/Caloura"
         }
         return pictures.appendingPathComponent("Caloura").path
+    }
+
+    nonisolated private static func defaultLegacyLicenseMigration() -> LegacyKeychainReadResult {
+        KeychainHelper.readLegacyStringNonInteractive(service: keychainService, account: Keys.licenseKey)
     }
 
     // MARK: - Debounced Save
@@ -129,18 +142,58 @@ final class AppSettings: ObservableObject {
         defaults.set(hasSeenWelcome, forKey: Keys.hasSeenWelcome)
     }
 
-    private func saveLicenseKey() {
-        let service = Self.keychainService
-        if licenseKey.isEmpty {
-            KeychainHelper.delete(service: service, account: Keys.licenseKey)
+    func persistLicenseState() {
+        let normalized = licenseKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized.isEmpty {
+            defaults.removeObject(forKey: Keys.licenseKey)
         } else {
-            _ = KeychainHelper.setString(licenseKey, service: service, account: Keys.licenseKey)
+            defaults.set(normalized, forKey: Keys.licenseKey)
+        }
+        defaults.set(isLicenseActivated, forKey: Keys.isLicenseActivated)
+    }
+
+    /// Best-effort migration path for legacy keychain-backed license keys.
+    /// This is non-interactive and never shows authentication UI.
+    func migrateLegacyLicenseSilentlyIfAvailable() {
+        guard !defaults.bool(forKey: Keys.hasAttemptedLegacyLicenseMigration) else {
+            return
+        }
+        defer {
+            defaults.set(true, forKey: Keys.hasAttemptedLegacyLicenseMigration)
+        }
+
+        guard licenseKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+
+        switch legacyLicenseMigration() {
+        case .success(let migratedKey):
+            let normalized = migratedKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty else { return }
+            licenseKey = normalized
+            if !isLicenseActivated {
+                isLicenseActivated = true
+            }
+            KeychainHelper.deleteLegacyItem(service: Self.keychainService, account: Keys.licenseKey)
+            logger.info("Migrated legacy license key without prompting user.")
+        case .notFound:
+            break
+        case .interactionRequired:
+            logger.info("Skipped legacy license migration: keychain interaction required.")
+        case .failure(let status):
+            logger.error("Failed legacy license migration read: status=\(status)")
         }
     }
 
     // MARK: - Init
 
-    private init() {
+    init(
+        defaults: UserDefaults = .standard,
+        legacyLicenseMigration: @escaping LegacyLicenseMigration = AppSettings.defaultLegacyLicenseMigration
+    ) {
+        self.defaults = defaults
+        self.legacyLicenseMigration = legacyLicenseMigration
+
         let defaultDir = Self.defaultSaveDirectory
         self.saveDirectory = defaults.string(forKey: Keys.saveDirectory) ?? defaultDir
         self.autoCopyToClipboard = defaults.object(forKey: Keys.autoCopyToClipboard) as? Bool ?? true
@@ -154,7 +207,7 @@ final class AppSettings: ObservableObject {
         self.launchAtLogin = defaults.object(forKey: Keys.launchAtLogin) as? Bool ?? false
         self.checkForUpdatesAutomatically = defaults.object(forKey: Keys.checkForUpdatesAutomatically) as? Bool ?? true
 
-        // Trial clock: set on first launch, immutable thereafter
+        // Trial clock: set on first launch, immutable thereafter.
         if let stored = defaults.object(forKey: Keys.firstLaunchDate) as? Date {
             self.firstLaunchDate = stored
         } else {
@@ -162,18 +215,12 @@ final class AppSettings: ObservableObject {
             self.firstLaunchDate = now
             defaults.set(now, forKey: Keys.firstLaunchDate)
         }
-        let service = Self.keychainService
-        if let storedKey = KeychainHelper.getString(service: service, account: Keys.licenseKey) {
-            self.licenseKey = storedKey
-        } else if let legacyKey = defaults.string(forKey: Keys.licenseKey), !legacyKey.isEmpty {
-            self.licenseKey = legacyKey
-            _ = KeychainHelper.setString(legacyKey, service: service, account: Keys.licenseKey)
-            defaults.removeObject(forKey: Keys.licenseKey)
-        } else {
-            self.licenseKey = ""
-            defaults.removeObject(forKey: Keys.licenseKey)
-        }
+
+        self.licenseKey = defaults.string(forKey: Keys.licenseKey) ?? ""
         self.isLicenseActivated = defaults.bool(forKey: Keys.isLicenseActivated)
         self.hasSeenWelcome = defaults.bool(forKey: Keys.hasSeenWelcome)
+
+        migrateLegacyLicenseSilentlyIfAvailable()
+        persistLicenseState()
     }
 }

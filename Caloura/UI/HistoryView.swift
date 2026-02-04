@@ -1,4 +1,39 @@
+import Foundation
 import SwiftUI
+import os.log
+
+private enum HistoryThumbnailCache {
+    static let shared: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 200
+        return cache
+    }()
+}
+
+private let historyLogger = Logger(subsystem: "com.caloura.app", category: "HistoryUI")
+
+private enum HistoryThumbnailMetrics {
+    private static let lock = NSLock()
+    private static var requests = 0
+    private static var hits = 0
+    private static let reportInterval = 50
+
+    static func recordRequest(cacheHit: Bool) {
+        lock.lock()
+        requests += 1
+        if cacheHit {
+            hits += 1
+        }
+        let shouldReport = requests % reportInterval == 0
+        let currentRequests = requests
+        let currentHits = hits
+        lock.unlock()
+
+        guard shouldReport else { return }
+        let ratio = (Double(currentHits) / Double(max(currentRequests, 1))) * 100.0
+        historyLogger.info("thumbnail_cache_summary requests=\(currentRequests, privacy: .public) hits=\(currentHits, privacy: .public) hit_rate_pct=\(ratio, privacy: .public)")
+    }
+}
 
 struct HistoryView: View {
     @ObservedObject var appState: AppState
@@ -320,6 +355,13 @@ struct HistoryGridItem: View {
     }
 
     private func loadThumbnailAsync() async -> NSImage? {
+        let cacheKey = "\(item.id.uuidString)|\(item.filePath)"
+        if let cached = HistoryThumbnailCache.shared.object(forKey: cacheKey as NSString) {
+            HistoryThumbnailMetrics.recordRequest(cacheHit: true)
+            return cached
+        }
+        HistoryThumbnailMetrics.recordRequest(cacheHit: false)
+
         let path = item.filePath
         return await Task.detached {
             let url = URL(fileURLWithPath: path) as CFURL
@@ -335,7 +377,9 @@ struct HistoryGridItem: View {
             guard let cgThumb = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
                 return nil as NSImage?
             }
-            return NSImage(cgImage: cgThumb, size: NSSize(width: cgThumb.width, height: cgThumb.height))
+            let thumbnail = NSImage(cgImage: cgThumb, size: NSSize(width: cgThumb.width, height: cgThumb.height))
+            HistoryThumbnailCache.shared.setObject(thumbnail, forKey: cacheKey as NSString)
+            return thumbnail
         }.value
     }
 }
@@ -414,8 +458,10 @@ struct FlowLayout: Layout {
 final class HistoryWindowController {
     private var window: NSWindow?
     private var closeObserver: NSObjectProtocol?
+    private var performanceMetrics = PerformanceMetricsAggregator(maxSamplesPerStage: 120, reportInterval: 20)
 
     func show(appState: AppState) {
+        let openStart = CFAbsoluteTimeGetCurrent()
         if let existing = window, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
             return
@@ -437,6 +483,18 @@ final class HistoryWindowController {
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+
+        let openMilliseconds = (CFAbsoluteTimeGetCurrent() - openStart) * 1000
+        historyLogger.debug("history_window_open_ms=\(openMilliseconds, privacy: .public)")
+        historyLogger.debug("metric_sample stage=\(PerformanceMetricStage.historyWindowOpen.rawValue, privacy: .public) ms=\(openMilliseconds, privacy: .public)")
+        if let summary = performanceMetrics.record(stage: .historyWindowOpen, milliseconds: openMilliseconds) {
+            let stageName = summary.stage.rawValue
+            let sampleCount = summary.sampleCount
+            let latest = summary.latestMilliseconds
+            let p50 = summary.p50Milliseconds
+            let p95 = summary.p95Milliseconds
+            historyLogger.info("metric_summary stage=\(stageName, privacy: .public) samples=\(sampleCount, privacy: .public) latest_ms=\(latest, privacy: .public) p50_ms=\(p50, privacy: .public) p95_ms=\(p95, privacy: .public)")
+        }
 
         // Clean up when user closes via title bar to prevent window/view leak
         closeObserver = NotificationCenter.default.addObserver(

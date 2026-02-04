@@ -3,6 +3,8 @@ import ServiceManagement
 import SwiftUI
 import KeyboardShortcuts
 
+private let appLaunchLogger = Logger(subsystem: "com.caloura.app", category: "Launch")
+
 @main
 struct CalouraApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -33,17 +35,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             isInitialLaunch = false
             return
         }
-        Task {
-            // Avoid triggering the system prompt unless OS-level permission is already granted.
-            let cgGranted = ScreenCaptureManager.shared.checkPermission()
-            AppState.shared.hasScreenRecordingPermission = cgGranted
-            guard cgGranted else { return }
-            let sckOK = await ScreenCaptureManager.shared.checkSCKAccess()
-            AppState.shared.hasScreenRecordingPermission = sckOK
-        }
+        let status = PermissionCoordinator.shared.refreshPassiveStatus()
+        AppState.shared.hasScreenRecordingPermission = status != .denied
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let launchStart = CFAbsoluteTimeGetCurrent()
         HotKeyManager.shared.registerAll()
         setupNotificationHandlers()
 
@@ -60,43 +57,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Sync launch-at-login state with system
         syncLaunchAtLoginState()
+        appLaunchLogger.debug("Synchronous launch setup completed in \((CFAbsoluteTimeGetCurrent() - launchStart) * 1000, privacy: .public) ms")
 
-        // Check screen recording permission and handle onboarding
-        let cgGranted = ScreenCaptureManager.shared.checkPermission()
-        AppState.shared.hasScreenRecordingPermission = cgGranted
-        Task {
-            let sckOK: Bool
-            if cgGranted {
-                sckOK = await ScreenCaptureManager.shared.checkSCKAccess()
-                AppState.shared.hasScreenRecordingPermission = sckOK
-            } else {
-                sckOK = false
-            }
+        // Check passive screen recording status (non-interactive) and handle onboarding.
+        let permissionCheckStart = CFAbsoluteTimeGetCurrent()
+        let passiveStatus = PermissionCoordinator.shared.refreshPassiveStatus()
+        AppState.shared.hasScreenRecordingPermission = passiveStatus != .denied
 
-            if !AppSettings.shared.hasCompletedOnboarding {
-                // First launch — always show setup guide
-                onboardingController.showIfNeeded(settings: AppSettings.shared)
-            } else if !sckOK {
-                // Returning user — SCK not working. Only auto-show the setup guide
-                // if the OS says permission was never granted. If permission IS granted
-                // but SCK is failing (e.g. debug build, signature issue), don't loop —
-                // the user will see the diagnostic dialog on their next capture attempt.
-                let state = ScreenCaptureManager.shared.diagnosePermissionState()
-                if state == .neverGranted {
-                    onboardingController.show(settings: AppSettings.shared)
-                }
-            }
-
-            // Show nag once per launch if trial expired and unlicensed
-            if AppSettings.shared.hasCompletedOnboarding {
-                nagController.showIfNeeded()
-
-                // Show preferences window with welcome tab only on first launch after onboarding
-                if !AppSettings.shared.hasSeenWelcome {
-                    PreferencesWindowController.shared.show()
-                }
-            }
+        if !AppSettings.shared.hasCompletedOnboarding {
+            // First launch — always show setup guide
+            onboardingController.showIfNeeded(settings: AppSettings.shared)
+        } else if passiveStatus == .denied {
+            // Returning user with denied permission can be guided via onboarding.
+            onboardingController.show(settings: AppSettings.shared)
         }
+
+        // Show nag once per launch if trial expired and unlicensed
+        if AppSettings.shared.hasCompletedOnboarding {
+            nagController.showIfNeeded()
+        }
+
+        let permissionDuration = (CFAbsoluteTimeGetCurrent() - permissionCheckStart) * 1000
+        let totalLaunchDuration = (CFAbsoluteTimeGetCurrent() - launchStart) * 1000
+        appLaunchLogger.debug("Passive permission diagnostics completed in \(permissionDuration, privacy: .public) ms")
+        appLaunchLogger.info("Launch flow ready in \(totalLaunchDuration, privacy: .public) ms")
     }
 
     @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {

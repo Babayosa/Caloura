@@ -1,0 +1,39 @@
+name: Release Guard
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (example: 1.0.6)"
+        required: true
+        type: string
+      release_tag:
+        description: "Release tag (example: v1.0.6)"
+        required: true
+        type: string
+
+jobs:
+  release-guard:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run release guard
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            RELEASE_TAG_VALUE="${GITHUB_REF_NAME}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+            RELEASE_TAG_VALUE="${{ github.event.inputs.release_tag }}"
+          fi
+
+          chmod +x scripts/release.sh
+          RELEASE_GUARD_ONLY=1 RELEASE_TAG="${RELEASE_TAG_VALUE}" ./scripts/release.sh "${VERSION}"

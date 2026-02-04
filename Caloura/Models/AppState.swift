@@ -24,15 +24,20 @@ final class AppState: ObservableObject {
     var lastCaptureScreen: NSScreen?
 
     private let maxRecentItems = 50
-    private let historyKey = "screenshotHistoryEncrypted"
-    private let legacyHistoryKey = "screenshotHistory"
+    private let historyDefaultsKey = "screenshotHistoryEncrypted"
+    private let legacyHistoryDefaultsKey = "screenshotHistory"
+    private let defaults: UserDefaults
+    private let historyFileURL: URL
 
-    // Debounce save operations to avoid hammering UserDefaults
+    // Debounce save operations to avoid hammering disk writes.
     private var saveTask: Task<Void, Never>?
     private let saveDebounceInterval: UInt64 = 500_000_000 // 500ms
 
-    private init() {
+    init(defaults: UserDefaults = .standard, historyStoreURL: URL? = nil) {
+        self.defaults = defaults
+        self.historyFileURL = historyStoreURL ?? Self.defaultHistoryFileURL()
         loadHistory()
+        auditStoragePermissions()
     }
 
     func addScreenshot(_ item: ScreenshotItem) {
@@ -48,7 +53,7 @@ final class AppState: ObservableObject {
         saveHistoryNow()
     }
 
-    /// Schedule a debounced save (coalesces rapid changes)
+    /// Schedule a debounced save (coalesces rapid changes).
     private func debouncedSaveHistory() {
         saveTask?.cancel()
         saveTask = Task {
@@ -58,39 +63,67 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Immediately persist history (called by debounce timer or clearHistory)
+    /// Immediately persist history (called by debounce timer or clearHistory).
     func saveHistory() {
         debouncedSaveHistory()
     }
 
-    /// Force immediate save without debouncing
+    /// Force immediate save without debouncing.
     private func saveHistoryNow() {
         saveTask?.cancel()
         saveTask = nil
 
-        // Copy array to avoid data race - background thread reads the copy
+        // Copy array to avoid data races on detached thread.
         let itemsCopy = Array(recentScreenshots)
-        let key = historyKey
-        let legacyKey = legacyHistoryKey
+        let historyFileURL = self.historyFileURL
+        let defaults = self.defaults
+        let historyDefaultsKey = self.historyDefaultsKey
+        let legacyHistoryDefaultsKey = self.legacyHistoryDefaultsKey
+
         Task.detached(priority: .utility) {
             do {
                 let data = try JSONEncoder().encode(itemsCopy)
                 let encrypted = try HistoryCrypto.encrypt(data)
-                let defaults = UserDefaults.standard
-                defaults.set(encrypted, forKey: key)
-                defaults.removeObject(forKey: legacyKey)
+                let directoryURL = historyFileURL.deletingLastPathComponent()
+                try FileManager.default.createDirectory(
+                    at: directoryURL,
+                    withIntermediateDirectories: true,
+                    attributes: [.posixPermissions: 0o700]
+                )
+                try encrypted.write(to: historyFileURL, options: .atomic)
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0o600],
+                    ofItemAtPath: historyFileURL.path
+                )
+
+                // Migration cleanup: once file-backed persistence succeeds,
+                // remove legacy defaults blobs.
+                Self.purgeHistoryDefaults(
+                    in: defaults,
+                    historyDefaultsKey: historyDefaultsKey,
+                    legacyHistoryDefaultsKey: legacyHistoryDefaultsKey
+                )
             } catch {
-                appStateLogger.error("Failed to encode or encrypt screenshot history: \(error.localizedDescription)")
+                appStateLogger.error("Failed to persist screenshot history: \(error.localizedDescription)")
             }
         }
     }
 
+    private static func defaultHistoryFileURL() -> URL {
+        let fallback = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support/Caloura/history.enc")
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return fallback
+        }
+        return appSupport.appendingPathComponent("Caloura").appendingPathComponent("history.enc")
+    }
+
     private func loadHistory() {
-        let defaults = UserDefaults.standard
-        if let encrypted = defaults.data(forKey: historyKey) {
+        if let encryptedFileData = try? Data(contentsOf: historyFileURL) {
             do {
-                let decrypted = try HistoryCrypto.decrypt(encrypted)
-                if let result = decodeHistory(from: decrypted, source: "encrypted") {
+                let decrypted = try HistoryCrypto.decrypt(encryptedFileData)
+                if let result = decodeHistory(from: decrypted, source: "file") {
+                    purgeLegacyHistoryDefaults()
                     recentScreenshots = result.items
                     if result.recovered {
                         saveHistoryNow()
@@ -98,12 +131,31 @@ final class AppState: ObservableObject {
                     return
                 }
             } catch {
-                appStateLogger.error("Failed to decrypt screenshot history: \(error.localizedDescription)")
+                appStateLogger.error("Failed to decrypt file-backed screenshot history: \(error.localizedDescription)")
             }
         }
 
-        guard let data = defaults.data(forKey: legacyHistoryKey) else { return }
-        if let result = decodeHistory(from: data, source: "legacy") {
+        if let encryptedDefaultsData = defaults.data(forKey: historyDefaultsKey) {
+            defaults.removeObject(forKey: historyDefaultsKey)
+            do {
+                let decrypted = try HistoryCrypto.decrypt(encryptedDefaultsData)
+                if let result = decodeHistory(from: decrypted, source: "defaults-encrypted") {
+                    recentScreenshots = result.items
+                    saveHistoryNow()
+                    return
+                }
+            } catch {
+                appStateLogger.error("Failed to decrypt defaults-backed screenshot history: \(error.localizedDescription)")
+            }
+        }
+
+        guard let legacyData = defaults.data(forKey: legacyHistoryDefaultsKey) else {
+            return
+        }
+        // Remove plaintext history blob immediately after loading into memory.
+        defaults.removeObject(forKey: legacyHistoryDefaultsKey)
+
+        if let result = decodeHistory(from: legacyData, source: "defaults-legacy") {
             recentScreenshots = result.items
             saveHistoryNow()
         }
@@ -120,7 +172,7 @@ final class AppState: ObservableObject {
             return HistoryLoadResult(items: items, recovered: false)
         } catch {
             appStateLogger.error("Failed to decode \(source) screenshot history: \(error.localizedDescription). Attempting partial recovery.")
-            // Attempt to recover individual items from the array
+            // Attempt to recover individual items from the array.
             if let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
                 var recovered: [ScreenshotItem] = []
                 for element in jsonArray {
@@ -134,5 +186,33 @@ final class AppState: ObservableObject {
             }
         }
         return nil
+    }
+
+    private func auditStoragePermissions() {
+        let warnings = HistoryCrypto.auditStoragePermissions(historyFileURL: historyFileURL)
+        if warnings.isEmpty {
+            appStateLogger.debug("History storage permission audit passed.")
+            return
+        }
+        for warning in warnings {
+            appStateLogger.warning("\(warning, privacy: .public)")
+        }
+    }
+
+    private func purgeLegacyHistoryDefaults() {
+        Self.purgeHistoryDefaults(
+            in: defaults,
+            historyDefaultsKey: historyDefaultsKey,
+            legacyHistoryDefaultsKey: legacyHistoryDefaultsKey
+        )
+    }
+
+    nonisolated private static func purgeHistoryDefaults(
+        in defaults: UserDefaults,
+        historyDefaultsKey: String,
+        legacyHistoryDefaultsKey: String
+    ) {
+        defaults.removeObject(forKey: historyDefaultsKey)
+        defaults.removeObject(forKey: legacyHistoryDefaultsKey)
     }
 }

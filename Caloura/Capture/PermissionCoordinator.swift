@@ -1,0 +1,357 @@
+import CryptoKit
+import Foundation
+import os.log
+import Security
+
+enum PermissionStatus: Equatable {
+    case unknown
+    case grantedWorking
+    case grantedNeedsRelaunch
+    case denied
+    case signatureMismatch
+}
+
+struct PermissionUIModel: Equatable {
+    var status: PermissionStatus = .unknown
+    var guidanceText: String?
+    var shouldShowSignatureMismatchBanner: Bool = false
+    var isAlertCooldownActive: Bool = false
+}
+
+struct PermissionIdentity: Equatable, Codable {
+    let bundleIdentifier: String
+    let executablePath: String
+    let teamIdentifier: String
+    let signingIdentityType: String
+    let designatedRequirementHash: String
+
+    var fingerprint: String {
+        [
+            bundleIdentifier,
+            executablePath,
+            teamIdentifier,
+            signingIdentityType,
+            designatedRequirementHash
+        ].joined(separator: "|")
+    }
+
+    static func current(bundle: Bundle = .main) -> PermissionIdentity {
+        let bundleID = bundle.bundleIdentifier ?? "unknown.bundle"
+        let executablePath = bundle.executableURL?.path ?? bundle.bundleURL.path
+
+        let signingInfo = SigningInfo.load(for: bundle.bundleURL)
+        let teamIdentifier = signingInfo.teamIdentifier ?? "unknown.team"
+        let signingType = signingInfo.signingIdentityType ?? inferSigningType(from: executablePath)
+        let requirementHash = sha256Hex(signingInfo.designatedRequirementString ?? fallbackRequirementSeed(bundleID: bundleID, executablePath: executablePath, teamIdentifier: teamIdentifier))
+
+        return PermissionIdentity(
+            bundleIdentifier: bundleID,
+            executablePath: executablePath,
+            teamIdentifier: teamIdentifier,
+            signingIdentityType: signingType,
+            designatedRequirementHash: requirementHash
+        )
+    }
+
+    private static func inferSigningType(from path: String) -> String {
+        if path.contains("/DerivedData/") {
+            return "apple-development"
+        }
+        if path.hasPrefix("/Applications/") {
+            return "developer-id-or-release"
+        }
+        return "unknown"
+    }
+
+    private static func fallbackRequirementSeed(bundleID: String, executablePath: String, teamIdentifier: String) -> String {
+        "\(bundleID)|\(teamIdentifier)|\(executablePath)"
+    }
+
+    private static func sha256Hex(_ input: String) -> String {
+        let digest = SHA256.hash(data: Data(input.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private struct SigningInfo {
+        let designatedRequirementString: String?
+        let teamIdentifier: String?
+        let signingIdentityType: String?
+
+        static func load(for bundleURL: URL) -> SigningInfo {
+            var staticCode: SecStaticCode?
+            let createStatus = SecStaticCodeCreateWithPath(bundleURL as CFURL, SecCSFlags(), &staticCode)
+            guard createStatus == errSecSuccess, let staticCode else {
+                return SigningInfo(designatedRequirementString: nil, teamIdentifier: nil, signingIdentityType: nil)
+            }
+
+            var rawInfo: CFDictionary?
+            let infoStatus = SecCodeCopySigningInformation(
+                staticCode,
+                SecCSFlags(rawValue: kSecCSSigningInformation),
+                &rawInfo
+            )
+            guard infoStatus == errSecSuccess, let info = rawInfo as? [String: Any] else {
+                return SigningInfo(designatedRequirementString: nil, teamIdentifier: nil, signingIdentityType: nil)
+            }
+
+            let teamID = info[kSecCodeInfoTeamIdentifier as String] as? String
+            let requirementString: String? = {
+                guard let requirementValue = info[kSecCodeInfoDesignatedRequirement as String] else {
+                    return nil
+                }
+                let requirementRef = requirementValue as CFTypeRef
+                guard CFGetTypeID(requirementRef) == SecRequirementGetTypeID() else {
+                    return nil
+                }
+                let secRequirement = unsafeBitCast(requirementRef, to: SecRequirement.self)
+                var requirementCFString: CFString?
+                let reqStatus = SecRequirementCopyString(secRequirement, SecCSFlags(), &requirementCFString)
+                guard reqStatus == errSecSuccess else { return nil }
+                return requirementCFString as String?
+            }()
+
+            let signingType: String? = {
+                guard let certificates = info[kSecCodeInfoCertificates as String] as? [SecCertificate],
+                      let leaf = certificates.first else { return nil }
+                let summary = SecCertificateCopySubjectSummary(leaf) as String? ?? ""
+                if summary.contains("Developer ID") {
+                    return "developer-id"
+                }
+                if summary.contains("Apple Development") {
+                    return "apple-development"
+                }
+                return "other"
+            }()
+
+            return SigningInfo(
+                designatedRequirementString: requirementString,
+                teamIdentifier: teamID,
+                signingIdentityType: signingType
+            )
+        }
+    }
+}
+
+@MainActor
+final class PermissionCoordinator: ObservableObject {
+    static let shared = PermissionCoordinator()
+
+    typealias PassiveCheck = () -> Bool
+    typealias InteractiveCheck = () async -> Bool
+    typealias AlertPresenter = (ScreenCaptureManager.PermissionState) -> Void
+    typealias PermissionRequester = () -> Bool
+    typealias IdentityProvider = () -> PermissionIdentity
+    typealias StatusMessageSink = (String) -> Void
+    typealias NowProvider = () -> Date
+
+    @Published private(set) var permissionUIModel = PermissionUIModel()
+
+    private let defaults: UserDefaults
+    private let passiveCheck: PassiveCheck
+    private let interactiveCheck: InteractiveCheck
+    private let alertPresenter: AlertPresenter
+    private let permissionRequester: PermissionRequester
+    private let identityProvider: IdentityProvider
+    private let statusMessageSink: StatusMessageSink
+    private let now: NowProvider
+    private let logger = Logger(subsystem: "com.caloura.app", category: "Permission")
+
+    private var isShowingAlert = false
+    private var lastBlockingAlertAt: Date?
+    private let alertCooldownSeconds: TimeInterval = 45
+
+    private enum Keys {
+        static let lastWorkingIdentityFingerprint = "permissionLastWorkingIdentityFingerprint"
+        static let lastShownMismatchIdentityFingerprint = "permissionLastShownMismatchIdentityFingerprint"
+    }
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.passiveCheck = { ScreenCaptureManager.shared.passivePermissionGranted() }
+        self.interactiveCheck = { await ScreenCaptureManager.shared.validateSCKAccessUserInitiated() }
+        self.alertPresenter = { ScreenCaptureManager.shared.showPermissionAlert(for: $0) }
+        self.permissionRequester = { ScreenCaptureManager.shared.requestPermission() }
+        self.identityProvider = { PermissionIdentity.current() }
+        self.statusMessageSink = { AppState.shared.statusMessage = $0 }
+        self.now = Date.init
+    }
+
+    init(
+        defaults: UserDefaults,
+        passiveCheck: @escaping PassiveCheck,
+        interactiveCheck: @escaping InteractiveCheck,
+        alertPresenter: @escaping AlertPresenter,
+        permissionRequester: @escaping PermissionRequester,
+        identityProvider: @escaping IdentityProvider,
+        statusMessageSink: @escaping StatusMessageSink,
+        now: @escaping NowProvider
+    ) {
+        self.defaults = defaults
+        self.passiveCheck = passiveCheck
+        self.interactiveCheck = interactiveCheck
+        self.alertPresenter = alertPresenter
+        self.permissionRequester = permissionRequester
+        self.identityProvider = identityProvider
+        self.statusMessageSink = statusMessageSink
+        self.now = now
+    }
+
+    @discardableResult
+    func refreshPassiveStatus() -> PermissionStatus {
+        let identity = identityProvider()
+        let cgGranted = passiveCheck()
+        logger.info("passive_check cg_granted=\(cgGranted, privacy: .public) path=\(identity.executablePath, privacy: .public) signing=\(identity.signingIdentityType, privacy: .public)")
+
+        let status: PermissionStatus
+        if !cgGranted {
+            status = .denied
+        } else if isIdentityMismatch(identity) {
+            status = .signatureMismatch
+        } else {
+            status = .grantedWorking
+        }
+        updateUIModel(status: status, identity: identity)
+        return status
+    }
+
+    @discardableResult
+    func runUserInitiatedValidation() async -> PermissionStatus {
+        let identity = identityProvider()
+        let cgGranted = passiveCheck()
+        logger.info("interactive_check_start cg_granted=\(cgGranted, privacy: .public)")
+
+        guard cgGranted else {
+            updateUIModel(status: .denied, identity: identity)
+            return .denied
+        }
+
+        let sckAuthorized = await interactiveCheck()
+        logger.info("interactive_check_result sck_authorized=\(sckAuthorized, privacy: .public)")
+
+        let status: PermissionStatus
+        if sckAuthorized {
+            defaults.set(identity.fingerprint, forKey: Keys.lastWorkingIdentityFingerprint)
+            status = .grantedWorking
+        } else if isIdentityMismatch(identity) {
+            status = .signatureMismatch
+        } else {
+            status = .grantedNeedsRelaunch
+        }
+
+        updateUIModel(status: status, identity: identity)
+        return status
+    }
+
+    func requestPermissionFromSystem() -> Bool {
+        logger.info("request_permission user_initiated=true")
+        return permissionRequester()
+    }
+
+    func handleCapturePermissionFailure() {
+        let identity = identityProvider()
+        let status = refreshPassiveStatus()
+        let now = now()
+        let cooldownActive = isCooldownActive(at: now)
+
+        if isShowingAlert {
+            logger.info("permission_alert_suppressed reason=inflight status=\(String(describing: status), privacy: .public)")
+            statusMessageSink(nonBlockingMessage(for: status))
+            updateCooldownInModel(cooldownActive: true)
+            return
+        }
+
+        if cooldownActive {
+            logger.info("permission_alert_suppressed reason=cooldown status=\(String(describing: status), privacy: .public)")
+            statusMessageSink(nonBlockingMessage(for: status))
+            updateCooldownInModel(cooldownActive: true)
+            return
+        }
+
+        let alertState = alertState(for: status)
+        logger.info("permission_alert_presenting state=\(String(describing: alertState), privacy: .public) path=\(identity.executablePath, privacy: .public)")
+        isShowingAlert = true
+        alertPresenter(alertState)
+        isShowingAlert = false
+        lastBlockingAlertAt = now
+        updateCooldownInModel(cooldownActive: true)
+    }
+
+    func markCurrentMismatchBannerShown() {
+        let identity = identityProvider()
+        defaults.set(identity.fingerprint, forKey: Keys.lastShownMismatchIdentityFingerprint)
+        if permissionUIModel.status == .signatureMismatch {
+            permissionUIModel.shouldShowSignatureMismatchBanner = false
+        }
+        logger.info("mismatch_banner_marked_shown fingerprint=\(identity.fingerprint, privacy: .private(mask: .hash))")
+    }
+
+    private func alertState(for status: PermissionStatus) -> ScreenCaptureManager.PermissionState {
+        switch status {
+        case .denied:
+            return .neverGranted
+        case .signatureMismatch:
+            return .signatureMismatch
+        case .grantedNeedsRelaunch, .grantedWorking, .unknown:
+            return .grantedButFailing
+        }
+    }
+
+    private func isCooldownActive(at timestamp: Date) -> Bool {
+        guard let lastBlockingAlertAt else { return false }
+        return timestamp.timeIntervalSince(lastBlockingAlertAt) < alertCooldownSeconds
+    }
+
+    private func updateCooldownInModel(cooldownActive: Bool) {
+        permissionUIModel.isAlertCooldownActive = cooldownActive
+    }
+
+    private func isIdentityMismatch(_ identity: PermissionIdentity) -> Bool {
+        guard let lastWorkingFingerprint = defaults.string(forKey: Keys.lastWorkingIdentityFingerprint),
+              !lastWorkingFingerprint.isEmpty else {
+            return false
+        }
+        return lastWorkingFingerprint != identity.fingerprint
+    }
+
+    private func updateUIModel(status: PermissionStatus, identity: PermissionIdentity) {
+        let shouldShowMismatchBanner = shouldShowMismatchBanner(for: identity, status: status)
+        let guidance = guidance(for: status, identity: identity)
+        let cooldownActive = isCooldownActive(at: now())
+        permissionUIModel = PermissionUIModel(
+            status: status,
+            guidanceText: guidance,
+            shouldShowSignatureMismatchBanner: shouldShowMismatchBanner,
+            isAlertCooldownActive: cooldownActive
+        )
+    }
+
+    private func shouldShowMismatchBanner(for identity: PermissionIdentity, status: PermissionStatus) -> Bool {
+        guard status == .signatureMismatch else { return false }
+        let alreadyShownForIdentity = defaults.string(forKey: Keys.lastShownMismatchIdentityFingerprint)
+        return alreadyShownForIdentity != identity.fingerprint
+    }
+
+    private func guidance(for status: PermissionStatus, identity: PermissionIdentity) -> String? {
+        switch status {
+        case .signatureMismatch:
+            return "Permission appears tied to a different app build. For stable behavior, use /Applications/Caloura.app or re-grant Screen Recording for this build in System Settings."
+        case .grantedNeedsRelaunch:
+            return "Screen Recording is granted, but macOS needs a Caloura relaunch to fully apply it."
+        case .denied:
+            return "Caloura needs Screen Recording access to capture screenshots."
+        case .grantedWorking, .unknown:
+            return nil
+        }
+    }
+
+    private func nonBlockingMessage(for status: PermissionStatus) -> String {
+        switch status {
+        case .signatureMismatch:
+            return "Screen Recording permission may be tied to a different build. Open System Settings to re-grant for this build."
+        case .denied:
+            return "Screen Recording permission required. Open System Settings to continue capturing."
+        case .grantedNeedsRelaunch, .grantedWorking, .unknown:
+            return "Screen Recording is still initializing. Try again in a moment."
+        }
+    }
+}

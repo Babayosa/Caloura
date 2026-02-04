@@ -19,6 +19,8 @@ settings:
   base:
     SWIFT_VERSION: "5.9"
     MACOSX_DEPLOYMENT_TARGET: "14.0"
+    MARKETING_VERSION: "1.0.6"
+    CURRENT_PROJECT_VERSION: "6"
 
 targets:
   Caloura:
@@ -51,8 +53,8 @@ targets:
         CFBundleName: Caloura
         CFBundleDisplayName: Caloura
         CFBundleIdentifier: com.caloura.app
-        CFBundleVersion: "3"
-        CFBundleShortVersionString: "1.0.2"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundlePackageType: APPL
         CFBundleExecutable: Caloura
         LSMinimumSystemVersion: "14.0"

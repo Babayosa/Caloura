@@ -38,6 +38,7 @@ final class ScreenCaptureManager {
     enum PermissionState {
         case neverGranted
         case grantedButFailing
+        case signatureMismatch
     }
 
     /// Quick check using CoreGraphics — no prompt, but may not reflect SCK status on Sequoia.
@@ -45,6 +46,11 @@ final class ScreenCaptureManager {
         let result = CGPreflightScreenCaptureAccess()
         logger.info("CGPreflightScreenCaptureAccess: \(result)")
         return result
+    }
+
+    /// Passive non-interactive permission check for lifecycle updates.
+    func passivePermissionGranted() -> Bool {
+        checkPermission()
     }
 
     /// Request screen recording permission via CoreGraphics. Only call from explicit user action.
@@ -68,6 +74,11 @@ final class ScreenCaptureManager {
         }
     }
 
+    /// Explicit user-initiated SCK validation. Do not call passively on launch/activation.
+    func validateSCKAccessUserInitiated() async -> Bool {
+        await checkSCKAccess()
+    }
+
     /// Diagnose the current permission state by combining multiple signals.
     /// CGPreflight is the authoritative OS-level check. CGWindowList can give
     /// false positives on some macOS versions (returns named windows even when
@@ -87,6 +98,11 @@ final class ScreenCaptureManager {
     /// Adapts the message based on whether permission was never granted or is granted but failing.
     func showPermissionAlert() {
         let state = diagnosePermissionState()
+        showPermissionAlert(for: state)
+    }
+
+    /// Show a permission guidance alert for a specific diagnosed state.
+    func showPermissionAlert(for state: PermissionState) {
 
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -123,6 +139,18 @@ final class ScreenCaptureManager {
                 try? task.run()
                 NSApp.terminate(nil)
             } else if response == .alertSecondButtonReturn {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+        case .signatureMismatch:
+            alert.messageText = "Permission Granted To Different Build"
+            alert.informativeText = "Screen Recording appears to be authorized for a different Caloura build (for example, App Store/Public vs Xcode). Re-grant access for the currently running build in System Settings.\n\nFor stable behavior, run /Applications/Caloura.app."
+            alert.addButton(withTitle: "Open System Settings")
+            alert.addButton(withTitle: "Cancel")
+
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
                     NSWorkspace.shared.open(url)
                 }

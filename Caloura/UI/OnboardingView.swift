@@ -3,26 +3,22 @@ import os.log
 
 private let onboardingLogger = Logger(subsystem: "com.caloura.app", category: "Onboarding")
 
-// MARK: - Permission Detail
-
-enum PermissionDetail: Equatable {
-    case working
-    case grantedNotWorking
-    case notGranted
-}
-
 struct OnboardingView: View {
     @ObservedObject var settings: AppSettings
-    @State private var currentStep = 0
-    @State private var previousStep = 0  // Track direction for animation
-    @State private var hasPermission = false
-    @State private var permissionDetail: PermissionDetail = .notGranted
-    @State private var pollCount = 0  // Track polls to show "Continue Anyway" after a few tries
+    @ObservedObject private var permissionCoordinator = PermissionCoordinator.shared
+    @State private var flow = OnboardingFlowModel()
+    @State private var hasAutoSkippedPermissionStep = false
+    @State private var isCheckingPermission = false
+    @State private var isAwaitingAutoCheckAfterGrant = false
     var onComplete: () -> Void
+
+    private var permissionPresentation: OnboardingPermissionPresentation {
+        OnboardingPermissionPresentation.from(permissionCoordinator.permissionUIModel)
+    }
 
     /// Transition that moves in correct direction based on navigation
     private var stepTransition: AnyTransition {
-        let isForward = currentStep > previousStep
+        let isForward = flow.currentStep.rawValue > flow.previousStep.rawValue
         return .asymmetric(
             insertion: .move(edge: isForward ? .trailing : .leading).combined(with: .opacity),
             removal: .move(edge: isForward ? .leading : .trailing).combined(with: .opacity)
@@ -33,9 +29,9 @@ struct OnboardingView: View {
         VStack(spacing: 0) {
             // Progress indicator - minimal line style
             HStack(spacing: 0) {
-                ForEach(0..<4) { index in
+                ForEach(OnboardingStep.allCases, id: \.rawValue) { step in
                     Rectangle()
-                        .fill(index <= currentStep ? Color.accentColor : Color.gray.opacity(0.2))
+                        .fill(step.rawValue <= flow.currentStep.rawValue ? Color.accentColor : Color.gray.opacity(0.2))
                         .frame(height: 3)
                 }
             }
@@ -47,29 +43,22 @@ struct OnboardingView: View {
 
             // Step content with directional animation
             Group {
-                switch currentStep {
-                case 0:
-                    welcomeStep
-                case 1:
-                    permissionsStep
-                case 2:
-                    shortcutsStep
-                case 3:
-                    readyStep
-                default:
-                    EmptyView()
+                switch flow.currentStep {
+                case .permission:
+                    permissionStep
+                case .firstCapture:
+                    firstCaptureStep
                 }
             }
-            .id(currentStep)  // Force view identity change for transition
+            .id(flow.currentStep)
             .transition(stepTransition)
 
             Spacer()
 
-            // Navigation buttons - cleaner styling
             HStack {
-                if currentStep > 0 {
+                if !flow.isFirstStep {
                     Button("Back") {
-                        navigate(to: currentStep - 1)
+                        navigateBack()
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
@@ -77,16 +66,14 @@ struct OnboardingView: View {
 
                 Spacer()
 
-                if currentStep < 3 {
-                    Button("Continue") {
-                        navigate(to: currentStep + 1)
+                if flow.isLastStep {
+                    Button("Finish") {
+                        finishOnboarding(startCapture: false)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(currentStep == 1 && !hasPermission)
                 } else {
-                    Button("Get Started") {
-                        settings.hasCompletedOnboarding = true
-                        onComplete()
+                    Button("Continue") {
+                        navigateNext()
                     }
                     .buttonStyle(.borderedProminent)
                 }
@@ -94,187 +81,191 @@ struct OnboardingView: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
         }
-        .frame(width: 480, height: 380)
+        .frame(width: 500, height: 400)
         .onAppear {
-            recheckPermission()
+            refreshPermissionStatus()
         }
-        .task(id: currentStep) {
-            // Auto-poll every 2 seconds while on the permission step, until granted
-            guard currentStep == 1 else { return }
-            while !Task.isCancelled && !hasPermission {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                guard !Task.isCancelled else { break }
-                await recheckPermissionAsync(userInitiated: false)
-            }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshPermissionStatus()
+        }
+        .onChange(of: permissionCoordinator.permissionUIModel.status) { _, status in
+            handlePermissionStatus(status)
         }
     }
 
-    private func navigate(to step: Int) {
-        previousStep = currentStep
+    private func navigate(to step: OnboardingStep) {
         withAnimation(.easeInOut(duration: 0.25)) {
-            currentStep = step
-        }
-    }
-
-    private func recheckPermission(userInitiated: Bool = false) {
-        Task {
-            await recheckPermissionAsync(userInitiated: userInitiated)
-        }
-    }
-
-    private func recheckPermissionAsync(userInitiated: Bool = false) async {
-        pollCount += 1
-        let previousDetail = permissionDetail
-
-        // First check CGPreflight — this is non-intrusive and won't trigger prompts
-        let cgGranted = ScreenCaptureManager.shared.checkPermission()
-        if userInitiated {
-            onboardingLogger.info("User-initiated permission check. CGPreflight=\(cgGranted, privacy: .public)")
-        }
-
-        if cgGranted {
-            // Permission granted at OS level. Check if SCK actually works.
-            // Only do this check ONCE when we first detect permission granted,
-            // not on every poll (SCK check can trigger system prompts on some versions).
-            if userInitiated || permissionDetail == .notGranted {
-                // User explicitly asked to re-check, or first time seeing permission granted.
-                let sckOK = await ScreenCaptureManager.shared.checkSCKAccess()
-                if sckOK {
-                    hasPermission = true
-                    permissionDetail = .working
-                } else {
-                    hasPermission = true
-                    permissionDetail = .grantedNotWorking
-                }
-                if userInitiated || previousDetail != permissionDetail {
-                    onboardingLogger.info("SCK check result: \(sckOK, privacy: .public) detail=\(String(describing: permissionDetail), privacy: .public)")
-                }
+            if step.rawValue > flow.currentStep.rawValue {
+                flow.next()
             } else {
-                // Already checked SCK before, keep current state but ensure hasPermission is true
-                hasPermission = true
-            }
-        } else {
-            hasPermission = false
-            permissionDetail = .notGranted
-            if userInitiated {
-                onboardingLogger.info("CGPreflight false on user-initiated check. Permission not granted.")
+                flow.back()
             }
         }
+    }
 
-        if previousDetail != permissionDetail {
-            onboardingLogger.info("Permission detail changed: \(String(describing: previousDetail), privacy: .public) -> \(String(describing: permissionDetail), privacy: .public)")
+    private func navigateNext() {
+        guard !flow.isLastStep else { return }
+        navigate(to: .firstCapture)
+    }
+
+    private func navigateBack() {
+        guard !flow.isFirstStep else { return }
+        navigate(to: .permission)
+    }
+
+    private func finishOnboarding(startCapture: Bool) {
+        settings.hasCompletedOnboarding = true
+        settings.hasSeenWelcome = true
+        onComplete()
+
+        if startCapture {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .captureArea, object: nil)
+            }
+        }
+    }
+
+    private func refreshPermissionStatus() {
+        let status = permissionCoordinator.refreshPassiveStatus()
+        handlePermissionStatus(status)
+    }
+
+    private func runUserInitiatedValidation() {
+        guard !isCheckingPermission else { return }
+        isCheckingPermission = true
+        Task { @MainActor in
+            defer { isCheckingPermission = false }
+            let status = await permissionCoordinator.runUserInitiatedValidation()
+            handlePermissionStatus(status)
+            isAwaitingAutoCheckAfterGrant = false
+        }
+    }
+
+    private func handlePermissionStatus(_ status: PermissionStatus) {
+        onboardingLogger.info("Permission status changed: \(String(describing: status), privacy: .public)")
+        if status == .grantedWorking && !hasAutoSkippedPermissionStep {
+            hasAutoSkippedPermissionStep = true
+            flow.skipPermissionIfReady(true)
+        }
+        if status == .grantedWorking {
+            isAwaitingAutoCheckAfterGrant = false
         }
     }
 
     // MARK: - Steps
 
-    private var welcomeStep: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "camera.viewfinder")
-                .font(.system(size: 56))
-                .foregroundStyle(Color.accentColor)
-
-            Text("Welcome to Caloura")
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text("The fastest screenshot tool for students and educators.")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-
-            Text("Zero-decision capture: Hotkey \u{2192} auto-crop \u{2192} auto-copy \u{2192} auto-organize.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-        }
-    }
-
-    private var permissionsStep: some View {
+    private var permissionStep: some View {
         VStack(spacing: 16) {
             Image(systemName: "lock.shield")
                 .font(.system(size: 48))
                 .foregroundStyle(.orange)
 
-            Text("Screen Recording Permission")
+            Text("Allow Screen Recording")
                 .font(.title2)
                 .fontWeight(.bold)
 
-            Text("Caloura needs screen recording access to capture screenshots. macOS will prompt you to grant this permission.")
+            Text("Caloura needs screen recording access to capture screenshots. You can continue now and grant this later if needed.")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
 
-            switch permissionDetail {
+            switch permissionPresentation.detail {
             case .working:
-                Label("Permission granted and working!", systemImage: "checkmark.circle.fill")
+                Label(permissionPresentation.statusHeadline, systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
-
+                Text(permissionPresentation.statusMessage)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             case .grantedNotWorking:
-                Label("Permission granted!", systemImage: "checkmark.circle.fill")
+                Label(permissionPresentation.statusHeadline, systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
-
-                Text("Please quit and reopen Caloura to activate screen capture.")
+                Text(permissionPresentation.statusMessage)
                     .font(.callout)
                     .foregroundStyle(.orange)
                     .multilineTextAlignment(.center)
-
                 Button("Quit Caloura") {
                     NSApplication.shared.terminate(nil)
                 }
                 .buttonStyle(.borderedProminent)
-
             case .notGranted:
-                Button("Grant Permission") {
-                    _ = ScreenCaptureManager.shared.requestPermission()
-                    // Check after a short delay to let the system process
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        recheckPermission(userInitiated: true)
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button("Open System Settings") {
-                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
-                .buttonStyle(.bordered)
-
-                Button("Check Again") {
-                    recheckPermission(userInitiated: true)
-                }
-
-                // Show escape hatch after 3 poll cycles (user has been waiting ~6+ seconds)
-                if pollCount >= 3 {
-                    Divider()
-                        .padding(.vertical, 8)
-
-                    Text("Already granted permission?")
-                        .font(.callout)
+                Label(permissionPresentation.statusHeadline, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                    .font(.callout)
+                Text(permissionPresentation.statusMessage)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            case .signatureMismatch:
+                Label(permissionPresentation.statusHeadline, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.callout)
+                Text(permissionPresentation.statusMessage)
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                    .multilineTextAlignment(.center)
+                if permissionPresentation.shouldShowMismatchBanner {
+                    Text("If you run both Xcode and public builds, macOS may authorize one build but deny the other.")
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 20)
+                        .onAppear {
+                            permissionCoordinator.markCurrentMismatchBannerShown()
+                        }
+                }
+            }
 
-                    Button("Continue Anyway") {
-                        hasPermission = true
-                        permissionDetail = .working
+            HStack(spacing: 10) {
+                if permissionPresentation.showsGrantButton {
+                    Button("Grant Permission") {
+                        guard !isCheckingPermission, !isAwaitingAutoCheckAfterGrant else { return }
+                        _ = permissionCoordinator.requestPermissionFromSystem()
+                        isAwaitingAutoCheckAfterGrant = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            runUserInitiatedValidation()
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isCheckingPermission || isAwaitingAutoCheckAfterGrant)
+                }
+
+                if permissionPresentation.showsCheckAgainButton {
+                    Button((isCheckingPermission || isAwaitingAutoCheckAfterGrant) ? "Checking..." : "Check Again") {
+                        runUserInitiatedValidation()
                     }
                     .buttonStyle(.bordered)
+                    .disabled(isCheckingPermission || isAwaitingAutoCheckAfterGrant)
+                }
+            }
+
+            if isAwaitingAutoCheckAfterGrant {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Auto-checking permission...")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
     }
 
-    private var shortcutsStep: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "keyboard")
-                .font(.system(size: 48))
-                .foregroundStyle(.blue)
+    private var firstCaptureStep: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "camera.viewfinder")
+                .font(.system(size: 56))
+                .foregroundStyle(Color.accentColor)
 
-            Text("Default Shortcuts")
-                .font(.title2)
+            Text("You're Ready")
+                .font(.title)
                 .fontWeight(.bold)
+
+            Text("Capture anytime with \u{2303}\u{21E7}4, or take your first screenshot now.")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
 
             VStack(alignment: .leading, spacing: 12) {
                 shortcutRow(keys: "\u{2303}\u{21E7}4", action: "Capture Area")
@@ -285,27 +276,10 @@ struct OnboardingView: View {
             .background(Color.gray.opacity(0.1))
             .cornerRadius(8)
 
-            Text("You can customize these in Preferences > Shortcuts.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var readyStep: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "checkmark.circle")
-                .font(.system(size: 56))
-                .foregroundStyle(.green)
-
-            Text("You're All Set!")
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text("Try pressing \u{2303}\u{21E7}4 to capture your first screenshot.")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
+            Button("Take First Screenshot") {
+                finishOnboarding(startCapture: true)
+            }
+            .buttonStyle(.bordered)
         }
     }
 
@@ -358,7 +332,7 @@ final class OnboardingWindowController {
         }
 
         let hostingView = NSHostingView(rootView: onboardingView)
-        hostingView.frame = CGRect(x: 0, y: 0, width: 480, height: 380)
+        hostingView.frame = CGRect(x: 0, y: 0, width: 500, height: 400)
 
         let window = NSWindow(
             contentRect: hostingView.frame,

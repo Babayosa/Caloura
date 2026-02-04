@@ -4,6 +4,8 @@ import os.log
 import ScreenCaptureKit
 
 private let logger = Logger(subsystem: "com.caloura.app", category: "CapturePipeline")
+private let entryLogger = Logger(subsystem: "com.caloura.app", category: "CaptureEntry")
+private let performanceLogger = Logger(subsystem: "com.caloura.app", category: "CapturePerformance")
 
 @MainActor
 final class CapturePipeline: ObservableObject {
@@ -16,8 +18,13 @@ final class CapturePipeline: ObservableObject {
     private var overlayWindows: [CaptureOverlayWindow] = []
     private var screenOverlays: [ScreenSelectionOverlayWindow] = []
     private var delayedCaptureTask: Task<Void, Never>?
+    private var performanceMetrics = PerformanceMetricsAggregator(maxSamplesPerStage: 200, reportInterval: 20)
 
     private init() {}
+
+    private func elapsedMilliseconds(since start: CFAbsoluteTime) -> Double {
+        (CFAbsoluteTimeGetCurrent() - start) * 1000.0
+    }
 
     // MARK: - Capture Entry Points
 
@@ -26,9 +33,17 @@ final class CapturePipeline: ObservableObject {
         appState.isCapturing = true
 
         Task {
+            let entryStart = CFAbsoluteTimeGetCurrent()
+            entryLogger.debug("Capture entry: request received")
+            let freezeStart = CFAbsoluteTimeGetCurrent()
             // Freeze capture: take screenshots of all screens first
             // This preserves menus/tooltips that would close when overlay appears
             let frozenImages = await captureAllScreens()
+            let freezeDuration = self.elapsedMilliseconds(since: freezeStart)
+            logger.debug("Freeze pre-capture completed in \(freezeDuration, privacy: .public) ms (\(frozenImages.count) screen snapshots)")
+            self.recordMetric(stage: .freezeSnapshot, milliseconds: freezeDuration)
+
+            var firstMouseDownLogged = false
 
             overlayWindows = CaptureOverlayWindow.showOnAllScreens(
                 frozenImages: frozenImages,
@@ -53,8 +68,19 @@ final class CapturePipeline: ObservableObject {
                         self.overlayWindows = []
                         self.appState.isCapturing = false
                     }
+                },
+                onFirstMouseDown: { [weak self] in
+                    guard let self = self, !firstMouseDownLogged else { return }
+                    firstMouseDownLogged = true
+                    let firstMouseDownDuration = self.elapsedMilliseconds(since: entryStart)
+                    entryLogger.info("Capture entry: first mouseDown at \(firstMouseDownDuration, privacy: .public) ms")
+                    self.recordMetric(stage: .firstMouseDown, milliseconds: firstMouseDownDuration)
                 }
             )
+
+            let overlayVisibleDuration = self.elapsedMilliseconds(since: entryStart)
+            entryLogger.info("Capture entry: overlay visible at \(overlayVisibleDuration, privacy: .public) ms")
+            self.recordMetric(stage: .overlayVisible, milliseconds: overlayVisibleDuration)
         }
     }
 
@@ -72,7 +98,7 @@ final class CapturePipeline: ObservableObject {
         }
 
         // Multi-monitor: capture only the active screen to minimize delay.
-        guard let activeScreen = screenForMouseLocation() ?? NSScreen.main ?? screens.first else {
+        guard let activeScreen = screenForMouseLocation(in: screens) ?? NSScreen.main ?? screens.first else {
             return [:]
         }
         if let image = try? await captureManager.captureFullScreen(screen: activeScreen) {
@@ -81,9 +107,9 @@ final class CapturePipeline: ObservableObject {
         return [:]
     }
 
-    private func screenForMouseLocation() -> NSScreen? {
+    private func screenForMouseLocation(in screens: [NSScreen]) -> NSScreen? {
         let mouseLocation = NSEvent.mouseLocation
-        return NSScreen.screens.first { screen in
+        return screens.first { screen in
             NSMouseInRect(mouseLocation, screen.frame, false)
         }
     }
@@ -249,14 +275,19 @@ final class CapturePipeline: ObservableObject {
     // MARK: - Pipeline
 
     private func performCapture(mode: CaptureMode, capture: () async throws -> CGImage) async {
+        let pipelineStart = CFAbsoluteTimeGetCurrent()
         logger.info("Starting capture: mode=\(mode.rawValue)")
         do {
             // Detect context before capture
             let (appName, windowTitle, category) = ContextDetector.detectContext()
 
             // Capture
+            let captureStart = CFAbsoluteTimeGetCurrent()
             let cgImage = try await capture()
+            let captureDuration = elapsedMilliseconds(since: captureStart)
             logger.info("Capture succeeded: \(cgImage.width)x\(cgImage.height)")
+            logger.debug("Capture stage completed in \(captureDuration, privacy: .public) ms")
+            recordMetric(stage: .capture, milliseconds: captureDuration)
 
             // Build context
             let context = CaptureContext(
@@ -278,27 +309,34 @@ final class CapturePipeline: ObservableObject {
 
             // Process (smart crop)
             let shouldCrop = settings.smartCropEnabled && preset.smartCropEnabled
+            let processStart = CFAbsoluteTimeGetCurrent()
             let processed = await ImageProcessor.process(
                 cgImage: cgImage,
                 context: context,
                 smartCropEnabled: shouldCrop
             )
+            logger.debug("Image processing completed in \(self.elapsedMilliseconds(since: processStart), privacy: .public) ms")
+            recordMetric(stage: .process, milliseconds: elapsedMilliseconds(since: processStart))
             processed.presetName = preset.name
 
             // Save to disk (async, runs on background thread)
             if settings.autoSaveToDisk {
+                let saveStart = CFAbsoluteTimeGetCurrent()
                 let fileURL = try await FileOrganizer.save(
                     processed,
                     baseDirectory: settings.saveDirectory,
                     subfolder: preset.subfolder,
                     imageFormat: settings.imageFormat
                 )
+                logger.debug("Disk save completed in \(self.elapsedMilliseconds(since: saveStart), privacy: .public) ms")
+                recordMetric(stage: .save, milliseconds: elapsedMilliseconds(since: saveStart))
                 processed.filePath = fileURL
                 processed.fileName = fileURL.lastPathComponent
             }
 
             // Copy to clipboard
             if settings.autoCopyToClipboard {
+                let clipboardStart = CFAbsoluteTimeGetCurrent()
                 switch preset.copyMode {
                 case .image:
                     await ClipboardManager.copyImage(processed)
@@ -309,6 +347,8 @@ final class CapturePipeline: ObservableObject {
                 case .multiFormat:
                     await ClipboardManager.copyMultiFormat(processed)
                 }
+                logger.debug("Clipboard stage completed in \(self.elapsedMilliseconds(since: clipboardStart), privacy: .public) ms")
+                recordMetric(stage: .clipboard, milliseconds: elapsedMilliseconds(since: clipboardStart))
             }
 
             // Play sound
@@ -363,16 +403,31 @@ final class CapturePipeline: ObservableObject {
 
             // Notify URL scheme handler and other listeners
             NotificationCenter.default.post(name: .captureCompleted, object: nil)
+            let totalDuration = self.elapsedMilliseconds(since: pipelineStart)
+            logger.info("Capture pipeline finished in \(totalDuration, privacy: .public) ms")
+            recordMetric(stage: .total, milliseconds: totalDuration)
 
         } catch CaptureError.noPermission {
             logger.warning("Capture failed: no permission")
-            captureManager.showPermissionAlert()
+            PermissionCoordinator.shared.handleCapturePermissionFailure()
         } catch {
             logger.error("Capture failed: \(error.localizedDescription)")
             appState.statusMessage = "Capture failed: \(error.localizedDescription)"
         }
 
         appState.isCapturing = false
+    }
+
+    private func recordMetric(stage: PerformanceMetricStage, milliseconds: Double) {
+        performanceLogger.debug("metric_sample stage=\(stage.rawValue, privacy: .public) ms=\(milliseconds, privacy: .public)")
+        if let summary = performanceMetrics.record(stage: stage, milliseconds: milliseconds) {
+            let stageName = summary.stage.rawValue
+            let sampleCount = summary.sampleCount
+            let latest = summary.latestMilliseconds
+            let p50 = summary.p50Milliseconds
+            let p95 = summary.p95Milliseconds
+            performanceLogger.info("metric_summary stage=\(stageName, privacy: .public) samples=\(sampleCount, privacy: .public) latest_ms=\(latest, privacy: .public) p50_ms=\(p50, privacy: .public) p95_ms=\(p95, privacy: .public)")
+        }
     }
 
     // MARK: - Distribution Actions

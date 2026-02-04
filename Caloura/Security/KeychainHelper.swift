@@ -1,49 +1,53 @@
 import Foundation
+import LocalAuthentication
 import Security
 
+enum LegacyKeychainReadResult {
+    case success(String)
+    case notFound
+    case interactionRequired
+    case failure(OSStatus)
+}
+
+/// Deprecated runtime helper.
+/// New runtime persistence must not depend on Keychain; this helper exists only
+/// for best-effort, non-interactive migration of legacy values.
 enum KeychainHelper {
-    static func getData(service: String, account: String) -> Data? {
+    static func readLegacyStringNonInteractive(service: String, account: String) -> LegacyKeychainReadResult {
+        let authContext = LAContext()
+        authContext.interactionNotAllowed = true
+
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationContext as String: authContext
         ]
 
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess else { return nil }
-        return item as? Data
+
+        switch status {
+        case errSecSuccess:
+            guard
+                let data = item as? Data,
+                let value = String(data: data, encoding: .utf8)
+            else {
+                return .failure(errSecDecode)
+            }
+            return .success(value)
+        case errSecItemNotFound:
+            return .notFound
+        case _ where isInteractionRequiredStatus(status):
+            return .interactionRequired
+        default:
+            return .failure(status)
+        }
     }
 
-    @discardableResult
-    static func setData(_ data: Data, service: String, account: String) -> Bool {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account
-        ]
-        let attributes: [String: Any] = [
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
-        ]
-
-        let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        if updateStatus == errSecSuccess {
-            return true
-        }
-        if updateStatus == errSecItemNotFound {
-            var addQuery = query
-            addQuery[kSecValueData as String] = data
-            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-            return addStatus == errSecSuccess
-        }
-        return false
-    }
-
-    static func delete(service: String, account: String) {
+    static func deleteLegacyItem(service: String, account: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -52,14 +56,9 @@ enum KeychainHelper {
         SecItemDelete(query as CFDictionary)
     }
 
-    static func getString(service: String, account: String) -> String? {
-        guard let data = getData(service: service, account: account) else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    @discardableResult
-    static func setString(_ value: String, service: String, account: String) -> Bool {
-        guard let data = value.data(using: .utf8) else { return false }
-        return setData(data, service: service, account: account)
+    static func isInteractionRequiredStatus(_ status: OSStatus) -> Bool {
+        status == errSecInteractionNotAllowed ||
+        status == errSecUserCanceled ||
+        status == errSecAuthFailed
     }
 }

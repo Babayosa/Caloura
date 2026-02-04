@@ -3,6 +3,7 @@ import AppKit
 final class RegionSelectionView: NSView {
     var onRegionSelected: ((CGRect) -> Void)?
     var onCancelled: (() -> Void)?
+    var onFirstMouseDown: (() -> Void)?
 
     /// Frozen screenshot to display as background (enables menu capture)
     var frozenImage: CGImage? {
@@ -12,6 +13,7 @@ final class RegionSelectionView: NSView {
     private var selectionStart: NSPoint?
     private var selectionEnd: NSPoint?
     private var isSelecting = false
+    private var hasSentFirstMouseDown = false
     private var trackingArea: NSTrackingArea?
 
     // Selection styling
@@ -27,6 +29,8 @@ final class RegionSelectionView: NSView {
             window.makeFirstResponder(self)
             window.acceptsMouseMovedEvents = true
         }
+        window?.invalidateCursorRects(for: self)
+        NSCursor.crosshair.set()
     }
 
     override func updateTrackingAreas() {
@@ -36,12 +40,21 @@ final class RegionSelectionView: NSView {
         }
         let area = NSTrackingArea(
             rect: bounds,
-            options: [.mouseMoved, .activeAlways, .inVisibleRect],
+            options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect],
             owner: self,
             userInfo: nil
         )
         addTrackingArea(area)
         trackingArea = area
+    }
+
+    override func resetCursorRects() {
+        discardCursorRects()
+        addCursorRect(bounds, cursor: .crosshair)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.crosshair.set()
     }
 
     // MARK: - Drawing
@@ -164,6 +177,11 @@ final class RegionSelectionView: NSView {
     // MARK: - Mouse Events
 
     override func mouseDown(with event: NSEvent) {
+        if !hasSentFirstMouseDown {
+            hasSentFirstMouseDown = true
+            onFirstMouseDown?()
+        }
+        NSCursor.crosshair.set()
         let point = convert(event.locationInWindow, from: nil)
         selectionStart = point
         selectionEnd = point
@@ -173,9 +191,14 @@ final class RegionSelectionView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard isSelecting else { return }
+        NSCursor.crosshair.set()
         let point = convert(event.locationInWindow, from: nil)
         selectionEnd = point
         needsDisplay = true
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        NSCursor.crosshair.set()
     }
 
     override func mouseUp(with event: NSEvent) {

@@ -1,3 +1,29 @@
+# Task 00 — Release Confidence Loop
+
+Date: 2026-02-04  
+Owner: Caloura Engineering  
+Status: Complete
+
+## Plan Checklist
+
+- [x] Create/update `codex/` docs (`SCOPE.md`, `CODEMAP.md`, `codex/tasks/task-00.md`)
+- [x] Add SwiftPM support (`Package.swift`, `.gitignore` updates)
+- [x] Run required validation: `swift build`, `swiftlint`, `swift test`
+- [x] Run release-confidence checks: `xcodegen generate`, `xcodebuild test`, release guard
+- [x] Update `codex/CONTEXT-CHAIN.md` and commit
+
+## Review / Evidence
+
+- `brew install swiftlint` (installed SwiftLint 0.63.2)
+- `swift build` (succeeded; CGWindowListCreateImage deprecation warnings)
+- `swiftlint` (succeeded; 0 serious, warnings only)
+- `swift test` (99 tests passed)
+- `xcodegen generate` (succeeded)
+- `xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug` (99 tests passed)
+- `RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.6 ./scripts/release.sh 1.0.6` (guard-only checks passed)
+
+---
+
 # Documentation Maintenance Checklist
 
 Date: 2026-02-04
