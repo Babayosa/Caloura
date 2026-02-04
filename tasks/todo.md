@@ -1,43 +1,46 @@
-# Performance Optimization — Complete ✅
+# Documentation Maintenance Checklist
 
-## Round 1: Critical Path Fixes
+Date: 2026-02-04
+Owner: Caloura Engineering
+Status: Complete
 
-| Fix | Before | After |
-|-----|--------|-------|
-| ContextDetector | 100-500ms (CGWindowList) | <1ms (O(1) lookup) |
-| SmartCropper | 100-500ms (blocking Vision) | async + 300ms timeout |
-| FileOrganizer | 100-1000ms (blocking I/O) | async background I/O |
-| OCREngine | 500ms-5s (.accurate) | 50-200ms (.fast) |
-| WindowPicker | 50-200ms (SCShareable query) | 0ms (direct filter) |
+## Documentation Freshness Cadence
 
-## Round 2: Additional Optimizations
+- [x] Weekly README accuracy review policy documented.
+- [x] Per-release version/reference review policy documented.
+- [x] Per-UX-change runbook update policy documented.
 
-| Fix | Issue | Solution |
-|-----|-------|----------|
-| ProcessedScreenshot | TIFF re-encoded on every copy | Lazy-cached tiffData property |
-| ClipboardManager | Called ImageProcessor.tiffRepresentation() each time | Uses cached screenshot.tiffData |
-| AppState.saveHistory() | Synchronous I/O on main thread | Debounced (500ms) + background thread |
-| ScreenCaptureManager | Duplicate app icon lookups | NSCache for bundle ID → icon |
+## Release Documentation Checklist
 
-## Cleanup
-- [x] Deleted `WindowSelectionView.swift` (~300 lines)
-- [x] Deleted `WindowSelectionOverlayWindow.swift` (~80 lines)
+- [x] `README.md` updated for current onboarding/permission/auth/runtime behavior.
+- [x] `README.md` release guard and public QA pointers verified.
+- [x] `tasks/public-download-qa-runbook.md` normalized for v1.0.6 checks.
+- [x] `tasks/security-performance-audit.md` refreshed with onboarding UX and release evidence checks.
+- [x] `plan.md` rewritten as a concise current-state plan.
+- [x] Legacy snapshots archived under `tasks/archive/`.
 
----
+## Runbook Validation Checklist
 
-## Distribution — Complete ✅
+- [x] `scripts/public_download_qa.sh` usage output validated.
+- [x] `scripts/permission_diagnose.sh` exists and is executable.
+- [x] `RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.6 ./scripts/release.sh 1.0.6` passed.
+- [x] Primary docs checked for stale `1.0.5` references where `1.0.6` is expected.
+- [x] Primary docs checked for stale 4-step onboarding references.
+- [x] Primary docs checked for conflicting runtime keychain claims.
 
-- [x] Create Gumroad product page
-- [x] Replace placeholder product ID
-- [x] Deploy landing page
-- [x] Set real price
-- [x] Wire download link
-- [x] Capture app screenshots
+## Docs Audit Summary
 
----
-
-## Low-Priority (Optional)
-
-- [ ] History view NSImage thumbnail caching
-- [ ] Batch NSPasteboard writes with writeObjects()
-- [ ] Pre-encode TIFF during ImageProcessor.process() instead of lazy
+- Command: `scripts/public_download_qa.sh`
+  Outcome: prints usage successfully (no command errors).
+- Command: `test -x scripts/permission_diagnose.sh`
+  Outcome: passed (`scripts/permission_diagnose.sh` is executable).
+- Command: `RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.6 ./scripts/release.sh 1.0.6`
+  Outcome: passed (`Release tag check passed`, `Guard-only mode passed`).
+- Content drift checks on primary docs (`README.md`, `plan.md`, `tasks/public-download-qa-runbook.md`, `tasks/security-performance-audit.md`):
+  - `1.0.5` stale references: none found
+  - 4-step onboarding references: none found
+  - runtime keychain claims: consistent with no-startup-prompt model
+- Manual doc QA:
+  - no placeholder TODOs in active user-facing docs
+  - referenced local doc/script paths resolve
+  - duplicate checklist line removed from public QA runbook

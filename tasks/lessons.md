@@ -20,3 +20,10 @@
 - **Root cause**: Optional chaining (`app?.bundleIdentifier`) returns `String?`, but inside a closure where the optional was already unwrapped, the result was `String`. `String.flatMap` iterates characters (it's `Sequence.flatMap`).
 - **Rule**: When converting an optional property to another optional, prefer explicit `guard let` / `if let` over chained `flatMap`. It's clearer and avoids the `String.flatMap` trap.
 - **Example**: `window.owningApplication?.bundleIdentifier.flatMap { bid in NSRunningApplication.runningApplications(withBundleIdentifier: bid) }` — `bid` was `Character`. Fixed by using `guard let bid = window.owningApplication?.bundleIdentifier else { return nil }`.
+
+## 2026-02-04: Documentation drift created contradictory product behavior
+
+- **Mistake**: Kept active docs with mixed historical states (keychain-required vs no-keychain runtime, 4-step onboarding vs current 2-step flow), which caused confusion during release validation.
+- **Root cause**: Historical planning/status notes were maintained in-place instead of being archived, so outdated guidance remained in canonical docs.
+- **Rule**: Archive stale planning/todo material into `tasks/archive/` and keep only current behavior in live docs (`README.md`, `plan.md`, runbooks). Every permission/auth flow change must include same-day doc updates.
+- **Example**: Legacy notes referenced `1.0.5` and a 4-step onboarding model while shipped `1.0.6` uses a 2-step flow with `Grant Permission` + `Check Again` and auto-check feedback.

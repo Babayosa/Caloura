@@ -1,69 +1,93 @@
 # Caloura
 
-A fast, lightweight macOS menu-bar screenshot tool for knowledge workers.
+Caloura is a fast macOS menu-bar screenshot tool for area, window, and full-screen capture.
 
-<!-- TODO: Add screenshot here -->
+## Highlights
 
-## Features
+- Area, window, and full-screen capture (multi-display aware)
+- Smart crop + OCR pipeline
+- Annotation and pinning workflows
+- Searchable history with encrypted-at-rest payload storage
+- Sparkle-based in-app updates for direct distribution
 
-- **Three capture modes**: area selection, window picker, full screen (with multi-display support)
-- **Smart crop**: automatic whitespace trimming via Vision saliency detection
-- **Background OCR**: text recognition on every capture
-- **Annotations**: arrows, rectangles, highlights with undo
-- **Multi-format clipboard**: image, Markdown, citation, or all at once
-- **Pinned screenshots**: floating always-on-top windows for reference
-- **Delayed capture**: 3-second countdown with ESC cancellation and overlay
-- **Searchable history**: thumbnails, tags, and full-text search (last 50 captures)
-- **4 built-in presets**: Quick Capture, Research, Lecture Notes, Documentation
-- **Context detection**: auto-selects preset based on the active app
-- **URL scheme**: 11 routes for automation (see `caloura://help`)
-- **7 customizable hotkeys** via Preferences
-- **Sparkle auto-updates** (direct distribution)
+## Onboarding And Permissions
 
-## Keyboard Shortcuts
+Caloura uses a **2-step onboarding** flow:
+1. Screen Recording permission (soft-gated)
+2. First capture quick-start
 
-| Action | Default |
-|--------|---------|
-| Capture Area | `Ctrl+Shift+4` |
-| Capture Window | `Ctrl+Shift+5` |
-| Capture Full Screen | `Ctrl+Shift+3` |
-| Repeat Last Area | `Ctrl+Shift+R` |
+Permission step behavior:
+- `Continue` is always available (no hard block)
+- Primary action path is `Grant Permission`
+- Explicit recheck is `Check Again`
+- After grant, onboarding shows an auto-check progress state
 
-All shortcuts are customizable in Preferences > Shortcuts.
+## Screen Recording Troubleshooting
+
+If capture fails after permission looks enabled:
+1. Use **only one build lane** while testing (`/Applications/Caloura.app` recommended).
+2. In **System Settings > Privacy & Security > Screen & System Audio Recording**, ensure the current build is enabled.
+3. Relaunch Caloura.
+4. If you alternate between Xcode and public builds, run `scripts/permission_diagnose.sh`.
+
+### Build Identity Mismatch (Xcode vs /Applications)
+
+macOS can treat different signatures/paths as separate apps. If permission seems granted but capture still fails:
+- Prefer `/Applications/Caloura.app` for public validation.
+- Re-grant permission for the exact build you launched.
+
+## Data And Security
+
+- **License state**: persisted locally for frictionless runtime (no startup keychain prompt path).
+- **History payload**: encrypted with AES-GCM at
+  `~/Library/Application Support/Caloura/history.enc`
+- **History key**: stored at
+  `~/Library/Application Support/Caloura/security/history.key`
+- **Permission model**: Screen Recording is the only required OS permission.
+
+## Keyboard Shortcuts (Defaults)
+
+- `Ctrl+Shift+4` Capture Area
+- `Ctrl+Shift+5` Capture Window
+- `Ctrl+Shift+3` Capture Full Screen
+- `Ctrl+Shift+R` Repeat Last Area
+
+All shortcuts are configurable in Preferences.
 
 ## Requirements
 
-- macOS 14.0 (Sonoma) or later
-- Screen Recording permission (prompted on first launch)
+- macOS 14.0+
+- Xcode 15+ (for local development)
 
-## Permissions Troubleshooting
-
-If captures return blank images or the app reports "no permission":
-
-1. Open **System Settings > Privacy & Security > Screen Recording**
-2. Find **Caloura** in the list and toggle it **on**
-3. If Caloura is not listed, click **+** and add it from `/Applications`
-4. You may need to quit and relaunch Caloura after granting permission
-5. On macOS 15 (Sequoia), you may be prompted to allow screen recording each time the app launches. This is an OS-level change and cannot be bypassed.
-
-## Build
+## Build And Test
 
 ```bash
-# Generate Xcode project (required after adding/removing source files)
 xcodegen generate
-
-# Build (Debug)
 xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug
-
-# Run tests
 xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug
-
-# Open in Xcode
-open Caloura.xcodeproj
 ```
 
-Requires Xcode 15+ and Swift 5.9.
+## Release Guard And Publishing
+
+Versioning is gated by `scripts/release.sh`:
+- tag/version alignment (`RELEASE_TAG` / `GITHUB_REF_NAME`)
+- exported app version parity
+- final zipped artifact version parity
+
+Guard-only check:
+
+```bash
+RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.6 ./scripts/release.sh 1.0.6
+```
+
+For the public website/appcast release flow (v1.0.6 process), use:
+- app build + notarization: `scripts/release.sh`
+- public artifact verification: `scripts/public_download_qa.sh --version 1.0.6 verify`
+
+## Public Download QA
+
+Use the runbook in `tasks/public-download-qa-runbook.md` for full public download, onboarding, permission, and trial checks.
 
 ## License
 
-<!-- TODO: Choose license -->
+Proprietary software.
