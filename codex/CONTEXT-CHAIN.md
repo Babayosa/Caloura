@@ -4,6 +4,20 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 01: CI checks
+**Status:** Complete  
+**Branch:** task-01-ci-checks  
+**Changes:**
+- Added `.github/workflows/ci.yml` to run SwiftPM + Xcode checks on PRs and main pushes
+- Added Task 01 spec (`codex/tasks/task-01.md`) and updated `codex/CODEMAP.md`
+- Updated `tasks/todo.md` with Task 01 checklist + evidence
+
+**Decisions Made:**
+- Run `swift build`, `swiftlint`, `swift test` plus `xcodegen generate` and `xcodebuild test` in CI
+- Disable code signing in CI to avoid certificate requirements
+
+---
+
 ## Task 00: Release confidence loop + SwiftPM validation
 **Status:** Complete  
 **Branch:** task-00-release-confidence-loop  

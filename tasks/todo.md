@@ -1,3 +1,29 @@
+# Task 01 — CI Checks
+
+Date: 2026-02-04  
+Owner: Caloura Engineering  
+Status: Complete
+
+## Plan Checklist
+
+- [x] Create `codex/tasks/task-01.md`
+- [x] Add CI workflow (`.github/workflows/ci.yml`) for SwiftPM + Xcode checks
+- [x] Update `codex/CODEMAP.md` for CI
+- [x] Run required validation: `swift build`, `swiftlint`, `swift test`
+- [x] Run Xcode parity checks: `xcodegen generate`, `xcodebuild test` (+ no-sign variant)
+- [x] Update `codex/CONTEXT-CHAIN.md` and commit
+
+## Review / Evidence
+
+- `swift build` (succeeded)
+- `swiftlint` (succeeded; warnings only)
+- `swift test` (99 tests passed)
+- `xcodegen generate` (succeeded)
+- `xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug` (99 tests passed)
+- `xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""` (99 tests passed)
+
+---
+
 # Task 00 — Release Confidence Loop
 
 Date: 2026-02-04  

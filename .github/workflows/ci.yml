@@ -1,0 +1,46 @@
+name: CI Checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-test:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Tool versions
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install tools
+        run: |
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install swiftlint xcodegen
+
+      - name: SwiftPM build
+        run: swift build
+
+      - name: SwiftLint
+        run: swiftlint
+
+      - name: SwiftPM tests
+        run: swift test
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Xcode tests (no signing)
+        run: |
+          xcodebuild test \
+            -project Caloura.xcodeproj \
+            -scheme Caloura \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""

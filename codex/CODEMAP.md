@@ -57,6 +57,8 @@ Caloura is a macOS menu-bar screenshot tool. The app routes user actions (menu-b
 - **Guardrails**
   - `.github/workflows/release-guard.yml` — enforces tag/version parity.
   - `scripts/release.sh` — guard-only mode and release packaging.
+- **Continuous checks**
+  - `.github/workflows/ci.yml` — PR/push validation (SwiftPM + Xcode tests).
 - **Public download QA**
   - `scripts/public_download_qa.sh` — verify artifact + onboarding/trial checks.
 - **Permission debugging**
