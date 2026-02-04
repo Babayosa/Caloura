@@ -4,6 +4,10 @@ import KeyboardShortcuts
 
 // MARK: - Tab Enum
 
+private enum PreferencesLayout {
+    static let minContentSize = CGSize(width: 560, height: 520)
+}
+
 enum PreferencesTab: String, CaseIterable, Identifiable {
     case welcome
     case general
@@ -130,7 +134,8 @@ struct PreferencesView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 500, minHeight: 400)
+        .frame(minWidth: PreferencesLayout.minContentSize.width,
+               minHeight: PreferencesLayout.minContentSize.height)
     }
 }
 
@@ -572,9 +577,9 @@ final class PreferencesWindowController {
             return
         }
 
-        let preferencesView = PreferencesView(selectedTab: tab ?? .general)
+        let preferencesView = PreferencesView(selectedTab: tab)
         let hostingView = NSHostingView(rootView: preferencesView)
-        hostingView.frame = CGRect(x: 0, y: 0, width: 500, height: 420)
+        hostingView.frame = CGRect(origin: .zero, size: PreferencesLayout.minContentSize)
 
         let window = NSWindow(
             contentRect: hostingView.frame,
@@ -585,7 +590,13 @@ final class PreferencesWindowController {
         window.isReleasedWhenClosed = false
         window.contentView = hostingView
         window.title = "Caloura Preferences"
+        window.contentMinSize = PreferencesLayout.minContentSize
         window.setFrameAutosaveName("PreferencesWindow")
+        let currentContentSize = window.contentLayoutRect.size
+        if currentContentSize.width < PreferencesLayout.minContentSize.width ||
+            currentContentSize.height < PreferencesLayout.minContentSize.height {
+            window.setContentSize(PreferencesLayout.minContentSize)
+        }
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -612,7 +623,8 @@ final class PreferencesWindowController {
         guard let window else { return }
         let preferencesView = PreferencesView(selectedTab: tab)
         let hostingView = NSHostingView(rootView: preferencesView)
-        hostingView.frame = window.contentView?.frame ?? CGRect(x: 0, y: 0, width: 500, height: 420)
+        let contentSize = window.contentView?.frame.size ?? PreferencesLayout.minContentSize
+        hostingView.frame = CGRect(origin: .zero, size: contentSize)
         window.contentView = hostingView
     }
 }

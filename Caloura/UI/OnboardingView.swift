@@ -1,8 +1,11 @@
 import SwiftUI
+import os.log
+
+private let onboardingLogger = Logger(subsystem: "com.caloura.app", category: "Onboarding")
 
 // MARK: - Permission Detail
 
-enum PermissionDetail {
+enum PermissionDetail: Equatable {
     case working
     case grantedNotWorking
     case notGranted
@@ -101,7 +104,7 @@ struct OnboardingView: View {
             while !Task.isCancelled && !hasPermission {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
                 guard !Task.isCancelled else { break }
-                await recheckPermissionAsync()
+                await recheckPermissionAsync(userInitiated: false)
             }
         }
     }
@@ -113,24 +116,28 @@ struct OnboardingView: View {
         }
     }
 
-    private func recheckPermission() {
+    private func recheckPermission(userInitiated: Bool = false) {
         Task {
-            await recheckPermissionAsync()
+            await recheckPermissionAsync(userInitiated: userInitiated)
         }
     }
 
-    private func recheckPermissionAsync() async {
+    private func recheckPermissionAsync(userInitiated: Bool = false) async {
         pollCount += 1
+        let previousDetail = permissionDetail
 
         // First check CGPreflight — this is non-intrusive and won't trigger prompts
         let cgGranted = ScreenCaptureManager.shared.checkPermission()
+        if userInitiated {
+            onboardingLogger.info("User-initiated permission check. CGPreflight=\(cgGranted, privacy: .public)")
+        }
 
         if cgGranted {
             // Permission granted at OS level. Check if SCK actually works.
             // Only do this check ONCE when we first detect permission granted,
             // not on every poll (SCK check can trigger system prompts on some versions).
-            if permissionDetail == .notGranted {
-                // First time seeing permission granted — do one SCK check
+            if userInitiated || permissionDetail == .notGranted {
+                // User explicitly asked to re-check, or first time seeing permission granted.
                 let sckOK = await ScreenCaptureManager.shared.checkSCKAccess()
                 if sckOK {
                     hasPermission = true
@@ -139,42 +146,23 @@ struct OnboardingView: View {
                     hasPermission = true
                     permissionDetail = .grantedNotWorking
                 }
+                if userInitiated || previousDetail != permissionDetail {
+                    onboardingLogger.info("SCK check result: \(sckOK, privacy: .public) detail=\(String(describing: permissionDetail), privacy: .public)")
+                }
             } else {
                 // Already checked SCK before, keep current state but ensure hasPermission is true
                 hasPermission = true
             }
         } else {
-            // CGPreflight returned false, but it can be unreliable on Sequoia.
-            // Try a practical test: screencapture CLI works if system-level permission exists.
-            if await testScreencaptureCLI() {
-                hasPermission = true
-                permissionDetail = .working
-            } else {
-                hasPermission = false
-                permissionDetail = .notGranted
+            hasPermission = false
+            permissionDetail = .notGranted
+            if userInitiated {
+                onboardingLogger.info("CGPreflight false on user-initiated check. Permission not granted.")
             }
         }
-    }
 
-    /// Test if screencapture CLI can capture (system binary, doesn't need app permission)
-    private func testScreencaptureCLI() async -> Bool {
-        await withCheckedContinuation { continuation in
-            Task.detached {
-                let tempPath = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("caloura-test-\(UUID().uuidString).png").path
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-                process.arguments = ["-x", "-t", "png", "-R0,0,1,1", tempPath]
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-                    let success = process.terminationStatus == 0
-                    try? FileManager.default.removeItem(atPath: tempPath)
-                    continuation.resume(returning: success)
-                } catch {
-                    continuation.resume(returning: false)
-                }
-            }
+        if previousDetail != permissionDetail {
+            onboardingLogger.info("Permission detail changed: \(String(describing: previousDetail), privacy: .public) -> \(String(describing: permissionDetail), privacy: .public)")
         }
     }
 
@@ -243,7 +231,7 @@ struct OnboardingView: View {
                     _ = ScreenCaptureManager.shared.requestPermission()
                     // Check after a short delay to let the system process
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        recheckPermission()
+                        recheckPermission(userInitiated: true)
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -256,7 +244,7 @@ struct OnboardingView: View {
                 .buttonStyle(.bordered)
 
                 Button("Check Again") {
-                    recheckPermission()
+                    recheckPermission(userInitiated: true)
                 }
 
                 // Show escape hatch after 3 poll cycles (user has been waiting ~6+ seconds)

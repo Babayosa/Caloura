@@ -30,17 +30,14 @@ final class CaptureOverlayWindow: NSWindow {
         self.acceptsMouseMovedEvents = true
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        let selectionView = RegionSelectionView(frame: screen.frame)
+        let selectionView = RegionSelectionView(
+            frame: NSRect(origin: .zero, size: screen.frame.size)
+        )
+        selectionView.autoresizingMask = [.width, .height]
         selectionView.onRegionSelected = { [weak self] rect in
             guard let self = self else { return }
-            // Convert from view coordinates to screen coordinates
-            let screenRect = CGRect(
-                x: self.frame.origin.x + rect.origin.x,
-                y: self.frame.origin.y + rect.origin.y,
-                width: rect.width,
-                height: rect.height
-            )
-            self.onRegionSelected?(screenRect, screen)
+            // Rect is in screen-local coordinates (origin at screen frame)
+            self.onRegionSelected?(rect, screen)
         }
         selectionView.onCancelled = { [weak self] in
             self?.onCancelled?()
@@ -58,10 +55,17 @@ final class CaptureOverlayWindow: NSWindow {
         onCancelled: @escaping () -> Void
     ) -> [CaptureOverlayWindow] {
         var windows: [CaptureOverlayWindow] = []
+        var cursorRestored = false
+
+        func restoreCursorIfNeeded() {
+            guard !cursorRestored else { return }
+            cursorRestored = true
+            NSCursor.pop()
+        }
 
         // Activate app so the first click is a real mouseDown, not a window-activation click
         NSApp.activate(ignoringOtherApps: true)
-        NSCursor.hide()
+        NSCursor.crosshair.push()
 
         for screen in NSScreen.screens {
             let overlay = CaptureOverlayWindow(for: screen)
@@ -72,7 +76,7 @@ final class CaptureOverlayWindow: NSWindow {
             }
 
             overlay.onRegionSelected = { rect, screen in
-                NSCursor.unhide()
+                restoreCursorIfNeeded()
                 for w in windows {
                     w.onRegionSelected = nil
                     w.onCancelled = nil
@@ -81,7 +85,7 @@ final class CaptureOverlayWindow: NSWindow {
                 onRegionSelected(rect, screen)
             }
             overlay.onCancelled = {
-                NSCursor.unhide()
+                restoreCursorIfNeeded()
                 for w in windows {
                     w.onRegionSelected = nil
                     w.onCancelled = nil

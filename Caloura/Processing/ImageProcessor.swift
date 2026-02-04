@@ -21,13 +21,9 @@ struct ImageProcessor {
             height: processedImage.height
         ))
 
-        // Generate PNG data
-        let pngData = pngRepresentation(of: processedImage)
-
         return ProcessedScreenshot(
             image: nsImage,
             cgImage: processedImage,
-            pngData: pngData,
             context: context
         )
     }

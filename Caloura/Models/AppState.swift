@@ -24,7 +24,8 @@ final class AppState: ObservableObject {
     var lastCaptureScreen: NSScreen?
 
     private let maxRecentItems = 50
-    private let historyKey = "screenshotHistory"
+    private let historyKey = "screenshotHistoryEncrypted"
+    private let legacyHistoryKey = "screenshotHistory"
 
     // Debounce save operations to avoid hammering UserDefaults
     private var saveTask: Task<Void, Never>?
@@ -70,22 +71,55 @@ final class AppState: ObservableObject {
         // Copy array to avoid data race - background thread reads the copy
         let itemsCopy = Array(recentScreenshots)
         let key = historyKey
+        let legacyKey = legacyHistoryKey
         Task.detached(priority: .utility) {
             do {
                 let data = try JSONEncoder().encode(itemsCopy)
-                UserDefaults.standard.set(data, forKey: key)
+                let encrypted = try HistoryCrypto.encrypt(data)
+                let defaults = UserDefaults.standard
+                defaults.set(encrypted, forKey: key)
+                defaults.removeObject(forKey: legacyKey)
             } catch {
-                appStateLogger.error("Failed to encode screenshot history: \(error.localizedDescription)")
+                appStateLogger.error("Failed to encode or encrypt screenshot history: \(error.localizedDescription)")
             }
         }
     }
 
     private func loadHistory() {
-        guard let data = UserDefaults.standard.data(forKey: historyKey) else { return }
+        let defaults = UserDefaults.standard
+        if let encrypted = defaults.data(forKey: historyKey) {
+            do {
+                let decrypted = try HistoryCrypto.decrypt(encrypted)
+                if let result = decodeHistory(from: decrypted, source: "encrypted") {
+                    recentScreenshots = result.items
+                    if result.recovered {
+                        saveHistoryNow()
+                    }
+                    return
+                }
+            } catch {
+                appStateLogger.error("Failed to decrypt screenshot history: \(error.localizedDescription)")
+            }
+        }
+
+        guard let data = defaults.data(forKey: legacyHistoryKey) else { return }
+        if let result = decodeHistory(from: data, source: "legacy") {
+            recentScreenshots = result.items
+            saveHistoryNow()
+        }
+    }
+
+    private struct HistoryLoadResult {
+        let items: [ScreenshotItem]
+        let recovered: Bool
+    }
+
+    private func decodeHistory(from data: Data, source: String) -> HistoryLoadResult? {
         do {
-            recentScreenshots = try JSONDecoder().decode([ScreenshotItem].self, from: data)
+            let items = try JSONDecoder().decode([ScreenshotItem].self, from: data)
+            return HistoryLoadResult(items: items, recovered: false)
         } catch {
-            appStateLogger.error("Failed to decode screenshot history: \(error.localizedDescription). Attempting partial recovery.")
+            appStateLogger.error("Failed to decode \(source) screenshot history: \(error.localizedDescription). Attempting partial recovery.")
             // Attempt to recover individual items from the array
             if let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
                 var recovered: [ScreenshotItem] = []
@@ -96,9 +130,9 @@ final class AppState: ObservableObject {
                     }
                 }
                 appStateLogger.info("Recovered \(recovered.count) of \(jsonArray.count) history items")
-                recentScreenshots = recovered
-                saveHistoryNow()
+                return HistoryLoadResult(items: recovered, recovered: true)
             }
         }
+        return nil
     }
 }

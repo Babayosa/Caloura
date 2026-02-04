@@ -12,37 +12,20 @@ final class RegionSelectionView: NSView {
     private var selectionStart: NSPoint?
     private var selectionEnd: NSPoint?
     private var isSelecting = false
-    private var currentMouseLocation: NSPoint?
     private var trackingArea: NSTrackingArea?
-
-    // Cursor dot styling
-    private let dotRadius: CGFloat = 2.5
-    private let dotColor = NSColor.white.withAlphaComponent(0.95)
-    private let dotShadowColor = NSColor.black.withAlphaComponent(0.5)
 
     // Selection styling
     private let selectionBorderColor = NSColor.white
     private let sizeFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
 
     override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let window = window {
             window.makeFirstResponder(self)
             window.acceptsMouseMovedEvents = true
-
-            // Initialize cursor position immediately so dot appears right away
-            let screenMouseLocation = NSEvent.mouseLocation
-            if let screenFrame = window.screen?.frame {
-                // Convert screen coordinates to window coordinates
-                let windowPoint = NSPoint(
-                    x: screenMouseLocation.x - screenFrame.origin.x,
-                    y: screenMouseLocation.y - screenFrame.origin.y
-                )
-                currentMouseLocation = windowPoint
-                needsDisplay = true
-            }
         }
     }
 
@@ -93,10 +76,6 @@ final class RegionSelectionView: NSView {
             drawHintLabel()
         }
 
-        // Cursor dot on top
-        if let mouseLocation = currentMouseLocation {
-            drawCursorDot(at: mouseLocation)
-        }
     }
 
     private func drawDimmingMask(excluding rect: CGRect) {
@@ -184,14 +163,8 @@ final class RegionSelectionView: NSView {
 
     // MARK: - Mouse Events
 
-    override func mouseMoved(with event: NSEvent) {
-        currentMouseLocation = convert(event.locationInWindow, from: nil)
-        needsDisplay = true
-    }
-
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        currentMouseLocation = point
         selectionStart = point
         selectionEnd = point
         isSelecting = true
@@ -201,14 +174,12 @@ final class RegionSelectionView: NSView {
     override func mouseDragged(with event: NSEvent) {
         guard isSelecting else { return }
         let point = convert(event.locationInWindow, from: nil)
-        currentMouseLocation = point
         selectionEnd = point
         needsDisplay = true
     }
 
     override func mouseUp(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        currentMouseLocation = point
 
         guard isSelecting, let start = selectionStart else {
             needsDisplay = true
@@ -238,22 +209,6 @@ final class RegionSelectionView: NSView {
         if event.keyCode == 53 { // Escape
             onCancelled?()
         }
-    }
-
-    // MARK: - Cursor Dot
-
-    private func drawCursorDot(at point: NSPoint) {
-        let r = dotRadius
-        let dotRect = NSRect(x: point.x - r, y: point.y - r, width: r * 2, height: r * 2)
-
-        // Shadow ring for contrast on light backgrounds
-        let shadowRect = dotRect.insetBy(dx: -1, dy: -1)
-        dotShadowColor.setFill()
-        NSBezierPath(ovalIn: shadowRect).fill()
-
-        // White dot
-        dotColor.setFill()
-        NSBezierPath(ovalIn: dotRect).fill()
     }
 
     // MARK: - Helpers

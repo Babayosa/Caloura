@@ -5,11 +5,13 @@ struct ClipboardManager {
     private static let pasteboard = NSPasteboard.general
 
     /// Copy image to clipboard as TIFF + PNG
-    static func copyImage(_ screenshot: ProcessedScreenshot) {
-        pasteboard.clearContents()
-        // Use cached tiffData instead of re-encoding
-        pasteboard.setData(screenshot.tiffData, forType: .tiff)
-        pasteboard.setData(screenshot.pngData, forType: .png)
+    static func copyImage(_ screenshot: ProcessedScreenshot) async {
+        let imageData = await imageData(for: screenshot)
+        await MainActor.run {
+            pasteboard.clearContents()
+            pasteboard.setData(imageData.tiff, forType: .tiff)
+            pasteboard.setData(imageData.png, forType: .png)
+        }
     }
 
     /// Copy as Markdown text: ![alt](filename)
@@ -34,22 +36,48 @@ struct ClipboardManager {
 
     /// Copy multi-format: image + Markdown + HTML simultaneously
     /// Rich text editors get the image, plain text editors get markdown
-    static func copyMultiFormat(_ screenshot: ProcessedScreenshot) {
-        pasteboard.clearContents()
-
-        // Image formats (use cached data)
-        pasteboard.setData(screenshot.tiffData, forType: .tiff)
-        pasteboard.setData(screenshot.pngData, forType: .png)
-
-        // Plain text (Markdown)
+    static func copyMultiFormat(_ screenshot: ProcessedScreenshot) async {
+        let imageData = await imageData(for: screenshot)
         let markdown = MarkdownExporter.markdownImageTag(for: screenshot)
-        pasteboard.setString(markdown, forType: .string)
-
-        // HTML
         let html = MarkdownExporter.htmlImageTag(for: screenshot)
-        pasteboard.setData(
-            html.data(using: .utf8) ?? Data(),
-            forType: .html
-        )
+        await MainActor.run {
+            pasteboard.clearContents()
+
+            // Image formats (use cached data)
+            pasteboard.setData(imageData.tiff, forType: .tiff)
+            pasteboard.setData(imageData.png, forType: .png)
+
+            // Plain text (Markdown)
+            pasteboard.setString(markdown, forType: .string)
+
+            // HTML
+            pasteboard.setData(
+                html.data(using: .utf8) ?? Data(),
+                forType: .html
+            )
+        }
+    }
+
+    private static func imageData(for screenshot: ProcessedScreenshot) async -> (png: Data, tiff: Data) {
+        let cachedPNG = screenshot.cachedPNGData()
+        let cachedTIFF = screenshot.cachedTIFFData()
+        if let cachedPNG, let cachedTIFF {
+            return (cachedPNG, cachedTIFF)
+        }
+
+        let cgImage = screenshot.cgImage
+        let generated = await Task.detached(priority: .utility) {
+            let png = cachedPNG ?? ImageProcessor.pngRepresentation(of: cgImage)
+            let tiff = cachedTIFF ?? ImageProcessor.tiffRepresentation(of: cgImage)
+            return (png: png, tiff: tiff)
+        }.value
+
+        if cachedPNG == nil {
+            screenshot.cachePNGData(generated.png)
+        }
+        if cachedTIFF == nil {
+            screenshot.cacheTIFFData(generated.tiff)
+        }
+        return generated
     }
 }

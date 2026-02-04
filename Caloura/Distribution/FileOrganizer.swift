@@ -38,27 +38,39 @@ struct FileOrganizer {
         let fileName = generateFileName(for: screenshot, imageFormat: imageFormat)
         let fileURL = directoryURL.appendingPathComponent(fileName)
 
-        // Get image data (PNG is already cached, others need encoding)
-        let imageData: Data
-        switch imageFormat {
-        case "jpeg":
-            imageData = ImageProcessor.jpegRepresentation(of: screenshot.cgImage)
-        case "tiff":
-            imageData = ImageProcessor.tiffRepresentation(of: screenshot.cgImage)
-        default:
-            imageData = screenshot.pngData
-        }
+        let cgImage = screenshot.cgImage
+        let format = imageFormat
 
-        // Move file I/O to background thread
-        return try await Task.detached(priority: .userInitiated) {
+        // Move encoding + file I/O to background thread
+        let (savedURL, cachedPNGData) = try await Task.detached(priority: .userInitiated) {
+            let imageData: Data
+            var pngCache: Data?
+
+            switch format {
+            case "jpeg":
+                imageData = ImageProcessor.jpegRepresentation(of: cgImage)
+            case "tiff":
+                imageData = ImageProcessor.tiffRepresentation(of: cgImage)
+            default:
+                let data = ImageProcessor.pngRepresentation(of: cgImage)
+                imageData = data
+                pngCache = data
+            }
+
             try FileManager.default.createDirectory(
                 at: directoryURL,
                 withIntermediateDirectories: true,
                 attributes: nil
             )
             try imageData.write(to: fileURL)
-            return fileURL
+            return (fileURL, pngCache)
         }.value
+
+        if let cachedPNGData {
+            screenshot.cachePNGData(cachedPNGData)
+        }
+
+        return savedURL
     }
 
     /// Synchronous save for cases where async isn't available.

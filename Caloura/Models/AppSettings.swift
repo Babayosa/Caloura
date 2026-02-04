@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
+    private static let keychainService = Bundle.main.bundleIdentifier ?? "com.caloura.app"
 
     private let defaults = UserDefaults.standard
 
@@ -78,7 +79,7 @@ final class AppSettings: ObservableObject {
     }
 
     @Published var licenseKey: String {
-        didSet { debouncedSave() }
+        didSet { saveLicenseKey() }
     }
 
     @Published var isLicenseActivated: Bool {
@@ -124,9 +125,17 @@ final class AppSettings: ObservableObject {
         defaults.set(launchAtLogin, forKey: Keys.launchAtLogin)
         defaults.set(checkForUpdatesAutomatically, forKey: Keys.checkForUpdatesAutomatically)
         defaults.set(firstLaunchDate, forKey: Keys.firstLaunchDate)
-        defaults.set(licenseKey, forKey: Keys.licenseKey)
         defaults.set(isLicenseActivated, forKey: Keys.isLicenseActivated)
         defaults.set(hasSeenWelcome, forKey: Keys.hasSeenWelcome)
+    }
+
+    private func saveLicenseKey() {
+        let service = Self.keychainService
+        if licenseKey.isEmpty {
+            KeychainHelper.delete(service: service, account: Keys.licenseKey)
+        } else {
+            _ = KeychainHelper.setString(licenseKey, service: service, account: Keys.licenseKey)
+        }
     }
 
     // MARK: - Init
@@ -153,7 +162,17 @@ final class AppSettings: ObservableObject {
             self.firstLaunchDate = now
             defaults.set(now, forKey: Keys.firstLaunchDate)
         }
-        self.licenseKey = defaults.string(forKey: Keys.licenseKey) ?? ""
+        let service = Self.keychainService
+        if let storedKey = KeychainHelper.getString(service: service, account: Keys.licenseKey) {
+            self.licenseKey = storedKey
+        } else if let legacyKey = defaults.string(forKey: Keys.licenseKey), !legacyKey.isEmpty {
+            self.licenseKey = legacyKey
+            _ = KeychainHelper.setString(legacyKey, service: service, account: Keys.licenseKey)
+            defaults.removeObject(forKey: Keys.licenseKey)
+        } else {
+            self.licenseKey = ""
+            defaults.removeObject(forKey: Keys.licenseKey)
+        }
         self.isLicenseActivated = defaults.bool(forKey: Keys.isLicenseActivated)
         self.hasSeenWelcome = defaults.bool(forKey: Keys.hasSeenWelcome)
     }

@@ -10,6 +10,7 @@
 		00F2B2D5A7EA888499E2E99C /* CapturePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC3E8A84DF9CCD9D210B6C62 /* CapturePipeline.swift */; };
 		0E2F8952CD675A7B9956700C /* CaptureContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699F1C771C0800F37394839E /* CaptureContext.swift */; };
 		111010296F957D4661F2CBE7 /* UpdateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2692F22CB4A8BF8EDCB4B18 /* UpdateManager.swift */; };
+		14F1E8E717F33684CC6DFE70 /* HistoryCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70127AB34D54A40632AB564 /* HistoryCrypto.swift */; };
 		19CCBB9C35F4508A0BD841CC /* ScreenshotItemTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46BF3953A403BDB295C6F00B /* ScreenshotItemTests.swift */; };
 		21B0332B75BD9E09DBBB3FAD /* LicenseManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A7A42423314D5FD004AD25 /* LicenseManagerTests.swift */; };
 		29AB177B65A4DF8FBFB6DC47 /* WindowPickerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82948024B51A509DFED7716F /* WindowPickerManager.swift */; };
@@ -20,6 +21,7 @@
 		34E5324CD7B4F83988C9B5E9 /* ContextDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 289A896241A2CA4826901D17 /* ContextDetector.swift */; };
 		46788602D7A04D4198510E74 /* SmartCropperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC6A57E8521570F4CEA4DF3 /* SmartCropperTests.swift */; };
 		5104523F1D58CAC35E4F9B5A /* ScreenSelectionOverlayWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7925DB8C1184AAB81FC7B6C6 /* ScreenSelectionOverlayWindow.swift */; };
+		5229BD214E10FF8EEA97CDFB /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70EBD1742040EEC6B5B3E4BF /* KeychainHelper.swift */; };
 		5D8E2B1B7347BD13B563B152 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC35B127FD103884C4B34BF5 /* AppState.swift */; };
 		61EFD2076EE0D8B8D8CB3EEA /* HotKeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F927F3F38D11E649DA526CF /* HotKeyManager.swift */; };
 		61F17436491E814EED105C21 /* URLSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761C0501FF605DE3B70832ED /* URLSchemeHandler.swift */; };
@@ -93,6 +95,7 @@
 		699F1C771C0800F37394839E /* CaptureContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureContext.swift; sourceTree = "<group>"; };
 		6D5287A7A52DB2B5F2880B13 /* FileOrganizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileOrganizer.swift; sourceTree = "<group>"; };
 		70B82A42272A01F52D3058AF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		70EBD1742040EEC6B5B3E4BF /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		734277A60C0B95BA7A460864 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		761C0501FF605DE3B70832ED /* URLSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLSchemeHandler.swift; sourceTree = "<group>"; };
 		764C6C1C3A6A9EAB8A9DC743 /* LicenseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseManager.swift; sourceTree = "<group>"; };
@@ -102,6 +105,7 @@
 		94717F3B4A2F7CD0E0C4CC64 /* CalouraApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalouraApp.swift; sourceTree = "<group>"; };
 		94D8761A69116ED194469385 /* CaptureOverlayWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureOverlayWindow.swift; sourceTree = "<group>"; };
 		A0F1A4A2A0AF6324F1F5C0E7 /* NagDialog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NagDialog.swift; sourceTree = "<group>"; };
+		A70127AB34D54A40632AB564 /* HistoryCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryCrypto.swift; sourceTree = "<group>"; };
 		B131A95AA0CB9DB7610F6C91 /* ScreenshotItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotItem.swift; sourceTree = "<group>"; };
 		B1DD9D277EFECD2B891B3667 /* ScreenCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureManager.swift; sourceTree = "<group>"; };
 		BC35B127FD103884C4B34BF5 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
@@ -142,6 +146,15 @@
 				C828DEE5E0776DF4A8E2CAC6 /* CalouraTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		123F82CB9D7350CC01D98F3C /* Security */ = {
+			isa = PBXGroup;
+			children = (
+				A70127AB34D54A40632AB564 /* HistoryCrypto.swift */,
+				70EBD1742040EEC6B5B3E4BF /* KeychainHelper.swift */,
+			);
+			path = Security;
 			sourceTree = "<group>";
 		};
 		242873F1C29C7ECF141F2D1C /* UI */ = {
@@ -198,6 +211,7 @@
 				DB309A5566B6A6D6146D7D80 /* Models */,
 				DD410BCD018D892210C67B38 /* Processing */,
 				76B47B23F4DF2EECD4D93986 /* Resources */,
+				123F82CB9D7350CC01D98F3C /* Security */,
 				242873F1C29C7ECF141F2D1C /* UI */,
 			);
 			path = Caloura;
@@ -437,9 +451,11 @@
 				34E5324CD7B4F83988C9B5E9 /* ContextDetector.swift in Sources */,
 				E93270F7D1B4AB7D56C8B8F1 /* CountdownOverlay.swift in Sources */,
 				D34AF9C5B8BB93C0DD02DED1 /* FileOrganizer.swift in Sources */,
+				14F1E8E717F33684CC6DFE70 /* HistoryCrypto.swift in Sources */,
 				3335DDB8ED877AC807C54A0B /* HistoryView.swift in Sources */,
 				61EFD2076EE0D8B8D8CB3EEA /* HotKeyManager.swift in Sources */,
 				6613EC7FEB356A540D48C5C2 /* ImageProcessor.swift in Sources */,
+				5229BD214E10FF8EEA97CDFB /* KeychainHelper.swift in Sources */,
 				9AC2AC8EEC4E9DA487B163E0 /* LicenseManager.swift in Sources */,
 				6F71C453D4F5762ADE3384B3 /* MarkdownExporter.swift in Sources */,
 				E6EE2265F03CED46668E6D3F /* MenuBarView.swift in Sources */,

@@ -58,7 +58,8 @@ final class CapturePipeline: ObservableObject {
         }
     }
 
-    /// Capture all screens instantly for freeze mode (parallel for multi-monitor)
+    /// Capture screens for freeze mode. For multi-monitor, we freeze only the
+    /// active screen to reduce latency; other screens fall back to live capture.
     private func captureAllScreens() async -> [NSScreen: CGImage] {
         let screens = NSScreen.screens
 
@@ -70,24 +71,20 @@ final class CapturePipeline: ObservableObject {
             return [:]
         }
 
-        // Multi-monitor: capture all screens in parallel
-        return await withTaskGroup(of: (NSScreen, CGImage)?.self) { group in
-            for screen in screens {
-                group.addTask {
-                    if let image = try? await self.captureManager.captureFullScreen(screen: screen) {
-                        return (screen, image)
-                    }
-                    return nil
-                }
-            }
+        // Multi-monitor: capture only the active screen to minimize delay.
+        guard let activeScreen = screenForMouseLocation() ?? NSScreen.main ?? screens.first else {
+            return [:]
+        }
+        if let image = try? await captureManager.captureFullScreen(screen: activeScreen) {
+            return [activeScreen: image]
+        }
+        return [:]
+    }
 
-            var images: [NSScreen: CGImage] = [:]
-            for await result in group {
-                if let (screen, image) = result {
-                    images[screen] = image
-                }
-            }
-            return images
+    private func screenForMouseLocation() -> NSScreen? {
+        let mouseLocation = NSEvent.mouseLocation
+        return NSScreen.screens.first { screen in
+            NSMouseInRect(mouseLocation, screen.frame, false)
         }
     }
 
@@ -216,15 +213,16 @@ final class CapturePipeline: ObservableObject {
         await performCapture(mode: .area) {
             // Convert screen coordinates to image coordinates
             let scale = screen.backingScaleFactor
-            let screenFrame = screen.frame
+            let screenHeight = screen.frame.height
+            let flippedY = screenHeight - rect.origin.y - rect.height
 
-            // Calculate crop rect relative to this screen's image
+            // Calculate crop rect relative to this screen's image (pixel coordinates)
             let imageRect = CGRect(
-                x: (rect.origin.x - screenFrame.origin.x) * scale,
-                y: (rect.origin.y - screenFrame.origin.y) * scale,
+                x: rect.origin.x * scale,
+                y: flippedY * scale,
                 width: rect.width * scale,
                 height: rect.height * scale
-            )
+            ).integral
 
             // Crop the frozen image
             guard let croppedImage = frozenImage.cropping(to: imageRect) else {
@@ -303,13 +301,13 @@ final class CapturePipeline: ObservableObject {
             if settings.autoCopyToClipboard {
                 switch preset.copyMode {
                 case .image:
-                    ClipboardManager.copyImage(processed)
+                    await ClipboardManager.copyImage(processed)
                 case .markdown:
                     ClipboardManager.copyAsMarkdown(processed)
                 case .citation:
                     ClipboardManager.copyWithCitation(processed)
                 case .multiFormat:
-                    ClipboardManager.copyMultiFormat(processed)
+                    await ClipboardManager.copyMultiFormat(processed)
                 }
             }
 

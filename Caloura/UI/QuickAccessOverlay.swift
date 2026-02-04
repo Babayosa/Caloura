@@ -80,7 +80,9 @@ final class QuickAccessOverlay {
     private func handleAction(_ action: QuickAction, screenshot: ProcessedScreenshot) {
         switch action {
         case .copy:
-            ClipboardManager.copyImage(screenshot)
+            Task {
+                await ClipboardManager.copyImage(screenshot)
+            }
             AppState.shared.statusMessage = "Copied image"
         case .markdown:
             ClipboardManager.copyAsMarkdown(screenshot)

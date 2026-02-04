@@ -387,29 +387,32 @@ final class ScreenCaptureManager {
             }
         }.value
 
-        // Load file into memory so we can delete the temp file immediately.
-        // CGImageSource with a file URL lazily maps the file — deleting it
-        // before pixels are accessed causes EXC_BAD_ACCESS.
-        let imageData: Data
-        do {
-            imageData = try Data(contentsOf: tempURL)
-        } catch {
-            throw CaptureError.captureFailed("screencapture output file unreadable: \(error.localizedDescription)")
-        }
-        try? FileManager.default.removeItem(at: tempURL)
+        // Decode off main thread to avoid UI stalls.
+        return try await Task.detached {
+            // Load file into memory so we can delete the temp file immediately.
+            // CGImageSource with a file URL lazily maps the file — deleting it
+            // before pixels are accessed causes EXC_BAD_ACCESS.
+            let imageData: Data
+            do {
+                imageData = try Data(contentsOf: tempURL)
+            } catch {
+                throw CaptureError.captureFailed("screencapture output file unreadable: \(error.localizedDescription)")
+            }
+            try? FileManager.default.removeItem(at: tempURL)
 
-        guard let source = CGImageSourceCreateWithData(imageData as CFData, nil) else {
-            throw CaptureError.captureFailed("Failed to create image source from screencapture output")
-        }
+            guard let source = CGImageSourceCreateWithData(imageData as CFData, nil) else {
+                throw CaptureError.captureFailed("Failed to create image source from screencapture output")
+            }
 
-        // Force immediate decode so the CGImage is fully in memory
-        // and doesn't retain a lazy reference to the source data.
-        let decodeOpts: [CFString: Any] = [kCGImageSourceShouldCacheImmediately: true]
-        guard let image = CGImageSourceCreateImageAtIndex(source, 0, decodeOpts as CFDictionary) else {
-            throw CaptureError.captureFailed("Failed to decode screencapture output as image")
-        }
+            // Force immediate decode so the CGImage is fully in memory
+            // and doesn't retain a lazy reference to the source data.
+            let decodeOpts: [CFString: Any] = [kCGImageSourceShouldCacheImmediately: true]
+            guard let image = CGImageSourceCreateImageAtIndex(source, 0, decodeOpts as CFDictionary) else {
+                throw CaptureError.captureFailed("Failed to decode screencapture output as image")
+            }
 
-        return image
+            return image
+        }.value
     }
 
     private func screencaptureFullScreen(screen: NSScreen?) async throws -> CGImage {

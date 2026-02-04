@@ -34,6 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         Task {
+            // Avoid triggering the system prompt unless OS-level permission is already granted.
+            let cgGranted = ScreenCaptureManager.shared.checkPermission()
+            AppState.shared.hasScreenRecordingPermission = cgGranted
+            guard cgGranted else { return }
             let sckOK = await ScreenCaptureManager.shared.checkSCKAccess()
             AppState.shared.hasScreenRecordingPermission = sckOK
         }
@@ -58,10 +62,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         syncLaunchAtLoginState()
 
         // Check screen recording permission and handle onboarding
-        AppState.shared.hasScreenRecordingPermission = ScreenCaptureManager.shared.checkPermission()
+        let cgGranted = ScreenCaptureManager.shared.checkPermission()
+        AppState.shared.hasScreenRecordingPermission = cgGranted
         Task {
-            let sckOK = await ScreenCaptureManager.shared.checkSCKAccess()
-            AppState.shared.hasScreenRecordingPermission = sckOK
+            let sckOK: Bool
+            if cgGranted {
+                sckOK = await ScreenCaptureManager.shared.checkSCKAccess()
+                AppState.shared.hasScreenRecordingPermission = sckOK
+            } else {
+                sckOK = false
+            }
 
             if !AppSettings.shared.hasCompletedOnboarding {
                 // First launch — always show setup guide

@@ -159,7 +159,7 @@ struct URLSchemeHandler {
                     switch action {
                     case "copy":
                         if let screenshot = AppState.shared.lastScreenshot {
-                            ClipboardManager.copyImage(screenshot)
+                            await ClipboardManager.copyImage(screenshot)
                         }
                     case "copy-markdown":
                         CapturePipeline.shared.copyLastAsMarkdown()
