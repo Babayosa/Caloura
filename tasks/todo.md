@@ -1,3 +1,30 @@
+# Task 02 — Public Download QA Script
+
+Date: 2026-02-04  
+Owner: Caloura Engineering  
+Status: Complete
+
+## Plan Checklist
+
+- [x] Create `codex/tasks/task-02.md`
+- [x] Update `scripts/public_download_qa.sh` for current v1.0.6 behavior (file-backed history, no runtime keychain)
+- [x] Update runbook/docs if needed (`tasks/public-download-qa-runbook.md`, `README.md`)
+- [x] Run required validation: `swift build`, `swiftlint`, `swift test`
+- [x] Smoke the script locally (`manual-checks`, usage/errors)
+- [x] Update `codex/CONTEXT-CHAIN.md` and commit
+
+## Review / Evidence
+
+- `swift build` (succeeded)
+- `swiftlint` (succeeded; warnings only — 18 violations, 0 serious)
+- `swift test` (99 tests passed)
+- `scripts/public_download_qa.sh manual-checks` (prints file-backed history expectations + perms)
+- `scripts/public_download_qa.sh verify` (exits 1; requires explicit `--version`)
+- `scripts/public_download_qa.sh --version 1.0.6 verify` (artifact HEAD returns HTTP 200)
+- `scripts/public_download_qa.sh --version 1.0.6 clean-room-reset` (succeeded; storage snapshot shows history state removed)
+
+---
+
 # Task 01 — CI Checks
 
 Date: 2026-02-04  

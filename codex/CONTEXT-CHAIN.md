@@ -4,6 +4,22 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 02: Public download QA script updates
+**Status:** Complete  
+**Branch:** task-02-public-download-qa  
+**Changes:**
+- Updated `scripts/public_download_qa.sh` to match v1.0.6 runtime behavior (file-backed encrypted history, no runtime keychain dependency)
+- Removed the hard-coded default version and now require explicit `--version` for artifact/QA commands
+- Clean-room reset now clears file-backed history state and prints storage snapshots (existence + permissions)
+- Added `KEEP_QUARANTINE=1` option to keep quarantine attributes for Gatekeeper validation
+- Updated runbook (`tasks/public-download-qa-runbook.md`) and `tasks/todo.md` evidence
+
+**Decisions Made:**
+- Treat keychain deletions as legacy best-effort cleanup only; history must not depend on keychain at runtime
+- Prefer requiring explicit `--version` over relying on stale defaults
+
+---
+
 ## Task 01: CI checks
 **Status:** Complete  
 **Branch:** task-01-ci-checks  

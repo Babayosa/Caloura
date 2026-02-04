@@ -5,7 +5,7 @@ APP_NAME="Caloura"
 BUNDLE_ID="com.caloura.app"
 APPCAST_URL="https://caloura.app/appcast.xml"
 INSTALL_PATH="/Applications/Caloura.app"
-VERSION="${CALOURA_VERSION:-1.0.5}"
+VERSION="${CALOURA_VERSION:-}"
 COMMAND=""
 
 while [[ $# -gt 0 ]]; do
@@ -35,16 +35,38 @@ print_header() {
   echo "==> $1"
 }
 
-check_keychain_item() {
-  local account="$1"
-  if security find-generic-password -s "$BUNDLE_ID" -a "$account" >/dev/null 2>&1; then
-    echo "present"
-  else
-    echo "missing"
+require_version() {
+  local command="$1"
+  if [[ -z "${VERSION}" ]]; then
+    echo "ERROR: --version is required for '${command}'"
+    echo ""
+    usage
+    exit 1
   fi
 }
 
+print_storage_snapshot() {
+  local app_support="$HOME/Library/Application Support/Caloura"
+  local history_path="$app_support/history.enc"
+  local security_dir="$app_support/security"
+  local key_path="$security_dir/history.key"
+
+  local history_perm=""
+  local security_perm=""
+  local key_perm=""
+
+  history_perm="$(stat -f '%OLp' "$history_path" 2>/dev/null || true)"
+  security_perm="$(stat -f '%OLp' "$security_dir" 2>/dev/null || true)"
+  key_perm="$(stat -f '%OLp' "$key_path" 2>/dev/null || true)"
+
+  echo "Storage snapshot:"
+  echo "  history.enc: $([[ -f "$history_path" ]] && echo present || echo missing) perm=${history_perm:-n/a}"
+  echo "  security/:   $([[ -d "$security_dir" ]] && echo present || echo missing) perm=${security_perm:-n/a}"
+  echo "  history.key: $([[ -f "$key_path" ]] && echo present || echo missing) perm=${key_perm:-n/a}"
+}
+
 verify_public_artifacts() {
+  require_version "verify"
   print_header "Phase 1: Verify Public Artifact + Appcast"
   echo "Version under test: ${VERSION}"
   echo "Download URL HEAD:"
@@ -56,6 +78,7 @@ verify_public_artifacts() {
 }
 
 install_public_app() {
+  require_version "install"
   print_header "Download + Install Public App"
   rm -f "$ZIP_PATH"
   rm -rf "$UNZIP_DIR"
@@ -71,7 +94,11 @@ install_public_app() {
 
   rm -rf "$INSTALL_PATH"
   cp -R "$UNZIP_DIR/Caloura.app" "$INSTALL_PATH"
-  xattr -dr com.apple.quarantine "$INSTALL_PATH" || true
+  if [[ "${KEEP_QUARANTINE:-0}" = "1" ]]; then
+    echo "KEEP_QUARANTINE=1 set: leaving quarantine attribute intact for Gatekeeper validation."
+  else
+    xattr -dr com.apple.quarantine "$INSTALL_PATH" || true
+  fi
 
   echo "Installed: $INSTALL_PATH"
   /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INSTALL_PATH/Contents/Info.plist" 2>/dev/null || true
@@ -80,19 +107,24 @@ install_public_app() {
 
 clean_room_reset() {
   print_header "Phase 2: Clean-Room Reset"
+  require_version "clean-room-reset"
   pkill -x "$APP_NAME" || true
   defaults delete "$BUNDLE_ID" || true
   tccutil reset ScreenCapture "$BUNDLE_ID" || true
-  security delete-generic-password -s "$BUNDLE_ID" -a licenseKey || true
-  security delete-generic-password -s "$BUNDLE_ID" -a screenshotHistoryKey || true
 
-  echo "Keychain snapshot after reset:"
-  echo "  licenseKey: $(check_keychain_item licenseKey)"
-  echo "  screenshotHistoryKey: $(check_keychain_item screenshotHistoryKey)"
+  rm -f "$HOME/Library/Application Support/Caloura/history.enc" || true
+  rm -rf "$HOME/Library/Application Support/Caloura/security" || true
+
+  # Legacy cleanup only: current runtime must not depend on Keychain.
+  security delete-generic-password -s "$BUNDLE_ID" -a licenseKey >/dev/null 2>&1 || true
+  security delete-generic-password -s "$BUNDLE_ID" -a screenshotHistoryKey >/dev/null 2>&1 || true
+
+  print_storage_snapshot
 }
 
 launch_public_app() {
   print_header "Launch Public App"
+  require_version "launch"
   if [ ! -d "$INSTALL_PATH" ]; then
     echo "ERROR: $INSTALL_PATH not found. Run install step first."
     exit 1
@@ -104,16 +136,19 @@ launch_public_app() {
   echo "Running processes:"
   pgrep -fl "$APP_NAME" || true
 
-  echo "Keychain snapshot immediately after launch:"
-  echo "  licenseKey: $(check_keychain_item licenseKey)"
-  echo "  screenshotHistoryKey: $(check_keychain_item screenshotHistoryKey)"
+  print_storage_snapshot
 }
 
 trial_baseline() {
   print_header "Phase 5: Trial Baseline"
+  require_version "trial-baseline"
+  if [ ! -d "$INSTALL_PATH" ]; then
+    echo "ERROR: $INSTALL_PATH not found. Run install step first."
+    exit 1
+  fi
   defaults delete "$BUNDLE_ID" firstLaunchDate || true
   defaults write "$BUNDLE_ID" isLicenseActivated -bool false
-  security delete-generic-password -s "$BUNDLE_ID" -a licenseKey || true
+  security delete-generic-password -s "$BUNDLE_ID" -a licenseKey >/dev/null 2>&1 || true
   pkill -x "$APP_NAME" || true
   open -a "$INSTALL_PATH"
   sleep 2
@@ -126,6 +161,11 @@ trial_baseline() {
 
 trial_day4() {
   print_header "Phase 5: Simulate Day 4 (2026-01-31)"
+  require_version "trial-day4"
+  if [ ! -d "$INSTALL_PATH" ]; then
+    echo "ERROR: $INSTALL_PATH not found. Run install step first."
+    exit 1
+  fi
   defaults write "$BUNDLE_ID" firstLaunchDate -date "2026-01-31 10:00:00 +0000"
   defaults write "$BUNDLE_ID" isLicenseActivated -bool false
   pkill -x "$APP_NAME" || true
@@ -138,6 +178,11 @@ trial_day4() {
 
 trial_expired() {
   print_header "Phase 5: Simulate Expired Trial (2026-01-27)"
+  require_version "trial-expired"
+  if [ ! -d "$INSTALL_PATH" ]; then
+    echo "ERROR: $INSTALL_PATH not found. Run install step first."
+    exit 1
+  fi
   defaults write "$BUNDLE_ID" firstLaunchDate -date "2026-01-27 10:00:00 +0000"
   defaults write "$BUNDLE_ID" isLicenseActivated -bool false
   pkill -x "$APP_NAME" || true
@@ -150,6 +195,11 @@ trial_expired() {
 
 trial_reset() {
   print_header "Phase 5: Reset Trial Overrides"
+  require_version "trial-reset"
+  if [ ! -d "$INSTALL_PATH" ]; then
+    echo "ERROR: $INSTALL_PATH not found. Run install step first."
+    exit 1
+  fi
   defaults delete "$BUNDLE_ID" firstLaunchDate || true
   defaults delete "$BUNDLE_ID" isLicenseActivated || true
   pkill -x "$APP_NAME" || true
@@ -170,9 +220,12 @@ Manual checks to perform now:
 3. On second step, verify both "Take First Screenshot" and "Finish" are present.
 4. After finishing onboarding, verify Preferences does not auto-open.
 5. Verify no keychain password dialog appears at startup, onboarding, capture, License, or History.
-6. Open Preferences > License and validate key activation flow works without keychain prompts.
-7. Trigger a capture without permission; verify clear permission guidance and no loop spam.
-8. For trial states (baseline/day4/expired), verify UI badge/nag text matches expected days/state.
+6. After a few captures, open History and confirm encrypted-at-rest storage exists at:
+   - ~/Library/Application Support/Caloura/history.enc (expected perm 600)
+   - ~/Library/Application Support/Caloura/security/history.key (expected perm 600; parent dir 700)
+7. Open Preferences > License and validate key activation flow works without keychain prompts.
+8. Trigger a capture without permission; verify clear permission guidance and no loop spam.
+9. For trial states (baseline/day4/expired), verify UI badge/nag text matches expected days/state.
 MANUAL
 }
 
@@ -189,6 +242,9 @@ Usage:
   scripts/public_download_qa.sh [--version <x.y.z>] trial-reset
   scripts/public_download_qa.sh [--version <x.y.z>] all-cli
   scripts/public_download_qa.sh [--version <x.y.z>] manual-checks
+
+Notes:
+  - Set KEEP_QUARANTINE=1 to keep quarantine attributes on install (for Gatekeeper validation).
 USAGE
 }
 
@@ -207,6 +263,7 @@ case "${COMMAND}" in
   trial-expired) trial_expired ;;
   trial-reset) trial_reset ;;
   all-cli)
+    require_version "all-cli"
     verify_public_artifacts
     install_public_app
     clean_room_reset
