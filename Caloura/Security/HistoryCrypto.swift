@@ -11,6 +11,7 @@ enum HistoryCryptoError: Error {
 
 enum HistoryCrypto {
     private static let keyFileName = "history.key"
+    private static let keyQueue = DispatchQueue(label: "com.caloura.historycrypto.key")
     private static var cachedKey: SymmetricKey?
     private static var securityDirectoryOverride: URL?
 
@@ -30,45 +31,47 @@ enum HistoryCrypto {
     }
 
     private static func getOrCreateKey() throws -> SymmetricKey {
-        if let cachedKey {
-            return cachedKey
-        }
+        try keyQueue.sync {
+            if let cachedKey {
+                return cachedKey
+            }
 
-        let keyFile = try keyFileURL()
-        let fileManager = FileManager.default
+            let keyFile = try keyFileURL()
+            let fileManager = FileManager.default
 
-        if fileManager.fileExists(atPath: keyFile.path) {
-            do {
-                let stored = try Data(contentsOf: keyFile)
-                guard stored.count == 32 else {
-                    throw HistoryCryptoError.invalidKeyMaterial
+            if fileManager.fileExists(atPath: keyFile.path) {
+                do {
+                    let stored = try Data(contentsOf: keyFile)
+                    guard stored.count == 32 else {
+                        throw HistoryCryptoError.invalidKeyMaterial
+                    }
+                    let key = SymmetricKey(data: stored)
+                    cachedKey = key
+                    return key
+                } catch let error as HistoryCryptoError {
+                    throw error
+                } catch {
+                    throw HistoryCryptoError.keyReadFailed(error.localizedDescription)
                 }
-                let key = SymmetricKey(data: stored)
+            }
+
+            let key = SymmetricKey(size: .bits256)
+            let keyData = key.withUnsafeBytes { Data($0) }
+
+            do {
+                let securityDir = keyFile.deletingLastPathComponent()
+                try fileManager.createDirectory(
+                    at: securityDir,
+                    withIntermediateDirectories: true,
+                    attributes: [.posixPermissions: 0o700]
+                )
+                try keyData.write(to: keyFile, options: .atomic)
+                try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: keyFile.path)
                 cachedKey = key
                 return key
-            } catch let error as HistoryCryptoError {
-                throw error
             } catch {
-                throw HistoryCryptoError.keyReadFailed(error.localizedDescription)
+                throw HistoryCryptoError.keyWriteFailed(error.localizedDescription)
             }
-        }
-
-        let key = SymmetricKey(size: .bits256)
-        let keyData = key.withUnsafeBytes { Data($0) }
-
-        do {
-            let securityDir = keyFile.deletingLastPathComponent()
-            try fileManager.createDirectory(
-                at: securityDir,
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
-            try keyData.write(to: keyFile, options: .atomic)
-            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: keyFile.path)
-            cachedKey = key
-            return key
-        } catch {
-            throw HistoryCryptoError.keyWriteFailed(error.localizedDescription)
         }
     }
 
@@ -156,11 +159,11 @@ enum HistoryCrypto {
     // MARK: - Testing Helpers
 
     static func resetCachedKeyForTesting() {
-        cachedKey = nil
+        keyQueue.sync { cachedKey = nil }
     }
 
     static func setSecurityDirectoryForTesting(_ url: URL?) {
         securityDirectoryOverride = url
-        cachedKey = nil
+        keyQueue.sync { cachedKey = nil }
     }
 }

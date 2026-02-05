@@ -21,6 +21,20 @@
 - **Rule**: When converting an optional property to another optional, prefer explicit `guard let` / `if let` over chained `flatMap`. It's clearer and avoids the `String.flatMap` trap.
 - **Example**: `window.owningApplication?.bundleIdentifier.flatMap { bid in NSRunningApplication.runningApplications(withBundleIdentifier: bid) }` — `bid` was `Character`. Fixed by using `guard let bid = window.owningApplication?.bundleIdentifier else { return nil }`.
 
+## 2026-02-05: KeychainHelper deliberately deprecated — don't reintroduce
+
+- **Context**: Audit recommended storing license key in Keychain instead of UserDefaults.
+- **Discovery**: `KeychainHelper` is explicitly marked "Deprecated runtime helper" with comment "New runtime persistence must not depend on Keychain" — the project deliberately moved away from Keychain to avoid startup authentication prompts.
+- **Rule**: Use `HistoryCrypto.encrypt()` for sensitive data persistence, not Keychain. Check project conventions before applying generic security recommendations.
+- **Example**: License key now encrypted with AES-256-GCM via HistoryCrypto before storing in UserDefaults. `decryptLicenseKey()` handles both encrypted (Data) and legacy plaintext (String) formats.
+
+## 2026-02-05: DispatchQueue.sync for thread safety must wrap entire critical section
+
+- **Mistake**: Initially added property-level sync (get/set) on `cachedKey` but this doesn't protect the check-then-set pattern in `getOrCreateKey()`.
+- **Root cause**: Read-check-write (if nil → load/create → cache) is a TOCTOU race. Protecting individual reads/writes doesn't make the compound operation atomic.
+- **Rule**: When a method has check-then-set logic on shared state, wrap the entire method body in `queue.sync {}`, not just individual property accesses.
+- **Example**: `HistoryCrypto.getOrCreateKey()` now runs entirely inside `keyQueue.sync { }`.
+
 ## 2026-02-04: Documentation drift created contradictory product behavior
 
 - **Mistake**: Kept active docs with mixed historical states (keychain-required vs no-keychain runtime, 4-step onboarding vs current 2-step flow), which caused confusion during release validation.

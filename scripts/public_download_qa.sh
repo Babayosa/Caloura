@@ -84,12 +84,30 @@ install_public_app() {
   rm -rf "$UNZIP_DIR"
 
   curl -L "$DOWNLOAD_URL" -o "$ZIP_PATH"
+
+  # Verify ZIP integrity
+  local zip_size
+  zip_size=$(stat -f '%z' "$ZIP_PATH" 2>/dev/null || echo "0")
+  if [[ "$zip_size" -lt 1000 ]]; then
+    echo "ERROR: Downloaded ZIP is suspiciously small (${zip_size} bytes)"
+    exit 1
+  fi
+  echo "  ZIP size: ${zip_size} bytes"
+  echo "  SHA256: $(shasum -a 256 "$ZIP_PATH" | awk '{print $1}')"
+
   mkdir -p "$UNZIP_DIR"
   ditto -x -k "$ZIP_PATH" "$UNZIP_DIR"
 
   if [ ! -d "$UNZIP_DIR/Caloura.app" ]; then
     echo "ERROR: Expected app not found after unzip: $UNZIP_DIR/Caloura.app"
     exit 1
+  fi
+
+  # Verify code signature on extracted app
+  if ! codesign --verify --deep --strict "$UNZIP_DIR/Caloura.app" 2>/dev/null; then
+    echo "WARNING: Code signature verification failed on downloaded app"
+  else
+    echo "  Code signature: valid"
   fi
 
   rm -rf "$INSTALL_PATH"

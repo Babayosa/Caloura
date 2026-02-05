@@ -426,6 +426,7 @@ final class CapturePipeline: ObservableObject {
             let latest = summary.latestMilliseconds
             let p50 = summary.p50Milliseconds
             let p95 = summary.p95Milliseconds
+            // swiftlint:disable:next line_length
             performanceLogger.info("metric_summary stage=\(stageName, privacy: .public) samples=\(sampleCount, privacy: .public) latest_ms=\(latest, privacy: .public) p50_ms=\(p50, privacy: .public) p95_ms=\(p95, privacy: .public)")
         }
     }

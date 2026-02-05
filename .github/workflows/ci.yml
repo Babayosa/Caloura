@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-test:
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,6 +20,7 @@ jobs:
 
       - name: Install tools
         run: |
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install swiftlint@0.63.2 xcodegen@2.42.0 || \
           HOMEBREW_NO_AUTO_UPDATE=1 brew install swiftlint xcodegen
 
       - name: SwiftPM build
@@ -28,8 +29,13 @@ jobs:
       - name: SwiftLint
         run: swiftlint
 
-      - name: SwiftPM tests
-        run: swift test
+      - name: SwiftPM tests with coverage
+        run: |
+          swift test --enable-code-coverage
+          xcrun llvm-cov report \
+            .build/debug/CalouraPackageTests.xctest/Contents/MacOS/CalouraPackageTests \
+            -instr-profile .build/debug/codecov/default.profdata \
+            -ignore-filename-regex '.build|Tests' || true
 
       - name: Generate Xcode project
         run: xcodegen generate

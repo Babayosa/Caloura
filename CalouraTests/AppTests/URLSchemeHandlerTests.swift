@@ -47,6 +47,20 @@ final class URLSchemeHandlerTests: XCTestCase {
         URLSchemeHandler.handle(url)
     }
 
+    func testHandle_historyURL_postsNotification() {
+        let expectation = XCTNSNotificationExpectation(name: .showHistory)
+        let url = URL(string: "caloura://history")!
+        URLSchemeHandler.handle(url)
+        wait(for: [expectation], timeout: 1.0)
+    }
+
+    func testHandle_settingsURL_postsNotification() {
+        let expectation = XCTNSNotificationExpectation(name: .showSettings)
+        let url = URL(string: "caloura://settings")!
+        URLSchemeHandler.handle(url)
+        wait(for: [expectation], timeout: 1.0)
+    }
+
     func testHandle_invalidSchemeIgnored() {
         let url = URL(string: "https://example.com")!
         // Should silently return without action

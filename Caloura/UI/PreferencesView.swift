@@ -532,17 +532,23 @@ struct AboutView: View {
             // Links
             HStack(spacing: 20) {
                 Button("Website") {
-                    NSWorkspace.shared.open(URL(string: "https://caloura.app")!)
+                    if let url = URL(string: "https://caloura.app") {
+                        NSWorkspace.shared.open(url)
+                    }
                 }
                 .buttonStyle(.link)
 
                 Button("Support") {
-                    NSWorkspace.shared.open(URL(string: "https://caloura.app/#faq")!)
+                    if let url = URL(string: "https://caloura.app/#faq") {
+                        NSWorkspace.shared.open(url)
+                    }
                 }
                 .buttonStyle(.link)
 
                 Button("Twitter") {
-                    NSWorkspace.shared.open(URL(string: "https://twitter.com/calouraapp")!)
+                    if let url = URL(string: "https://twitter.com/calouraapp") {
+                        NSWorkspace.shared.open(url)
+                    }
                 }
                 .buttonStyle(.link)
             }

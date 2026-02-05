@@ -25,6 +25,7 @@ struct PermissionIdentity: Equatable, Codable {
     let signingIdentityType: String
     let designatedRequirementHash: String
 
+    /// A combined string uniquely identifying this app's signing and location attributes.
     var fingerprint: String {
         [
             bundleIdentifier,
@@ -35,6 +36,7 @@ struct PermissionIdentity: Equatable, Codable {
         ].joined(separator: "|")
     }
 
+    /// Build the identity for the currently running app bundle.
     static func current(bundle: Bundle = .main) -> PermissionIdentity {
         let bundleID = bundle.bundleIdentifier ?? "unknown.bundle"
         let executablePath = bundle.executableURL?.path ?? bundle.bundleURL.path
@@ -196,6 +198,7 @@ final class PermissionCoordinator: ObservableObject {
         self.now = now
     }
 
+    /// Perform a non-interactive permission check and update the published UI model.
     @discardableResult
     func refreshPassiveStatus() -> PermissionStatus {
         let identity = identityProvider()
@@ -214,6 +217,7 @@ final class PermissionCoordinator: ObservableObject {
         return status
     }
 
+    /// Run a full interactive validation (CG + SCK) triggered by an explicit user action.
     @discardableResult
     func runUserInitiatedValidation() async -> PermissionStatus {
         let identity = identityProvider()
@@ -242,11 +246,13 @@ final class PermissionCoordinator: ObservableObject {
         return status
     }
 
+    /// Prompt macOS to grant screen recording permission via the system dialog.
     func requestPermissionFromSystem() -> Bool {
         logger.info("request_permission user_initiated=true")
         return permissionRequester()
     }
 
+    /// Handle a capture failure due to missing permission, showing an alert if not rate-limited.
     func handleCapturePermissionFailure() {
         let identity = identityProvider()
         let status = refreshPassiveStatus()
@@ -276,6 +282,7 @@ final class PermissionCoordinator: ObservableObject {
         updateCooldownInModel(cooldownActive: true)
     }
 
+    /// Record that the signature-mismatch banner has been shown for the current identity.
     func markCurrentMismatchBannerShown() {
         let identity = identityProvider()
         defaults.set(identity.fingerprint, forKey: Keys.lastShownMismatchIdentityFingerprint)

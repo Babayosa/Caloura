@@ -133,13 +133,16 @@ struct URLSchemeHandler {
     private static func schedulePostCaptureActions(_ actions: [String]) {
         let nc = NotificationCenter.default
 
-        final class TokenHolder: @unchecked Sendable {
+        // All access is on the main thread: observer fires on .main queue,
+        // timeout dispatches to .main, enclosing struct is @MainActor.
+        @MainActor
+        final class TokenHolder {
             var token: NSObjectProtocol?
             var timeoutWork: DispatchWorkItem?
         }
         let holder = TokenHolder()
 
-        let cleanup: () -> Void = {
+        let cleanup: @MainActor () -> Void = {
             if let token = holder.token {
                 nc.removeObserver(token)
                 holder.token = nil
@@ -153,8 +156,8 @@ struct URLSchemeHandler {
             object: nil,
             queue: .main
         ) { _ in
-            cleanup()
             Task { @MainActor in
+                cleanup()
                 for action in actions {
                     switch action {
                     case "copy":
@@ -178,7 +181,9 @@ struct URLSchemeHandler {
 
         // Timeout: remove the observer after 30 seconds to prevent leaks
         // if the capture is cancelled or fails.
-        let timeoutWork = DispatchWorkItem { cleanup() }
+        let timeoutWork = DispatchWorkItem {
+            Task { @MainActor in cleanup() }
+        }
         holder.timeoutWork = timeoutWork
         DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: timeoutWork)
     }

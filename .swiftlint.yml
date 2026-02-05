@@ -10,9 +10,36 @@ excluded:
   - DerivedData
   - Caloura.xcodeproj
 
-# Disable rules that currently fail on legacy code; revisit as part of cleanup work.
-disabled_rules:
-  - identifier_name
-  - line_length
-  - type_body_length
-  - function_body_length
+# Re-enabled with thresholds that accommodate current codebase.
+# Warnings flag code for future cleanup; errors block CI.
+identifier_name:
+  min_length:
+    warning: 2
+    error: 1
+  max_length:
+    warning: 60
+    error: 80
+  excluded:
+    - id
+    - x
+    - y
+    - i
+    - r
+    - g
+    - b
+    - nc
+    - to
+
+line_length:
+  warning: 120
+  error: 300
+  ignores_urls: true
+  ignores_comments: true
+
+type_body_length:
+  warning: 300
+  error: 500
+
+function_body_length:
+  warning: 60
+  error: 120

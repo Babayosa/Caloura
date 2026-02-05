@@ -47,14 +47,15 @@ final class AppStateDeferredHistoryTests: XCTestCase {
         timeout: TimeInterval = 2.0,
         _ predicate: @escaping () -> Bool
     ) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
+        let expectation = XCTestExpectation(description: "Wait for condition")
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { timer in
             if predicate() {
-                return
+                timer.invalidate()
+                expectation.fulfill()
             }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
-        XCTFail("Timed out waiting for condition.")
+        wait(for: [expectation], timeout: timeout)
+        timer.invalidate()
     }
 
     func testLoadsFileBackedEncryptedHistoryAtStartup() throws {

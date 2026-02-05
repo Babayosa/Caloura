@@ -88,13 +88,18 @@ final class LicenseManager: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 
-        let body = "product_id=\(Self.gumroadProductID)&license_key=\(licenseKey)"
-        request.httpBody = body.data(using: .utf8)
+        var components = URLComponents()
+        components.queryItems = [
+            URLQueryItem(name: "product_id", value: Self.gumroadProductID),
+            URLQueryItem(name: "license_key", value: licenseKey)
+        ]
+        request.httpBody = components.percentEncodedQuery?.data(using: .utf8)
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
 
-            guard let httpResponse = response as? HTTPURLResponse else {
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.url?.host == Self.gumroadVerifyURL.host else {
                 activationState = .activationFailed("Unexpected response from server.")
                 return
             }

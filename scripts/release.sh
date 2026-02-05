@@ -174,7 +174,7 @@ xcodebuild archive \
     -configuration Release \
     -archivePath "$ARCHIVE_PATH" \
     MARKETING_VERSION="$VERSION" \
-    CURRENT_PROJECT_VERSION="$(date +%Y%m%d%H%M)" \
+    CURRENT_PROJECT_VERSION="$(date +%Y%m%d%H%M%S)" \
     -quiet
 
 echo "    Archive: $ARCHIVE_PATH"
@@ -203,9 +203,11 @@ ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
 
 # Notarize
 echo "==> Submitting for notarization (this may take a few minutes)..."
-xcrun notarytool submit "$ZIP_PATH" \
+if ! xcrun notarytool submit "$ZIP_PATH" \
     --keychain-profile "Caloura-Notarize" \
-    --wait
+    --wait; then
+    fail_release "Notarization failed. Run 'xcrun notarytool log' for details."
+fi
 
 # Staple the notarization ticket to the app
 echo "==> Stapling notarization ticket..."

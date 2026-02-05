@@ -1,3 +1,79 @@
+# Task 07 — Codebase Audit Fix Implementation
+
+Date: 2026-02-05
+Owner: Caloura Engineering
+Status: Complete
+
+## Phase 1 — Critical Fixes
+- [x] 1. `scripts/release.sh` — Add notarization exit code check
+- [x] 2. `Caloura/Security/HistoryCrypto.swift` — Thread-safe cached key access
+- [x] 3. `Caloura/App/URLSchemeHandler.swift` — Fix `@unchecked Sendable` suppression
+
+## Phase 2 — High Priority
+- [x] 4. `Caloura/Models/AppSettings.swift` — Encrypt license key with HistoryCrypto
+- [x] 5. `Package.swift` — Pin Sparkle to `.exact("2.8.1")`
+- [x] 6. `Caloura/UI/PreferencesView.swift` — Replace force unwraps with `if let`
+- [x] 7. `Caloura/App/LicenseManager.swift` — URL-encode license POST body
+- [x] 8. `.swiftlint.yml` — Re-enable rules with thresholds
+- [x] 9. `.github/workflows/ci.yml` — Pin macos-14, tool versions, add coverage
+
+## Phase 3 — Medium Priority
+- [ ] 10. Refactor god classes (CapturePipeline, ScreenCaptureManager) — deferred (large refactor)
+- [x] 11. Strengthen URLSchemeHandlerTests assertions (+2 notification tests)
+- [x] 12. Fix flaky wait pattern in AppStateDeferredHistoryTests (XCTestExpectation)
+- [x] 13. Gumroad API response host validation
+- [x] 14. HTML-escape user strings in MarkdownExporter
+- [x] 15. `scripts/release.sh` — Fix build version overflow (%Y%m%d%H%M%S)
+- [x] 16. `scripts/public_download_qa.sh` — Add ZIP size/SHA256/codesign verification
+- [ ] 17. Add missing edge-case tests — deferred (needs architecture review)
+
+## Phase 4 — Polish
+- [x] 18. Use `kVK_Escape` constant instead of hardcoded 53
+- [x] 19. Explicit file permissions (0o755) on screenshot directories
+- [x] 20. Add doc comments on key public methods (ScreenCaptureManager, PermissionCoordinator)
+- [x] 21. Auto-trigger `PresetManager.savePresets()` via `didSet`
+- [ ] 22. Reduce thumbnail cache dimensions — skipped (320px is correct for Retina)
+- [x] 23. Add `.github/dependabot.yml` for Swift + GitHub Actions
+- [x] 24. Pin CI to `macos-14` (done in item 9)
+
+## Review / Evidence
+
+### Phase 1 (Critical)
+- `swift build` — succeeded
+- Notarization now aborts on failure (release.sh)
+- `HistoryCrypto.getOrCreateKey()` wrapped in `keyQueue.sync` for thread safety
+- `TokenHolder` replaced with `@MainActor`-isolated class
+
+### Phase 2 (High Priority)
+- License key encrypted via `HistoryCrypto` before persisting to UserDefaults
+- Sparkle pinned to `.exact("2.8.1")`
+- Force unwraps replaced with `if let` in PreferencesView
+- License POST body uses `URLComponents` for proper encoding
+- SwiftLint rules re-enabled with thresholds (0 errors, 67 warnings)
+- CI pinned to macos-14 with versioned tools + coverage
+
+### Phase 3 (Medium Priority)
+- 2 new notification-based tests for URLSchemeHandler
+- `waitUntil()` helper replaced with `XCTestExpectation`
+- HTML entity escaping added to `MarkdownExporter.htmlImageTag()`
+- Build version uses `%Y%m%d%H%M%S` (seconds precision)
+- ZIP download verification: size check + SHA256 + codesign
+
+### Phase 4 (Polish)
+- `kVK_Escape` constant replaces magic number 53
+- Directories created with explicit `0o755` permissions
+- Doc comments added to ScreenCaptureManager + PermissionCoordinator
+- `PresetManager.presets` auto-saves via `didSet`
+- Dependabot configured for weekly checks
+
+### Final Verification
+- `swift build` — succeeded
+- `swift test` — 102 tests, 0 failures
+- `swiftlint` — 67 warnings, 0 errors
+- `RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.7 ./scripts/release.sh 1.0.7` — passed
+
+---
+
 # Task 06 — v1.0.7 Full Project Audit
 
 Date: 2026-02-05

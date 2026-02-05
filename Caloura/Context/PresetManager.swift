@@ -37,7 +37,9 @@ final class PresetManager: ObservableObject {
     static let shared = PresetManager()
     static let builtInPresetNames = ["Quick Capture", "Lecture Notes", "Code Snippet", "Assignment"]
 
-    @Published var presets: [CapturePreset] = []
+    @Published var presets: [CapturePreset] = [] {
+        didSet { savePresets() }
+    }
 
     private let presetsKey = "capturePresets"
 

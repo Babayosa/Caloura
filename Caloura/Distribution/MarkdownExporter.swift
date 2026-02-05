@@ -25,8 +25,8 @@ struct MarkdownExporter {
 
     /// <img src="filename.png" alt="Screenshot from AppName" />
     static func htmlImageTag(for screenshot: ProcessedScreenshot) -> String {
-        let altText = altTextFor(screenshot)
-        let fileName = screenshot.fileName.isEmpty ? "screenshot.png" : screenshot.fileName
+        let altText = escapeHTML(altTextFor(screenshot))
+        let fileName = escapeHTML(screenshot.fileName.isEmpty ? "screenshot.png" : screenshot.fileName)
         return "<img src=\"\(fileName)\" alt=\"\(altText)\" width=\"\(screenshot.width)\" height=\"\(screenshot.height)\" />"
     }
 
@@ -53,5 +53,14 @@ struct MarkdownExporter {
 
         let source = parts.isEmpty ? "Unknown" : parts.joined(separator: " -- ")
         return "*Source: \(source) (\(dateStr))*"
+    }
+
+    private static func escapeHTML(_ string: String) -> String {
+        string
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
     }
 }

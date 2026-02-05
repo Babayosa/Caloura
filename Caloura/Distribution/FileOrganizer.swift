@@ -60,7 +60,7 @@ struct FileOrganizer {
             try FileManager.default.createDirectory(
                 at: directoryURL,
                 withIntermediateDirectories: true,
-                attributes: nil
+                attributes: [.posixPermissions: 0o755]
             )
             try imageData.write(to: fileURL)
             return (fileURL, pngCache)
@@ -93,7 +93,7 @@ struct FileOrganizer {
         try FileManager.default.createDirectory(
             at: directoryURL,
             withIntermediateDirectories: true,
-            attributes: nil
+            attributes: [.posixPermissions: 0o755]
         )
 
         let fileName = generateFileName(for: screenshot, imageFormat: imageFormat)
@@ -137,7 +137,7 @@ struct FileOrganizer {
         try FileManager.default.createDirectory(
             atPath: path,
             withIntermediateDirectories: true,
-            attributes: nil
+            attributes: [.posixPermissions: 0o755]
         )
     }
 }

@@ -147,9 +147,34 @@ final class AppSettings: ObservableObject {
         if normalized.isEmpty {
             defaults.removeObject(forKey: Keys.licenseKey)
         } else {
-            defaults.set(normalized, forKey: Keys.licenseKey)
+            if let encrypted = Self.encryptLicenseKey(normalized) {
+                defaults.set(encrypted, forKey: Keys.licenseKey)
+            } else {
+                // Fallback: store as-is if encryption unavailable (first launch edge case)
+                defaults.set(normalized, forKey: Keys.licenseKey)
+            }
         }
         defaults.set(isLicenseActivated, forKey: Keys.isLicenseActivated)
+    }
+
+    // MARK: - License Key Encryption
+
+    nonisolated private static func encryptLicenseKey(_ plaintext: String) -> Data? {
+        guard let data = plaintext.data(using: .utf8) else { return nil }
+        return try? HistoryCrypto.encrypt(data)
+    }
+
+    nonisolated private static func decryptLicenseKey(_ stored: Any?) -> String? {
+        if let data = stored as? Data {
+            // Encrypted format
+            guard let decrypted = try? HistoryCrypto.decrypt(data),
+                  let string = String(data: decrypted, encoding: .utf8) else {
+                return nil
+            }
+            return string
+        }
+        // Legacy plaintext format (String in UserDefaults)
+        return stored as? String
     }
 
     /// Best-effort migration path for legacy keychain-backed license keys.
@@ -216,7 +241,7 @@ final class AppSettings: ObservableObject {
             defaults.set(now, forKey: Keys.firstLaunchDate)
         }
 
-        self.licenseKey = defaults.string(forKey: Keys.licenseKey) ?? ""
+        self.licenseKey = Self.decryptLicenseKey(defaults.object(forKey: Keys.licenseKey)) ?? ""
         self.isLicenseActivated = defaults.bool(forKey: Keys.isLicenseActivated)
         self.hasSeenWelcome = defaults.bool(forKey: Keys.hasSeenWelcome)
 

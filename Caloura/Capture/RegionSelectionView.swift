@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 
 final class RegionSelectionView: NSView {
     var onRegionSelected: ((CGRect) -> Void)?
@@ -229,7 +230,7 @@ final class RegionSelectionView: NSView {
     // MARK: - Keyboard Events
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 { // Escape
+        if event.keyCode == UInt16(kVK_Escape) {
             onCancelled?()
         }
     }

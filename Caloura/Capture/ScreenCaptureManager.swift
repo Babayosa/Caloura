@@ -160,6 +160,7 @@ final class ScreenCaptureManager {
 
     // MARK: - Full Screen Capture
 
+    /// Capture the full screen, falling back through SCK, CLI, and CG backends.
     func captureFullScreen(screen: NSScreen? = nil) async throws -> CGImage {
         if !sckFailed {
             do {
@@ -183,6 +184,7 @@ final class ScreenCaptureManager {
 
     // MARK: - Area Capture
 
+    /// Capture a rectangular region of the screen, falling back through SCK, CLI, and CG backends.
     func captureArea(rect: CGRect, screen: NSScreen? = nil) async throws -> CGImage {
         if !sckFailed {
             do {
@@ -226,6 +228,7 @@ final class ScreenCaptureManager {
         return try await sckCaptureWindow(scWindow)
     }
 
+    /// Capture a window by its CaptureWindow descriptor, falling back through SCK, CLI, and CG backends.
     func captureWindow(_ window: CaptureWindow) async throws -> CGImage {
         if let scWindow = window.scWindow, !sckFailed {
             do {
@@ -248,6 +251,7 @@ final class ScreenCaptureManager {
 
     // MARK: - Window Enumeration
 
+    /// Return all on-screen windows (excluding this app), sorted in front-to-back z-order.
     func getWindows() async throws -> [CaptureWindow] {
         if !sckFailed {
             do {
