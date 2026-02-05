@@ -55,6 +55,10 @@
 
 ## How To Collect Evidence
 
+- Run 20–30 captures to generate pipeline metrics.
+- Open the History window at least 10 times to generate `history_window_open` metrics.
+- Then run the scripts below to summarize performance and verify public artifacts.
+
 ```bash
 scripts/perf_audit.sh --minutes 30 --label local-pass
 scripts/public_download_qa.sh --version 1.0.6 verify

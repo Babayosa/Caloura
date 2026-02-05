@@ -44,6 +44,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is required to summarize performance metrics."
+  echo "Install Python 3 (for example via Homebrew) and rerun this script."
+  exit 1
+fi
+
 mkdir -p "$OUTPUT_DIR"
 
 TMP_LOGS="$(mktemp)"
@@ -52,12 +58,14 @@ trap 'rm -f "$TMP_LOGS"' EXIT
 echo "Collecting metrics from the last ${MINUTES} minute(s)..."
 log show \
   --style compact \
+  --info \
   --last "${MINUTES}m" \
   --predicate "subsystem == \"$SUBSYSTEM\" AND eventMessage CONTAINS \"metric_sample stage=\"" \
   > "$TMP_LOGS"
 
 if [[ ! -s "$TMP_LOGS" ]]; then
-  echo "No metric_sample logs found. Run a few captures first, then rerun this script."
+  echo "No metric_sample logs found."
+  echo "Generate metrics by running a few captures and opening the History window several times, then rerun this script."
   exit 1
 fi
 
@@ -66,7 +74,16 @@ if [[ -z "$DISPLAY_COUNT" || "$DISPLAY_COUNT" -lt 1 ]]; then
   DISPLAY_COUNT=1
 fi
 
-python3 - "$TMP_LOGS" "$OUTPUT_DIR" "$LABEL" "$DISPLAY_COUNT" <<'PY'
+OS_VERSION="$(sw_vers -productVersion 2>/dev/null || echo "unknown")"
+OS_BUILD="$(sw_vers -buildVersion 2>/dev/null || echo "unknown")"
+HARDWARE_MODEL="$(sysctl -n hw.model 2>/dev/null || echo "unknown")"
+CPU_BRAND="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "unknown")"
+APP_VERSION="unknown"
+if [[ -f "/Applications/Caloura.app/Contents/Info.plist" ]]; then
+  APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /Applications/Caloura.app/Contents/Info.plist 2>/dev/null || echo "unknown")"
+fi
+
+python3 - "$TMP_LOGS" "$OUTPUT_DIR" "$LABEL" "$DISPLAY_COUNT" "$MINUTES" "$OS_VERSION" "$OS_BUILD" "$HARDWARE_MODEL" "$CPU_BRAND" "$APP_VERSION" <<'PY'
 import csv
 import datetime as dt
 import math
@@ -75,8 +92,9 @@ import re
 import statistics
 import sys
 
-log_path, output_dir, label, display_count_raw = sys.argv[1:5]
+log_path, output_dir, label, display_count_raw, minutes_raw, os_version, os_build, hardware_model, cpu_brand, app_version = sys.argv[1:11]
 display_count = int(display_count_raw)
+minutes = minutes_raw
 
 pattern = re.compile(r"metric_sample stage=([a-z_]+) ms=([0-9]+(?:\.[0-9]+)?)")
 samples = {}
@@ -92,6 +110,7 @@ with open(log_path, "r", encoding="utf-8", errors="ignore") as fh:
 
 if not samples:
     print("No parseable metric_sample rows found.")
+    print("Generate metrics by running a few captures and opening the History window several times, then rerun this script.")
     sys.exit(1)
 
 def percentile(values, p):
@@ -151,6 +170,11 @@ history_gate, history_value = gate("history_window_open", history_threshold)
 with open(md_path, "w", encoding="utf-8") as md:
     md.write("# Caloura Performance Audit Summary\n\n")
     md.write(f"- Generated: {dt.datetime.now().isoformat(timespec='seconds')}\n")
+    md.write(f"- Minutes window: {minutes}\n")
+    md.write(f"- macOS: {os_version} ({os_build})\n")
+    md.write(f"- Hardware: {hardware_model}\n")
+    md.write(f"- CPU: {cpu_brand}\n")
+    md.write(f"- App version: {app_version}\n")
     md.write(f"- Display count detected: {display_count}\n")
     md.write(f"- Overlay p95 gate: <= {overlay_threshold:.0f} ms\n")
     md.write(f"- Total p95 gate: <= {total_threshold:.0f} ms\n")

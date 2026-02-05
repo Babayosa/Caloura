@@ -419,7 +419,7 @@ final class CapturePipeline: ObservableObject {
     }
 
     private func recordMetric(stage: PerformanceMetricStage, milliseconds: Double) {
-        performanceLogger.debug("metric_sample stage=\(stage.rawValue, privacy: .public) ms=\(milliseconds, privacy: .public)")
+        performanceLogger.info("metric_sample stage=\(stage.rawValue, privacy: .public) ms=\(milliseconds, privacy: .public)")
         if let summary = performanceMetrics.record(stage: stage, milliseconds: milliseconds) {
             let stageName = summary.stage.rawValue
             let sampleCount = summary.sampleCount

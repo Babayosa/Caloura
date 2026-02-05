@@ -1,3 +1,29 @@
+# Task 03 — Performance Evidence Loop
+
+Date: 2026-02-04  
+Owner: Caloura Engineering  
+Status: Complete
+
+## Plan Checklist
+
+- [x] Create `codex/tasks/task-03.md`
+- [x] Emit `metric_sample` at info level (capture + history)
+- [x] Harden `scripts/perf_audit.sh` (info logs, python3 preflight, metadata)
+- [x] Add stage-name contract test
+- [x] Update performance audit guidance if needed (`tasks/security-performance-audit.md`)
+- [x] Run required validation: `swift build`, `swiftlint`, `swift test`
+- [x] Run performance audit script and capture outputs
+- [x] Update `codex/CONTEXT-CHAIN.md` and commit
+
+## Review / Evidence
+
+- `swift build` (succeeded)
+- `swiftlint` (succeeded; warnings only — 18 violations, 0 serious)
+- `swift test` (100 tests passed)
+- `scripts/perf_audit.sh --minutes 30 --label task-03-local` (exited 1: no metric_sample logs; run after generating captures and History opens)
+
+---
+
 # Task 02 — Public Download QA Script
 
 Date: 2026-02-04  

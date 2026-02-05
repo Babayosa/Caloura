@@ -486,7 +486,7 @@ final class HistoryWindowController {
 
         let openMilliseconds = (CFAbsoluteTimeGetCurrent() - openStart) * 1000
         historyLogger.debug("history_window_open_ms=\(openMilliseconds, privacy: .public)")
-        historyLogger.debug("metric_sample stage=\(PerformanceMetricStage.historyWindowOpen.rawValue, privacy: .public) ms=\(openMilliseconds, privacy: .public)")
+        historyLogger.info("metric_sample stage=\(PerformanceMetricStage.historyWindowOpen.rawValue, privacy: .public) ms=\(openMilliseconds, privacy: .public)")
         if let summary = performanceMetrics.record(stage: .historyWindowOpen, milliseconds: openMilliseconds) {
             let stageName = summary.stage.rawValue
             let sampleCount = summary.sampleCount

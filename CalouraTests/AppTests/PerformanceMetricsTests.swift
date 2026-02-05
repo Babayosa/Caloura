@@ -41,4 +41,10 @@ final class PerformanceMetricsTests: XCTestCase {
         XCTAssertNil(metrics.record(stage: .process, milliseconds: -1))
         XCTAssertNil(metrics.record(stage: .process, milliseconds: .infinity))
     }
+
+    func testStageNamesMatchPerfAuditContract() {
+        XCTAssertEqual(PerformanceMetricStage.overlayVisible.rawValue, "overlay_visible")
+        XCTAssertEqual(PerformanceMetricStage.total.rawValue, "total")
+        XCTAssertEqual(PerformanceMetricStage.historyWindowOpen.rawValue, "history_window_open")
+    }
 }

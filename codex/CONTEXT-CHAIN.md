@@ -4,6 +4,21 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 03: Performance evidence loop hardening
+**Status:** Complete  
+**Branch:** task-03-performance-evidence  
+**Changes:**
+- Emit `metric_sample` logs at info level for capture + history metrics
+- Hardened `scripts/perf_audit.sh` (python3 preflight, `--info` log capture, metadata in summaries, clearer no-log guidance)
+- Added stage-name contract test for perf audit expectations
+- Updated `tasks/security-performance-audit.md` and added `codex/tasks/task-03.md`
+
+**Decisions Made:**
+- Keep `python3` for perf summary generation; fail fast with an explicit install hint
+- Use info-level metric samples to ensure `log show --info` can retrieve evidence
+
+---
+
 ## Task 02: Public download QA script updates
 **Status:** Complete  
 **Branch:** task-02-public-download-qa  
