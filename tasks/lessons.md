@@ -1,5 +1,12 @@
 # Lessons Learned
 
+## 2026-02-05: SPUUpdater delegate can only be set at init time
+
+- **Mistake**: Attempted to set `updaterController.updater.delegate = self` and `updaterController.updaterDelegate = self` after initialization. Neither property exists as a settable Swift property.
+- **Root cause**: `SPUUpdater` takes its delegate only via its designated initializer parameter. `SPUStandardUpdaterController`'s `updaterDelegate` is an ObjC ivar (IBOutlet), not a property — it's not exposed to Swift.
+- **Rule**: When using `SPUStandardUpdaterController`, the delegate must be passed at init. Since `self` isn't available before `super.init()`, use a separate `NSObject` subclass as the delegate proxy, pass it at init, then wire closures back to the manager.
+- **Example**: `UpdateDelegateHandler` (NSObject, SPUUpdaterDelegate) is created first, passed to `SPUStandardUpdaterController(startingUpdater:updaterDelegate:userDriverDelegate:)`, then closures connect it to `UpdateManager`.
+
 ## 2026-02-02: CGWindowList false positive on macOS Sequoia
 
 - **Mistake**: Used `CGWindowListCopyWindowInfo` as a fallback permission signal. It returned named windows from other apps even when screen recording permission was denied on Sequoia.

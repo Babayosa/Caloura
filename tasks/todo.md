@@ -1,3 +1,42 @@
+# Task 09 — Seamless Updates: Move-to-Applications + In-Menu Update Banner
+
+Date: 2026-02-05
+Owner: Caloura Engineering
+Status: Complete
+
+## Feature 1: AppMover (Move to /Applications prompt)
+
+- [x] Create `Caloura/App/AppMover.swift` (~80 lines)
+- [x] Add `AppMover.moveToApplicationsFolderIfNeeded()` call in `applicationDidFinishLaunching`
+
+## Feature 2: In-Menu Update Banner
+
+- [x] Rewrite `UpdateManager.swift` — separate `UpdateDelegateHandler` for SPUUpdaterDelegate
+- [x] Add `updateAvailable`/`updateVersion` published properties
+- [x] Add update banner at top of `MenuBarView.swift` body
+
+## Verification
+
+- [x] `swift build` — compiles (0 errors)
+- [x] `swiftlint lint --quiet` — 0 warnings
+- [x] `swift test` — 136 tests, 0 failures
+
+## Review / Evidence
+
+- `swift build` — Build complete! (1.53s)
+- `swiftlint lint --quiet` — no output (0 violations)
+- `swift test` — Executed 136 tests, with 0 failures
+
+## Design Notes
+
+- `UpdateManager` uses a separate `UpdateDelegateHandler` (NSObject) as the SPUUpdaterDelegate,
+  since SPUStandardUpdaterController requires the delegate at init time and `self` isn't
+  available before `super.init()`. Closures wire callbacks back to the manager.
+- `AppMover` uses `FileManager.trashItem` for safe removal of existing /Applications copy.
+- Menu banner uses `arrow.down.circle.fill` SF Symbol for visual prominence.
+
+---
+
 # Task 08 — God Class Refactoring + Edge-Case Tests + SwiftLint Zero
 
 Date: 2026-02-05

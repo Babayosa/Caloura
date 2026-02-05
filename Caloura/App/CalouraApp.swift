@@ -40,6 +40,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if AppMover.moveToApplicationsFolderIfNeeded() { return }
+
         let launchStart = CFAbsoluteTimeGetCurrent()
         HotKeyManager.shared.registerAll()
         setupNotificationHandlers()

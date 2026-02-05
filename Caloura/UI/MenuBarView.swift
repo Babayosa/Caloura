@@ -7,6 +7,21 @@ struct MenuBarView: View {
     @ObservedObject private var updateManager = UpdateManager.shared
 
     var body: some View {
+        // Update banner
+        if updateManager.updateAvailable {
+            Button {
+                updateManager.checkForUpdates()
+            } label: {
+                let suffix = updateManager.updateVersion
+                    .map { " — v\($0)" } ?? ""
+                Label(
+                    "Update Available\(suffix)",
+                    systemImage: "arrow.down.circle.fill"
+                )
+            }
+            Divider()
+        }
+
         // Capture actions
         Button {
             NotificationCenter.default.post(name: .captureArea, object: nil)
