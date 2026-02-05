@@ -12,6 +12,7 @@ Caloura is a macOS menu-bar screenshot tool. The app routes user actions (menu-b
 - `project.yml` — XcodeGen source of truth
 - `Caloura.xcodeproj/` — generated Xcode project (tracked)
 - `codex/` — scope, rules, context chain, task specs
+- `tasks/` — runbooks, audits, and evidence checklists
 
 ## Core Runtime Flow
 
@@ -31,7 +32,11 @@ Caloura is a macOS menu-bar screenshot tool. The app routes user actions (menu-b
    - `Caloura/Capture/ScreenCaptureManager.swift` — ScreenCaptureKit primary, `screencapture` CLI fallback, CoreGraphics fallback.
    - `Caloura/Capture/PermissionCoordinator.swift` — permission status + UI model for onboarding.
 
-4. **Processing + distribution**
+4. **Context + presets**
+   - `Caloura/Context/*` — preset definitions and context detection.
+   - `Caloura/Models/CaptureContext.swift` — capture context model.
+
+5. **Processing + distribution**
    - `Caloura/Processing/ImageProcessor.swift` — image conversion/encoding.
    - `Caloura/Processing/SmartCropper.swift` — Vision-based smart crop.
    - `Caloura/Processing/OCREngine.swift` — OCR pipeline.
@@ -39,13 +44,17 @@ Caloura is a macOS menu-bar screenshot tool. The app routes user actions (menu-b
    - `Caloura/Distribution/FileOrganizer.swift` — file saving / directory layout.
    - `Caloura/Distribution/MarkdownExporter.swift` — markdown output + citations.
 
-5. **State + persistence**
+6. **State + persistence**
    - `Caloura/Models/AppState.swift` — app state + encrypted history persistence.
    - `Caloura/Models/AppSettings.swift` — debounced settings + trial clock + license persistence.
    - `Caloura/Security/HistoryCrypto.swift` — AES-GCM encryption + permission audits.
    - `Caloura/Security/KeychainHelper.swift` — legacy keychain migration helper.
 
-6. **UI surfaces**
+7. **Licensing + updates**
+   - `Caloura/App/LicenseManager.swift` — license state and trial tracking.
+   - `Caloura/App/UpdateManager.swift` — Sparkle update integration.
+
+8. **UI surfaces**
    - `Caloura/UI/PreferencesView.swift` — settings tabs, license, updates.
    - `Caloura/UI/OnboardingView.swift` + `Caloura/UI/OnboardingFlowModel.swift` — onboarding steps.
    - `Caloura/UI/HistoryView.swift` — history browser (encrypted items).
@@ -61,15 +70,18 @@ Caloura is a macOS menu-bar screenshot tool. The app routes user actions (menu-b
   - `.github/workflows/ci.yml` — PR/push validation (SwiftPM + Xcode tests).
 - **Public download QA**
   - `scripts/public_download_qa.sh` — verify artifact + onboarding/trial checks.
+  - `tasks/public-download-qa-runbook.md` — step-by-step validation runbook.
 - **Permission debugging**
   - `scripts/permission_diagnose.sh` — mixed-build identity issues.
 - **Performance evidence**
   - `scripts/perf_audit.sh` — capture timing evidence and summaries.
   - `Caloura/App/PerformanceMetrics.swift` — in-app metric aggregation.
+  - `tasks/security-performance-audit.md` — performance evidence checklist.
 
 ## Tests
 
 - `CalouraTests/AppTests/*` — app state, onboarding, permission, performance.
+- `CalouraTests/AppTests/PerformanceMetricsTests.swift` — perf stage-name contract tests.
 - `CalouraTests/ContextTests/*` — presets + context detection.
 - `CalouraTests/DistributionTests/*` — file organizer + markdown export.
 - `CalouraTests/ProcessingTests/*` — image processing + smart crop.

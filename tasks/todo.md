@@ -1,3 +1,26 @@
+# Task 04 — Codex Map + Scope Refresh
+
+Date: 2026-02-05  
+Owner: Caloura Engineering  
+Status: Complete
+
+## Plan Checklist
+
+- [x] Create `codex/tasks/task-04.md`
+- [x] Refresh `codex/CODEMAP.md` (high-level)
+- [x] Refresh `codex/SCOPE.md` (two-layer scope)
+- [x] Cleanup ignored junk (safe targets only)
+- [x] Run required validation: `swift build`, `swiftlint`, `swift test`
+- [x] Update `codex/CONTEXT-CHAIN.md` and commit
+
+## Review / Evidence
+
+- `swift build` (succeeded; CGWindowListCreateImage deprecation warnings)
+- `swiftlint` (succeeded; warnings only — 18 violations, 0 serious)
+- `swift test` (100 tests passed)
+
+---
+
 # Task 03 — Performance Evidence Loop
 
 Date: 2026-02-04  

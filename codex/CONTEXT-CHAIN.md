@@ -4,6 +4,21 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 04: Codex scope + codemap refresh
+**Status:** Complete  
+**Branch:** codex/task-04-codex-doc-refresh  
+**Changes:**
+- Refreshed `codex/CODEMAP.md` with updated runtime areas and runbook pointers
+- Refreshed `codex/SCOPE.md` with foundation status and next-milestone scope
+- Added `codex/tasks/task-04.md` and updated `tasks/todo.md`
+- Removed safe ignored junk (`.DS_Store`, `.build/`, `DerivedData/`, `xcuserdata/`)
+
+**Decisions Made:**
+- Keep release-confidence as the foundation goal; add an explicit next-milestone section
+- Cleanup limited to safe ignored junk; keep `build/`, `certs/`, `.codex/`, and archived task history
+
+---
+
 ## Task 03: Performance evidence loop hardening
 **Status:** Complete  
 **Branch:** task-03-performance-evidence  
