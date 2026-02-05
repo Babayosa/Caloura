@@ -1,8 +1,8 @@
-# Caloura — Current Project Plan (v1.0.6)
+# Caloura — Current Project Plan (v1.0.7)
 
 ## Current State
 
-- Public release `1.0.6` is built, notarized, and published via `caloura.app` appcast/download flow.
+- Public release `1.0.7` is being prepared for the `caloura.app` appcast/download flow.
 - Permission architecture is loop-hardened:
   - passive lifecycle checks are non-interactive
   - user-initiated validation drives functional checks
@@ -46,13 +46,13 @@
 - `xcodebuild -scheme Caloura -destination 'platform=macOS' test`
 
 2. Run release guard:
-- `RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.6 ./scripts/release.sh 1.0.6`
+- `RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.7 ./scripts/release.sh 1.0.7`
 
 3. Build/notarize artifact:
-- `RELEASE_TAG=v1.0.6 ./scripts/release.sh 1.0.6`
+- `RELEASE_TAG=v1.0.7 ./scripts/release.sh 1.0.7`
 
 4. Publish and verify public artifact/appcast:
-- `scripts/public_download_qa.sh --version 1.0.6 verify`
+- `scripts/public_download_qa.sh --version 1.0.7 verify`
 
 5. Perform manual onboarding/permission smoke:
 - confirm 2-step flow

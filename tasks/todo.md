@@ -1,3 +1,30 @@
+# Task 05 — Release 1.0.7 (Public Update)
+
+Date: 2026-02-05  
+Owner: Caloura Engineering  
+Status: Complete (appcast live; Gumroad upload pending)
+
+## Plan Checklist
+
+- [x] Create `codex/tasks/task-05.md`
+- [x] Update version references to 1.0.7 in public docs/runbooks
+- [x] Run required validation: `swift build`, `swiftlint`, `swift test`
+- [x] Run full release flow: `./scripts/release.sh 1.0.7`
+- [x] Run public download QA (post-upload) or record as pending if blocked
+- [x] Update `codex/CONTEXT-CHAIN.md` and commit
+
+## Review / Evidence
+
+- `swift build` (succeeded; CGWindowListCreateImage deprecation warnings)
+- `swiftlint` (succeeded; warnings only — 18 violations, 0 serious)
+- `swift test` (100 tests passed)
+- `RELEASE_TAG=v1.0.7 ./scripts/release.sh 1.0.7` (succeeded; notarization accepted; zip at `build/Caloura-1.0.7.zip`)
+- caloura-site publish: appcast + download link updated; `releases/Caloura-1.0.7.zip` pushed
+- `scripts/public_download_qa.sh --version 1.0.7 verify` (succeeded)
+- Gumroad upload pending (manual step)
+
+---
+
 # Task 04 — Codex Map + Scope Refresh
 
 Date: 2026-02-05  

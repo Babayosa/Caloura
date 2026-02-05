@@ -4,6 +4,20 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 05: Release 1.0.7 (public update)
+**Status:** Complete (appcast live; Gumroad upload pending)  
+**Branch:** codex/task-05-release-1-0-7  
+**Changes:**
+- Updated release references to 1.0.7 in `README.md`, `plan.md`, and QA runbooks
+- Ran validations (`swift build`, `swiftlint`, `swift test`)
+- Ran full release flow (`RELEASE_TAG=v1.0.7 ./scripts/release.sh 1.0.7`) and produced notarized zip
+- Updated caloura-site appcast + download link and verified public artifacts
+
+**Decisions Made:**
+- Appcast and website publish completed; Gumroad upload still manual
+
+---
+
 ## Task 04: Codex scope + codemap refresh
 **Status:** Complete  
 **Branch:** codex/task-04-codex-doc-refresh  

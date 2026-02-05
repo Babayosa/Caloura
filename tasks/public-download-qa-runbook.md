@@ -6,13 +6,13 @@ Reference date for trial simulation: **February 4, 2026**.
 
 ```bash
 # 1) Verify artifact + appcast, install, reset state, launch
-scripts/public_download_qa.sh --version 1.0.6 all-cli
+scripts/public_download_qa.sh --version 1.0.7 all-cli
 
 # 2) Print manual validation checklist
-scripts/public_download_qa.sh --version 1.0.6 manual-checks
+scripts/public_download_qa.sh --version 1.0.7 manual-checks
 
 # 3) After doing ~20 captures, summarize performance logs
-scripts/perf_audit.sh --minutes 30 --label v1.0.6-local
+scripts/perf_audit.sh --minutes 30 --label v1.0.7-local
 ```
 
 Optional Gatekeeper validation:
@@ -25,26 +25,26 @@ spctl --assess --type execute -vv /Applications/Caloura.app
 ## Individual Commands
 
 ```bash
-scripts/public_download_qa.sh --version 1.0.6 verify
-scripts/public_download_qa.sh --version 1.0.6 install
-scripts/public_download_qa.sh --version 1.0.6 clean-room-reset
-scripts/public_download_qa.sh --version 1.0.6 launch
+scripts/public_download_qa.sh --version 1.0.7 verify
+scripts/public_download_qa.sh --version 1.0.7 install
+scripts/public_download_qa.sh --version 1.0.7 clean-room-reset
+scripts/public_download_qa.sh --version 1.0.7 launch
 ```
 
 ## Trial Simulation Commands
 
 ```bash
 # Fresh baseline
-scripts/public_download_qa.sh --version 1.0.6 trial-baseline
+scripts/public_download_qa.sh --version 1.0.7 trial-baseline
 
 # Day 4 equivalent (first launch date = 2026-01-31 10:00:00 +0000)
-scripts/public_download_qa.sh --version 1.0.6 trial-day4
+scripts/public_download_qa.sh --version 1.0.7 trial-day4
 
 # Expired equivalent (first launch date = 2026-01-27 10:00:00 +0000)
-scripts/public_download_qa.sh --version 1.0.6 trial-expired
+scripts/public_download_qa.sh --version 1.0.7 trial-expired
 
 # Remove overrides and return to normal
-scripts/public_download_qa.sh --version 1.0.6 trial-reset
+scripts/public_download_qa.sh --version 1.0.7 trial-reset
 ```
 
 ## Expected Outcomes

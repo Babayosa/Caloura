@@ -77,12 +77,12 @@ Versioning is gated by `scripts/release.sh`:
 Guard-only check:
 
 ```bash
-RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.6 ./scripts/release.sh 1.0.6
+RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.7 ./scripts/release.sh 1.0.7
 ```
 
-For the public website/appcast release flow (v1.0.6 process), use:
+For the public website/appcast release flow (v1.0.7 process), use:
 - app build + notarization: `scripts/release.sh`
-- public artifact verification: `scripts/public_download_qa.sh --version 1.0.6 verify`
+- public artifact verification: `scripts/public_download_qa.sh --version 1.0.7 verify`
 
 ## Public Download QA
 
