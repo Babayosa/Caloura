@@ -18,7 +18,7 @@ scripts/perf_audit.sh --minutes 30 --label v1.0.7-local
 Optional Gatekeeper validation:
 
 ```bash
-KEEP_QUARANTINE=1 scripts/public_download_qa.sh --version 1.0.6 install
+KEEP_QUARANTINE=1 scripts/public_download_qa.sh --version 1.0.7 install
 spctl --assess --type execute -vv /Applications/Caloura.app
 ```
 
