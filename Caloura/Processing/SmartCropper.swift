@@ -1,6 +1,13 @@
 import AppKit
 import Vision
 
+private struct BorderInsets {
+    let top: Int
+    let bottom: Int
+    let left: Int
+    let right: Int
+}
+
 struct SmartCropper {
     /// Minimum percentage of area that must be removed for crop to apply
     private static let minCropThreshold: CGFloat = 0.15
@@ -23,11 +30,9 @@ struct SmartCropper {
             }
 
             // Return first non-nil result, or nil if timeout wins
-            for await result in group {
-                if result != nil {
-                    group.cancelAll()
-                    return result
-                }
+            for await result in group where result != nil {
+                group.cancelAll()
+                return result
             }
             return nil
         }
@@ -134,46 +139,16 @@ struct SmartCropper {
                    abs(Int(pointer[offset + 2]) - Int(refB)) <= Int(tolerance)
         }
 
-        // Use larger stride for faster scanning (8 pixels instead of 4)
-        let stride = 8
+        let borders = scanBorders(
+            width: width, height: height,
+            pixelMatchesRef: pixelMatchesRef
+        )
 
-        // Find top border
-        var top = 0
-        outer_top: for y in 0..<height {
-            for x in Swift.stride(from: 0, to: width, by: stride) {
-                if !pixelMatchesRef(x: x, y: y) { break outer_top }
-            }
-            top = y + 1
-        }
-
-        // Find bottom border
-        var bottom = height
-        outer_bottom: for y in Swift.stride(from: height - 1, through: 0, by: -1) {
-            for x in Swift.stride(from: 0, to: width, by: stride) {
-                if !pixelMatchesRef(x: x, y: y) { break outer_bottom }
-            }
-            bottom = y
-        }
-
-        // Find left border
-        var left = 0
-        outer_left: for x in 0..<width {
-            for y in Swift.stride(from: top, to: bottom, by: stride) {
-                if !pixelMatchesRef(x: x, y: y) { break outer_left }
-            }
-            left = x + 1
-        }
-
-        // Find right border
-        var right = width
-        outer_right: for x in Swift.stride(from: width - 1, through: 0, by: -1) {
-            for y in Swift.stride(from: top, to: bottom, by: stride) {
-                if !pixelMatchesRef(x: x, y: y) { break outer_right }
-            }
-            right = x
-        }
-
-        let cropRect = CGRect(x: left, y: top, width: right - left, height: bottom - top)
+        let cropRect = CGRect(
+            x: borders.left, y: borders.top,
+            width: borders.right - borders.left,
+            height: borders.bottom - borders.top
+        )
 
         // Check threshold
         let originalArea = CGFloat(width * height)
@@ -186,5 +161,55 @@ struct SmartCropper {
         }
 
         return cgImage.cropping(to: cropRect)
+    }
+
+    private static func scanBorders(
+        width: Int, height: Int,
+        pixelMatchesRef: (Int, Int) -> Bool
+    ) -> BorderInsets {
+        // Use larger stride for faster scanning (8 pixels instead of 4)
+        let stride = 8
+
+        // Find top border
+        var top = 0
+        outer_top: for y in 0..<height {
+            for x in Swift.stride(from: 0, to: width, by: stride)
+                where !pixelMatchesRef(x, y) {
+                break outer_top
+            }
+            top = y + 1
+        }
+
+        // Find bottom border
+        var bottom = height
+        outer_bottom: for y in Swift.stride(from: height - 1, through: 0, by: -1) {
+            for x in Swift.stride(from: 0, to: width, by: stride)
+                where !pixelMatchesRef(x, y) {
+                break outer_bottom
+            }
+            bottom = y
+        }
+
+        // Find left border
+        var left = 0
+        outer_left: for x in 0..<width {
+            for y in Swift.stride(from: top, to: bottom, by: stride)
+                where !pixelMatchesRef(x, y) {
+                break outer_left
+            }
+            left = x + 1
+        }
+
+        // Find right border
+        var right = width
+        outer_right: for x in Swift.stride(from: width - 1, through: 0, by: -1) {
+            for y in Swift.stride(from: top, to: bottom, by: stride)
+                where !pixelMatchesRef(x, y) {
+                break outer_right
+            }
+            right = x
+        }
+
+        return BorderInsets(top: top, bottom: bottom, left: left, right: right)
     }
 }

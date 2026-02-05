@@ -36,21 +36,8 @@ final class PinnedScreenshotManager {
             height: imageSize.height * scale
         )
 
-        let panel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: windowSize),
-            styleMask: [.titled, .closable, .resizable, .nonactivatingPanel, .utilityWindow],
-            backing: .buffered,
-            defer: false
-        )
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.isMovableByWindowBackground = true
-        panel.hasShadow = true
-        panel.hidesOnDeactivate = false
-        panel.title = "Pinned — \(screenshot.fileName.isEmpty ? "Screenshot" : screenshot.fileName)"
-        panel.minSize = NSSize(width: 100, height: 100)
-        panel.isReleasedWhenClosed = false
+        let title = "Pinned — \(screenshot.fileName.isEmpty ? "Screenshot" : screenshot.fileName)"
+        let panel = configurePanel(size: windowSize, title: title)
 
         let pinnedView = PinnedScreenshotView(
             image: image,
@@ -65,15 +52,34 @@ final class PinnedScreenshotManager {
         )
         let hostView = NSHostingView(rootView: pinnedView)
         panel.contentView = hostView
-
-        // Center on screen
         panel.center()
 
-        // Track for cleanup
         pinnedWindows.append(panel)
         panelsByKey[key] = panel
+        registerCloseObserver(for: panel)
+        panel.orderFrontRegardless()
+    }
 
-        // Remove from tracking when closed, and clean up the observer itself
+    private func configurePanel(size: NSSize, title: String) -> NSPanel {
+        let panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.titled, .closable, .resizable, .nonactivatingPanel, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.isMovableByWindowBackground = true
+        panel.hasShadow = true
+        panel.hidesOnDeactivate = false
+        panel.title = title
+        panel.minSize = NSSize(width: 100, height: 100)
+        panel.isReleasedWhenClosed = false
+        return panel
+    }
+
+    private func registerCloseObserver(for panel: NSPanel) {
         let observer = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: panel,
@@ -90,8 +96,6 @@ final class PinnedScreenshotManager {
             }
         }
         observers[panel] = observer
-
-        panel.orderFrontRegardless()
     }
 
     /// Close all pinned windows.

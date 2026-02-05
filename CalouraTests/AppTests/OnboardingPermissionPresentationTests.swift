@@ -4,7 +4,12 @@ import XCTest
 final class OnboardingPermissionPresentationTests: XCTestCase {
 
     func testDeniedPresentation() {
-        let uiModel = PermissionUIModel(status: .denied, guidanceText: "Denied", shouldShowSignatureMismatchBanner: false, isAlertCooldownActive: false)
+        let uiModel = PermissionUIModel(
+            status: .denied,
+            guidanceText: "Denied",
+            shouldShowSignatureMismatchBanner: false,
+            isAlertCooldownActive: false
+        )
         let presentation = OnboardingPermissionPresentation.from(uiModel)
 
         XCTAssertEqual(presentation.detail, .notGranted)
@@ -17,7 +22,12 @@ final class OnboardingPermissionPresentationTests: XCTestCase {
     }
 
     func testGrantedNeedsRelaunchPresentation() {
-        let uiModel = PermissionUIModel(status: .grantedNeedsRelaunch, guidanceText: "Restart", shouldShowSignatureMismatchBanner: false, isAlertCooldownActive: false)
+        let uiModel = PermissionUIModel(
+            status: .grantedNeedsRelaunch,
+            guidanceText: "Restart",
+            shouldShowSignatureMismatchBanner: false,
+            isAlertCooldownActive: false
+        )
         let presentation = OnboardingPermissionPresentation.from(uiModel)
 
         XCTAssertEqual(presentation.detail, .grantedNotWorking)
@@ -29,7 +39,12 @@ final class OnboardingPermissionPresentationTests: XCTestCase {
     }
 
     func testSignatureMismatchBannerVisibility() {
-        let first = PermissionUIModel(status: .signatureMismatch, guidanceText: "Mismatch", shouldShowSignatureMismatchBanner: true, isAlertCooldownActive: false)
+        let first = PermissionUIModel(
+            status: .signatureMismatch,
+            guidanceText: "Mismatch",
+            shouldShowSignatureMismatchBanner: true,
+            isAlertCooldownActive: false
+        )
         let firstPresentation = OnboardingPermissionPresentation.from(first)
         XCTAssertEqual(firstPresentation.detail, .signatureMismatch)
         XCTAssertTrue(firstPresentation.shouldShowMismatchBanner)
@@ -37,7 +52,12 @@ final class OnboardingPermissionPresentationTests: XCTestCase {
         XCTAssertEqual(firstPresentation.statusHeadline, "Permission tied to a different build")
         XCTAssertEqual(firstPresentation.statusMessage, "Mismatch")
 
-        let second = PermissionUIModel(status: .signatureMismatch, guidanceText: "Mismatch", shouldShowSignatureMismatchBanner: false, isAlertCooldownActive: false)
+        let second = PermissionUIModel(
+            status: .signatureMismatch,
+            guidanceText: "Mismatch",
+            shouldShowSignatureMismatchBanner: false,
+            isAlertCooldownActive: false
+        )
         let secondPresentation = OnboardingPermissionPresentation.from(second)
         XCTAssertEqual(secondPresentation.detail, .signatureMismatch)
         XCTAssertFalse(secondPresentation.shouldShowMismatchBanner)

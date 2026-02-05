@@ -44,7 +44,13 @@ struct PermissionIdentity: Equatable, Codable {
         let signingInfo = SigningInfo.load(for: bundle.bundleURL)
         let teamIdentifier = signingInfo.teamIdentifier ?? "unknown.team"
         let signingType = signingInfo.signingIdentityType ?? inferSigningType(from: executablePath)
-        let requirementHash = sha256Hex(signingInfo.designatedRequirementString ?? fallbackRequirementSeed(bundleID: bundleID, executablePath: executablePath, teamIdentifier: teamIdentifier))
+        let requirementSeed = signingInfo.designatedRequirementString
+            ?? fallbackRequirementSeed(
+                bundleID: bundleID,
+                executablePath: executablePath,
+                teamIdentifier: teamIdentifier
+            )
+        let requirementHash = sha256Hex(requirementSeed)
 
         return PermissionIdentity(
             bundleIdentifier: bundleID,
@@ -65,7 +71,11 @@ struct PermissionIdentity: Equatable, Codable {
         return "unknown"
     }
 
-    private static func fallbackRequirementSeed(bundleID: String, executablePath: String, teamIdentifier: String) -> String {
+    private static func fallbackRequirementSeed(
+        bundleID: String,
+        executablePath: String,
+        teamIdentifier: String
+    ) -> String {
         "\(bundleID)|\(teamIdentifier)|\(executablePath)"
     }
 
@@ -203,7 +213,11 @@ final class PermissionCoordinator: ObservableObject {
     func refreshPassiveStatus() -> PermissionStatus {
         let identity = identityProvider()
         let cgGranted = passiveCheck()
-        logger.info("passive_check cg_granted=\(cgGranted, privacy: .public) path=\(identity.executablePath, privacy: .public) signing=\(identity.signingIdentityType, privacy: .public)")
+        let execPath = identity.executablePath
+        let signingType = identity.signingIdentityType
+        let passiveMsg = "passive_check cg_granted=\(cgGranted)"
+            + " path=\(execPath) signing=\(signingType)"
+        logger.info("\(passiveMsg, privacy: .public)")
 
         let status: PermissionStatus
         if !cgGranted {
@@ -274,7 +288,11 @@ final class PermissionCoordinator: ObservableObject {
         }
 
         let alertState = alertState(for: status)
-        logger.info("permission_alert_presenting state=\(String(describing: alertState), privacy: .public) path=\(identity.executablePath, privacy: .public)")
+        let alertDesc = String(describing: alertState)
+        let alertPath = identity.executablePath
+        let alertMsg = "permission_alert_presenting"
+            + " state=\(alertDesc) path=\(alertPath)"
+        logger.info("\(alertMsg, privacy: .public)")
         isShowingAlert = true
         alertPresenter(alertState)
         isShowingAlert = false
@@ -341,7 +359,9 @@ final class PermissionCoordinator: ObservableObject {
     private func guidance(for status: PermissionStatus, identity: PermissionIdentity) -> String? {
         switch status {
         case .signatureMismatch:
-            return "Permission appears tied to a different app build. For stable behavior, use /Applications/Caloura.app or re-grant Screen Recording for this build in System Settings."
+            return "Permission appears tied to a different app build. "
+                + "For stable behavior, use /Applications/Caloura.app "
+                + "or re-grant Screen Recording for this build in System Settings."
         case .grantedNeedsRelaunch:
             return "Screen Recording is granted, but macOS needs a Caloura relaunch to fully apply it."
         case .denied:
@@ -354,7 +374,8 @@ final class PermissionCoordinator: ObservableObject {
     private func nonBlockingMessage(for status: PermissionStatus) -> String {
         switch status {
         case .signatureMismatch:
-            return "Screen Recording permission may be tied to a different build. Open System Settings to re-grant for this build."
+            return "Screen Recording permission may be tied to a different build. "
+                + "Open System Settings to re-grant for this build."
         case .denied:
             return "Screen Recording permission required. Open System Settings to continue capturing."
         case .grantedNeedsRelaunch, .grantedWorking, .unknown:

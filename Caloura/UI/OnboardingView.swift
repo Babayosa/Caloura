@@ -164,7 +164,8 @@ struct OnboardingView: View {
                 .font(.title2)
                 .fontWeight(.bold)
 
-            Text("Caloura needs screen recording access to capture screenshots. You can continue now and grant this later if needed.")
+            Text("Caloura needs screen recording access to capture screenshots. "
+                + "You can continue now and grant this later if needed.")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

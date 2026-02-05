@@ -112,7 +112,9 @@ final class AppState: ObservableObject {
     private static func defaultHistoryFileURL() -> URL {
         let fallback = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Library/Application Support/Caloura/history.enc")
-        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first else {
             return fallback
         }
         return appSupport.appendingPathComponent("Caloura").appendingPathComponent("history.enc")
@@ -131,7 +133,10 @@ final class AppState: ObservableObject {
                     return
                 }
             } catch {
-                appStateLogger.error("Failed to decrypt file-backed screenshot history: \(error.localizedDescription)")
+                let desc = error.localizedDescription
+                appStateLogger.error(
+                    "Failed to decrypt file-backed screenshot history: \(desc)"
+                )
             }
         }
 
@@ -145,7 +150,10 @@ final class AppState: ObservableObject {
                     return
                 }
             } catch {
-                appStateLogger.error("Failed to decrypt defaults-backed screenshot history: \(error.localizedDescription)")
+                let desc = error.localizedDescription
+                appStateLogger.error(
+                    "Failed to decrypt defaults-backed screenshot history: \(desc)"
+                )
             }
         }
 
@@ -171,7 +179,10 @@ final class AppState: ObservableObject {
             let items = try JSONDecoder().decode([ScreenshotItem].self, from: data)
             return HistoryLoadResult(items: items, recovered: false)
         } catch {
-            appStateLogger.error("Failed to decode \(source) screenshot history: \(error.localizedDescription). Attempting partial recovery.")
+            let desc = error.localizedDescription
+            let errMsg = "Failed to decode \(source) screenshot history:"
+                + " \(desc). Attempting partial recovery."
+            appStateLogger.error("\(errMsg)")
             // Attempt to recover individual items from the array.
             if let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
                 var recovered: [ScreenshotItem] = []

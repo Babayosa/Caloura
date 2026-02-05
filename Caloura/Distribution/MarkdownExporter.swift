@@ -27,7 +27,8 @@ struct MarkdownExporter {
     static func htmlImageTag(for screenshot: ProcessedScreenshot) -> String {
         let altText = escapeHTML(altTextFor(screenshot))
         let fileName = escapeHTML(screenshot.fileName.isEmpty ? "screenshot.png" : screenshot.fileName)
-        return "<img src=\"\(fileName)\" alt=\"\(altText)\" width=\"\(screenshot.width)\" height=\"\(screenshot.height)\" />"
+        return "<img src=\"\(fileName)\" alt=\"\(altText)\" "
+            + "width=\"\(screenshot.width)\" height=\"\(screenshot.height)\" />"
     }
 
     // MARK: - Helpers

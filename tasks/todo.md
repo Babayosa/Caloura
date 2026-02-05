@@ -1,3 +1,82 @@
+# Task 08 — God Class Refactoring + Edge-Case Tests + SwiftLint Zero
+
+Date: 2026-02-05
+Owner: Caloura Engineering
+Status: Complete
+
+## Stream 1: Refactor ScreenCaptureManager (645→5 files)
+
+- [x] Extract `ScreenCaptureManager+Permission.swift` (175 lines) — permission checks, alerts
+- [x] Extract `ScreenCaptureManager+SCKCapture.swift` (137 lines) — SCK capture methods
+- [x] Extract `ScreenCaptureManager+CLICapture.swift` (146 lines) — screencapture CLI fallback
+- [x] Extract `ScreenCaptureManager+CGCapture.swift` (176 lines) — CoreGraphics fallback
+- [x] Slim main `ScreenCaptureManager.swift` to 227 lines (orchestrator + routing)
+- [x] Change `sckFailed` from `private` to `internal` for cross-file access
+- [x] SwiftLint: 0 violations across all 5 files
+- [x] Build: passed
+
+## Stream 2: Refactor CapturePipeline (457→3 files)
+
+- [x] Extract `CapturePipeline+EntryPoints.swift` (303 lines) — capture entry points
+- [x] Extract `CapturePipeline+Distribution.swift` (28 lines) — clipboard helpers
+- [x] Slim main `CapturePipeline.swift` to 230 lines (pipeline core)
+- [x] Split `performCapture` (113 lines, complexity 13) into focused methods
+- [x] SwiftLint: 0 violations across all 3 files
+- [x] Build: passed
+
+## Stream 3: Fix 46 Mechanical SwiftLint Warnings
+
+- [x] `line_length` (22): wrapped long strings/expressions across 16 files
+- [x] `for_where` (7): SmartCropper, ContextDetector, PresetManager
+- [x] `identifier_name` (5): renamed short vars (`w`→`item`, `a`→`lhs`, `j`→`index`)
+- [x] `redundant_string_enum_value` (3): CaptureMode enum
+- [x] `function_body_length` (2): CalouraApp, PinnedScreenshotWindow
+- [x] `file_length` (2): HistoryView, PreferencesView — extracted to extension files
+- [x] `cyclomatic_complexity` (1): SmartCropper — extracted `scanBorders` helper
+- [x] `large_tuple` (1): ContextDetector — created `DetectedContext` struct
+- [x] Fixed OSLogMessage `+` concatenation errors in logger calls
+- [x] `swiftlint lint --quiet` = 0 warnings, 0 errors
+
+## Stream 4: Edge-Case Tests (31 new tests)
+
+- [x] `AppStateEdgeCaseTests.swift` (7 tests): rapid adds, cap at 50, persistence, interleaved ops
+- [x] `LicenseManagerEdgeCaseTests.swift` (10 tests): day-7 boundary, future dates, expired
+- [x] `ImageProcessorEdgeCaseTests.swift` (8 tests): 1x1 pixel, solid color, large images
+- [x] `PermissionCoordinatorEdgeCaseTests.swift` (6 tests): repeated refresh, rapid failure handling
+
+## Integration Verification
+
+- [x] `swift build` — 0 errors
+- [x] `swiftlint lint --quiet` — 0 warnings (down from 67)
+- [x] `swift test` — 136 tests, 0 failures (up from 102)
+- [x] `RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.7 ./scripts/release.sh 1.0.7` — passed
+- [x] Lesson recorded: OSLogMessage `+` concatenation (lessons.md)
+
+## New Files Created (13)
+
+### Stream 1 — ScreenCaptureManager extensions
+- `Caloura/Capture/ScreenCaptureManager+Permission.swift`
+- `Caloura/Capture/ScreenCaptureManager+SCKCapture.swift`
+- `Caloura/Capture/ScreenCaptureManager+CLICapture.swift`
+- `Caloura/Capture/ScreenCaptureManager+CGCapture.swift`
+
+### Stream 2 — CapturePipeline extensions
+- `Caloura/App/CapturePipeline+EntryPoints.swift`
+- `Caloura/App/CapturePipeline+Distribution.swift`
+
+### Stream 3 — UI extractions
+- `Caloura/UI/HistoryView+WindowController.swift`
+- `Caloura/UI/PreferencesView+WindowController.swift`
+- `Caloura/UI/PreferencesView+Tabs.swift`
+
+### Stream 4 — Test files
+- `CalouraTests/ModelTests/AppStateEdgeCaseTests.swift`
+- `CalouraTests/AppTests/LicenseManagerEdgeCaseTests.swift`
+- `CalouraTests/ProcessingTests/ImageProcessorEdgeCaseTests.swift`
+- `CalouraTests/AppTests/PermissionCoordinatorEdgeCaseTests.swift`
+
+---
+
 # Task 07 — Codebase Audit Fix Implementation
 
 Date: 2026-02-05
@@ -18,14 +97,14 @@ Status: Complete
 - [x] 9. `.github/workflows/ci.yml` — Pin macos-14, tool versions, add coverage
 
 ## Phase 3 — Medium Priority
-- [ ] 10. Refactor god classes (CapturePipeline, ScreenCaptureManager) — deferred (large refactor)
+- [x] 10. Refactor god classes (CapturePipeline, ScreenCaptureManager) — completed in Task 08
 - [x] 11. Strengthen URLSchemeHandlerTests assertions (+2 notification tests)
 - [x] 12. Fix flaky wait pattern in AppStateDeferredHistoryTests (XCTestExpectation)
 - [x] 13. Gumroad API response host validation
 - [x] 14. HTML-escape user strings in MarkdownExporter
 - [x] 15. `scripts/release.sh` — Fix build version overflow (%Y%m%d%H%M%S)
 - [x] 16. `scripts/public_download_qa.sh` — Add ZIP size/SHA256/codesign verification
-- [ ] 17. Add missing edge-case tests — deferred (needs architecture review)
+- [x] 17. Add missing edge-case tests — completed in Task 08 (31 new tests)
 
 ## Phase 4 — Polish
 - [x] 18. Use `kVK_Escape` constant instead of hardcoded 53

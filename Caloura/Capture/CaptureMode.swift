@@ -1,9 +1,9 @@
 import Foundation
 
 enum CaptureMode: String, Codable, CaseIterable {
-    case area = "area"
-    case window = "window"
-    case fullscreen = "fullscreen"
+    case area
+    case window
+    case fullscreen
 
     var displayName: String {
         switch self {

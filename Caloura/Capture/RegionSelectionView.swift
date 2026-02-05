@@ -103,7 +103,11 @@ final class RegionSelectionView: NSView {
         // Left
         NSBezierPath(rect: CGRect(x: 0, y: rect.minY, width: rect.minX, height: rect.height)).fill()
         // Right
-        NSBezierPath(rect: CGRect(x: rect.maxX, y: rect.minY, width: bounds.maxX - rect.maxX, height: rect.height)).fill()
+        let rightRect = CGRect(
+            x: rect.maxX, y: rect.minY,
+            width: bounds.maxX - rect.maxX, height: rect.height
+        )
+        NSBezierPath(rect: rightRect).fill()
     }
 
     private func drawSizeLabel(for rect: CGRect) {

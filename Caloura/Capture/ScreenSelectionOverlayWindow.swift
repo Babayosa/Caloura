@@ -45,18 +45,18 @@ final class ScreenSelectionOverlayWindow: NSWindow {
             let overlay = ScreenSelectionOverlayWindow(for: screen)
             overlay.onScreenSelected = { selectedScreen in
                 // Close all overlays and break retain cycles
-                for w in overlays {
-                    w.onScreenSelected = nil
-                    w.onCancelled = nil
-                    w.close()
+                for item in overlays {
+                    item.onScreenSelected = nil
+                    item.onCancelled = nil
+                    item.close()
                 }
                 onScreenSelected(selectedScreen)
             }
             overlay.onCancelled = {
-                for w in overlays {
-                    w.onScreenSelected = nil
-                    w.onCancelled = nil
-                    w.close()
+                for item in overlays {
+                    item.onScreenSelected = nil
+                    item.onCancelled = nil
+                    item.close()
                 }
                 onCancelled()
             }

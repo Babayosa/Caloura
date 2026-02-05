@@ -73,20 +73,20 @@ final class CaptureOverlayWindow: NSWindow {
             }
 
             overlay.onRegionSelected = { rect, screen in
-                for w in windows {
-                    w.onRegionSelected = nil
-                    w.onCancelled = nil
-                    w.onFirstMouseDown = nil
-                    w.close()
+                for item in windows {
+                    item.onRegionSelected = nil
+                    item.onCancelled = nil
+                    item.onFirstMouseDown = nil
+                    item.close()
                 }
                 onRegionSelected(rect, screen)
             }
             overlay.onCancelled = {
-                for w in windows {
-                    w.onRegionSelected = nil
-                    w.onCancelled = nil
-                    w.onFirstMouseDown = nil
-                    w.close()
+                for item in windows {
+                    item.onRegionSelected = nil
+                    item.onCancelled = nil
+                    item.onFirstMouseDown = nil
+                    item.close()
                 }
                 onCancelled()
             }

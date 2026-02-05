@@ -44,7 +44,8 @@ final class FileOrganizerTests: XCTestCase {
     }
 
     func testEnsureBaseDirectory() throws {
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("CalouraTest_\(UUID().uuidString)").path
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CalouraTest_\(UUID().uuidString)").path
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: tempDir))
 

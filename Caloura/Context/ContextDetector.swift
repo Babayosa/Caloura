@@ -10,6 +10,12 @@ enum AppCategory: String, Codable {
     case other = "Other"
 }
 
+struct DetectedContext {
+    let appName: String?
+    let windowTitle: String?
+    let category: AppCategory
+}
+
 struct ContextDetector {
     // MARK: - Category Lookup (O(1) instead of O(n))
 
@@ -48,10 +54,10 @@ struct ContextDetector {
 
     /// Detect the current context based on the frontmost application.
     /// This is a fast, non-blocking call that uses cached app info.
-    static func detectContext() -> (appName: String?, windowTitle: String?, category: AppCategory) {
+    static func detectContext() -> DetectedContext {
         let workspace = NSWorkspace.shared
         guard let frontApp = workspace.frontmostApplication else {
-            return (nil, nil, .other)
+            return DetectedContext(appName: nil, windowTitle: nil, category: .other)
         }
 
         let appName = frontApp.localizedName
@@ -61,7 +67,7 @@ struct ContextDetector {
         // Window title is only needed for lecture detection in browsers/video apps
         let category = fastCategorize(bundleID: bundleID)
 
-        return (appName, nil, category)
+        return DetectedContext(appName: appName, windowTitle: nil, category: category)
     }
 
     /// Fast O(1) categorization using precomputed map
@@ -74,10 +80,8 @@ struct ContextDetector {
         }
 
         // Prefix matching for JetBrains apps (com.jetbrains.*)
-        for (key, category) in categoryMap {
-            if bundleLower.hasPrefix(key) {
-                return category
-            }
+        for (key, cat) in categoryMap where bundleLower.hasPrefix(key) {
+            return cat
         }
 
         return .other
@@ -105,10 +109,8 @@ struct ContextDetector {
         }
 
         // Prefix matching
-        for (key, category) in categoryMap {
-            if bundleLower.hasPrefix(key) {
-                return category
-            }
+        for (key, cat) in categoryMap where bundleLower.hasPrefix(key) {
+            return cat
         }
 
         return .other

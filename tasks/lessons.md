@@ -41,3 +41,10 @@
 - **Root cause**: Historical planning/status notes were maintained in-place instead of being archived, so outdated guidance remained in canonical docs.
 - **Rule**: Archive stale planning/todo material into `tasks/archive/` and keep only current behavior in live docs (`README.md`, `plan.md`, runbooks). Every permission/auth flow change must include same-day doc updates.
 - **Example**: Legacy notes referenced `1.0.5` and a 4-step onboarding model while shipped `1.0.6` uses a 2-step flow with `Grant Permission` + `Check Again` and auto-check feedback.
+
+## 2026-02-05: OSLogMessage does not support String concatenation with `+`
+
+- **Mistake**: When wrapping long `logger.info()` / `logger.error()` calls to fix `line_length` SwiftLint warnings, used `+` to split strings: `logger.info("part1 " + "part2")`. This compiles with regular `String` but fails with `OSLogMessage`.
+- **Root cause**: Swift `os.Logger` methods accept `OSLogMessage`, which conforms to `ExpressibleByStringInterpolation` but NOT `ExpressibleByStringConcatenation`. The `+` operator produces a `String`, not an `OSLogMessage`. The compiler error is: `cannot convert value of type 'String' to expected argument type 'OSLogMessage'`.
+- **Rule**: Never use `+` inside Logger calls. To break long logger lines: (1) extract values into local variables before the call, (2) use a single string literal with `\()` interpolation, or (3) build a `String` variable first, then pass it as `logger.info("\(msg, privacy: .public)")`.
+- **Example**: `logger.error("Failed to decode \(source): \(desc). " + "Attempting recovery.")` fails. Fix: `let errMsg = "Failed to decode \(source): \(desc). Attempting recovery."` then `logger.error("\(errMsg)")`.

@@ -103,10 +103,9 @@ final class PresetManager: ObservableObject {
     // MARK: - Persistence
 
     private func ensureBuiltInPresets() {
-        for builtIn in Self.builtInPresets {
-            if !presets.contains(where: { $0.name == builtIn.name }) {
-                presets.append(builtIn)
-            }
+        for builtIn in Self.builtInPresets
+            where !presets.contains(where: { $0.name == builtIn.name }) {
+            presets.append(builtIn)
         }
         savePresets()
     }

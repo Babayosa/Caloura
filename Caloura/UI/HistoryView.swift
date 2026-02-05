@@ -31,7 +31,11 @@ private enum HistoryThumbnailMetrics {
 
         guard shouldReport else { return }
         let ratio = (Double(currentHits) / Double(max(currentRequests, 1))) * 100.0
-        historyLogger.info("thumbnail_cache_summary requests=\(currentRequests, privacy: .public) hits=\(currentHits, privacy: .public) hit_rate_pct=\(ratio, privacy: .public)")
+        let cacheMsg = "thumbnail_cache_summary"
+            + " requests=\(currentRequests)"
+            + " hits=\(currentHits)"
+            + " hit_rate_pct=\(ratio)"
+        historyLogger.info("\(cacheMsg, privacy: .public)")
     }
 }
 
@@ -381,136 +385,5 @@ struct HistoryGridItem: View {
             HistoryThumbnailCache.shared.setObject(thumbnail, forKey: cacheKey as NSString)
             return thumbnail
         }.value
-    }
-}
-
-// MARK: - Tag Chip
-
-struct TagChip: View {
-    let tag: String
-    let onRemove: () -> Void
-
-    var body: some View {
-        HStack(spacing: 2) {
-            Text(tag)
-                .font(.system(size: 10))
-            Button {
-                onRemove()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 7, weight: .bold))
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 5)
-        .padding(.vertical, 2)
-        .background(Color.accentColor.opacity(0.15))
-        .cornerRadius(4)
-    }
-}
-
-// MARK: - Flow Layout
-
-struct FlowLayout: Layout {
-    var spacing: CGFloat = 4
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let result = layout(proposal: proposal, subviews: subviews)
-        return result.size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = layout(proposal: proposal, subviews: subviews)
-        for (index, position) in result.positions.enumerated() {
-            subviews[index].place(
-                at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y),
-                proposal: .unspecified
-            )
-        }
-    }
-
-    private func layout(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, positions: [CGPoint]) {
-        let maxWidth = proposal.width ?? .infinity
-        var positions: [CGPoint] = []
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x + size.width > maxWidth && x > 0 {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            positions.append(CGPoint(x: x, y: y))
-            rowHeight = max(rowHeight, size.height)
-            x += size.width + spacing
-        }
-
-        return (CGSize(width: maxWidth, height: y + rowHeight), positions)
-    }
-}
-
-// MARK: - History Window Controller
-
-@MainActor
-final class HistoryWindowController {
-    private var window: NSWindow?
-    private var closeObserver: NSObjectProtocol?
-    private var performanceMetrics = PerformanceMetricsAggregator(maxSamplesPerStage: 120, reportInterval: 20)
-
-    func show(appState: AppState) {
-        let openStart = CFAbsoluteTimeGetCurrent()
-        if let existing = window, existing.isVisible {
-            existing.makeKeyAndOrderFront(nil)
-            return
-        }
-
-        let historyView = HistoryView(appState: appState)
-        let hostingView = NSHostingView(rootView: historyView)
-        hostingView.frame = CGRect(x: 0, y: 0, width: 600, height: 500)
-
-        let window = NSWindow(
-            contentRect: hostingView.frame,
-            styleMask: [.titled, .closable, .resizable, .miniaturizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.contentView = hostingView
-        window.title = "Caloura History"
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-
-        let openMilliseconds = (CFAbsoluteTimeGetCurrent() - openStart) * 1000
-        historyLogger.debug("history_window_open_ms=\(openMilliseconds, privacy: .public)")
-        historyLogger.info("metric_sample stage=\(PerformanceMetricStage.historyWindowOpen.rawValue, privacy: .public) ms=\(openMilliseconds, privacy: .public)")
-        if let summary = performanceMetrics.record(stage: .historyWindowOpen, milliseconds: openMilliseconds) {
-            let stageName = summary.stage.rawValue
-            let sampleCount = summary.sampleCount
-            let latest = summary.latestMilliseconds
-            let p50 = summary.p50Milliseconds
-            let p95 = summary.p95Milliseconds
-            historyLogger.info("metric_summary stage=\(stageName, privacy: .public) samples=\(sampleCount, privacy: .public) latest_ms=\(latest, privacy: .public) p50_ms=\(p50, privacy: .public) p95_ms=\(p95, privacy: .public)")
-        }
-
-        // Clean up when user closes via title bar to prevent window/view leak
-        closeObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.window = nil
-                if let token = self?.closeObserver {
-                    NotificationCenter.default.removeObserver(token)
-                    self?.closeObserver = nil
-                }
-            }
-        }
-
-        self.window = window
     }
 }

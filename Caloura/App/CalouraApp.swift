@@ -57,7 +57,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Sync launch-at-login state with system
         syncLaunchAtLoginState()
-        appLaunchLogger.debug("Synchronous launch setup completed in \((CFAbsoluteTimeGetCurrent() - launchStart) * 1000, privacy: .public) ms")
+        let setupElapsed = (CFAbsoluteTimeGetCurrent() - launchStart) * 1000
+        appLaunchLogger.debug(
+            "Synchronous launch setup completed in \(setupElapsed, privacy: .public) ms"
+        )
 
         // Check passive screen recording status (non-interactive) and handle onboarding.
         let permissionCheckStart = CFAbsoluteTimeGetCurrent()
@@ -96,6 +99,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupNotificationHandlers() {
+        setupCaptureHandlers()
+        setupPostCaptureHandlers()
+        setupUIHandlers()
+    }
+
+    private func setupCaptureHandlers() {
         let nc = NotificationCenter.default
 
         nc.addObserver(forName: .captureArea, object: nil, queue: .main) { _ in
@@ -139,6 +148,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 CapturePipeline.shared.cancelDelayedCapture()
             }
         }
+    }
+
+    private func setupPostCaptureHandlers() {
+        let nc = NotificationCenter.default
 
         nc.addObserver(forName: .copyLastAsMarkdown, object: nil, queue: .main) { _ in
             Task { @MainActor in
@@ -163,14 +176,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self = self else { return }
                 guard let screenshot = AppState.shared.lastScreenshot else { return }
                 self.annotationController.show(image: screenshot.image) { annotatedImage in
-                    if let cgImage = annotatedImage.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                    if let cgImage = annotatedImage.cgImage(
+                        forProposedRect: nil, context: nil, hints: nil
+                    ) {
                         let pngData = ImageProcessor.pngRepresentation(of: cgImage)
                         if let filePath = screenshot.filePath {
                             do {
                                 try pngData.write(to: filePath)
                             } catch {
-                                Logger(subsystem: "com.caloura.app", category: "Annotation")
-                                    .error("Failed to save annotated image: \(error.localizedDescription)")
+                                Logger(
+                                    subsystem: "com.caloura.app",
+                                    category: "Annotation"
+                                ).error(
+                                    "Failed to save annotated image: \(error.localizedDescription)"
+                                )
                             }
                         }
                     }
@@ -184,6 +203,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 PinnedScreenshotManager.shared.pin(screenshot)
             }
         }
+    }
+
+    private func setupUIHandlers() {
+        let nc = NotificationCenter.default
 
         nc.addObserver(forName: .showHistory, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in

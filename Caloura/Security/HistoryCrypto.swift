@@ -84,7 +84,9 @@ enum HistoryCrypto {
         let baseDir: URL
         if let override = securityDirectoryOverride {
             baseDir = override
-        } else if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+        } else if let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first {
             baseDir = appSupport.appendingPathComponent("Caloura").appendingPathComponent("security")
         } else {
             throw HistoryCryptoError.keyStorageUnavailable("Could not resolve Application Support directory.")
@@ -146,7 +148,12 @@ enum HistoryCrypto {
             }
             let actual = mode.intValue
             guard actual != expected else { return }
-            warnings.append("\(label) permission drift (\(url.path)): expected \(octalString(expected)), got \(octalString(actual))")
+            let expectedStr = octalString(expected)
+            let actualStr = octalString(actual)
+            warnings.append(
+                "\(label) permission drift (\(url.path)): "
+                + "expected \(expectedStr), got \(actualStr)"
+            )
         } catch {
             warnings.append("Could not read permissions for \(label) at \(url.path): \(error.localizedDescription)")
         }
