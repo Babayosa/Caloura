@@ -15,9 +15,10 @@ Status: Complete
 
 ## Review / Evidence
 
-- `swift build` (succeeded; CGWindowListCreateImage deprecation warnings)
+- `swift build` (succeeded)
 - `swiftlint` (succeeded; warnings only — 18 violations, 0 serious)
-- `swift test` (100 tests passed)
+- `swift test` (first run exited with signal 5; rerun succeeded — 100 tests passed)
+- Cleanup check: no `.DS_Store`, `.build/`, `DerivedData/`, or `xcuserdata/` present
 
 ---
 
