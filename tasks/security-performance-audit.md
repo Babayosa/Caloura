@@ -1,4 +1,4 @@
-# Security + Performance Audit (v1.0.6)
+# Security + Performance Audit (v1.0.7)
 
 ## Scope
 
@@ -49,9 +49,9 @@
 ## Release Evidence Checklist
 
 - Public ZIP version, appcast version, and internal app version are aligned
-- Appcast top item points to `Caloura-1.0.6.zip` with matching signature/length
+- Appcast top item points to `Caloura-1.0.7.zip` with matching signature/length
 - Release guard passes:
-  `RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.6 ./scripts/release.sh 1.0.6`
+  `RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.7 ./scripts/release.sh 1.0.7`
 
 ## How To Collect Evidence
 
@@ -61,7 +61,7 @@
 
 ```bash
 scripts/perf_audit.sh --minutes 30 --label local-pass
-scripts/public_download_qa.sh --version 1.0.6 verify
+scripts/public_download_qa.sh --version 1.0.7 verify
 ```
 
 The perf script writes CSV + Markdown summaries under `build/perf-audit/`.
