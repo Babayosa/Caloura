@@ -3,64 +3,40 @@ import SwiftUI
 @MainActor
 final class PreferencesWindowController {
     static let shared = PreferencesWindowController()
-    private var window: NSWindow?
-    private var closeObserver: NSObjectProtocol?
+    private let presenter = SingleWindowPresenter<PreferencesView>()
 
     func show(tab: PreferencesTab? = nil) {
-        if let existing = window, existing.isVisible {
-            existing.makeKeyAndOrderFront(nil)
-            NSApp.activate()
+        if presenter.isVisible {
+            presenter.bringToFront()
             if let tab {
                 setTab(tab)
             }
             return
         }
 
-        let preferencesView = PreferencesView(selectedTab: tab)
-        let hostingView = NSHostingView(rootView: preferencesView)
-        hostingView.frame = CGRect(
-            origin: .zero, size: PreferencesLayout.minContentSize
-        )
-
-        let window = NSWindow(
-            contentRect: hostingView.frame,
+        let config = SingleWindowPresenter<PreferencesView>.WindowConfig(
+            title: "Caloura Preferences",
+            size: PreferencesLayout.minContentSize,
             styleMask: [.titled, .closable, .resizable, .miniaturizable],
-            backing: .buffered,
-            defer: false
+            minSize: PreferencesLayout.minContentSize,
+            autosaveName: "PreferencesWindow"
         )
-        window.isReleasedWhenClosed = false
-        window.contentView = hostingView
-        window.title = "Caloura Preferences"
-        window.contentMinSize = PreferencesLayout.minContentSize
-        window.setFrameAutosaveName("PreferencesWindow")
-        let currentContentSize = window.contentLayoutRect.size
-        if currentContentSize.width < PreferencesLayout.minContentSize.width ||
-            currentContentSize.height < PreferencesLayout.minContentSize.height {
-            window.setContentSize(PreferencesLayout.minContentSize)
+        presenter.show(config: config) {
+            PreferencesView(selectedTab: tab)
         }
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate()
 
-        closeObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.window = nil
-                if let token = self?.closeObserver {
-                    NotificationCenter.default.removeObserver(token)
-                    self?.closeObserver = nil
-                }
+        // Enforce minimum size when restored from autosave
+        if let window = presenter.window {
+            let currentContentSize = window.contentLayoutRect.size
+            if currentContentSize.width < PreferencesLayout.minContentSize.width
+                || currentContentSize.height < PreferencesLayout.minContentSize.height {
+                window.setContentSize(PreferencesLayout.minContentSize)
             }
         }
-
-        self.window = window
     }
 
     private func setTab(_ tab: PreferencesTab) {
-        guard let window else { return }
+        guard let window = presenter.window else { return }
         let preferencesView = PreferencesView(selectedTab: tab)
         let hostingView = NSHostingView(rootView: preferencesView)
         let contentSize = window.contentView?.frame.size

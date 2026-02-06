@@ -5,36 +5,24 @@ private let historyLogger = Logger(subsystem: "com.caloura.app", category: "Hist
 
 @MainActor
 final class HistoryWindowController {
-    private var window: NSWindow?
-    private var closeObserver: NSObjectProtocol?
+    private let presenter = SingleWindowPresenter<HistoryView>()
     private var performanceMetrics = PerformanceMetricsAggregator(
         maxSamplesPerStage: 120, reportInterval: 20
     )
 
     func show(appState: AppState) {
         let openStart = CFAbsoluteTimeGetCurrent()
-        if let existing = window, existing.isVisible {
-            existing.makeKeyAndOrderFront(nil)
-            NSApp.activate()
-            return
+
+        let config = SingleWindowPresenter<HistoryView>.WindowConfig(
+            title: "Caloura History",
+            size: CGSize(width: 600, height: 500),
+            styleMask: [.titled, .closable, .resizable, .miniaturizable]
+        )
+        let didCreate = presenter.show(config: config) {
+            HistoryView(appState: appState)
         }
 
-        let historyView = HistoryView(appState: appState)
-        let hostingView = NSHostingView(rootView: historyView)
-        hostingView.frame = CGRect(x: 0, y: 0, width: 600, height: 500)
-
-        let window = NSWindow(
-            contentRect: hostingView.frame,
-            styleMask: [.titled, .closable, .resizable, .miniaturizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.contentView = hostingView
-        window.title = "Caloura History"
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        guard didCreate else { return }
 
         let openMilliseconds = (CFAbsoluteTimeGetCurrent() - openStart) * 1000
         historyLogger.debug(
@@ -59,22 +47,5 @@ final class HistoryWindowController {
                 + " p95_ms=\(p95)"
             historyLogger.info("\(summaryMsg, privacy: .public)")
         }
-
-        // Clean up when user closes via title bar to prevent window/view leak
-        closeObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.window = nil
-                if let token = self?.closeObserver {
-                    NotificationCenter.default.removeObserver(token)
-                    self?.closeObserver = nil
-                }
-            }
-        }
-
-        self.window = window
     }
 }

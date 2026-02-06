@@ -1,5 +1,4 @@
 import AppKit
-import Foundation
 
 final class ProcessedScreenshot: @unchecked Sendable {
     let image: NSImage

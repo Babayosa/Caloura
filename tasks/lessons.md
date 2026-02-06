@@ -97,3 +97,17 @@
 - **Root cause**: Static state persists between test cases. A 0.5s throttle means only the first test in the suite would actually process its URL — all subsequent tests would be throttled and silently pass without testing anything.
 - **Rule**: When adding rate-limiting or throttling with static state, make the timestamp property `internal` (not `private`) and reset it in the test suite's `setUp()`. This keeps production behavior correct while allowing tests to bypass the throttle.
 - **Example**: `URLSchemeHandler.lastHandledDate = nil` in `setUp()` resets the throttle before each test.
+
+## 2026-02-05: CGRect normalizes negative width/height — cannot test negative dimensions
+
+- **Mistake**: Wrote a test expecting `CGRect(x: 50, y: 50, width: -10, height: -10)` to have negative width/height. CGRect auto-normalizes to `CGRect(x: 40, y: 40, width: 10, height: 10)`, so the guard `rect.width > 0` passed and the code proceeded to the permission check instead of throwing.
+- **Root cause**: `CGRect` stores its origin and size such that `width` and `height` always return positive values. Negative values in the initializer shift the origin and invert the sign.
+- **Rule**: When testing boundary conditions on CGRect dimensions, test with zero values (which remain zero after normalization), not negative values. CGRect makes negative-dimension rects impossible at the API level.
+- **Example**: Use `CGRect(x: 50, y: 50, width: 0, height: 0)` to test the zero-size guard, not `CGRect(x: 50, y: 50, width: -10, height: -10)`.
+
+## 2026-02-05: SwiftLanguageMode.v6 requires swift-tools-version 6.0
+
+- **Mistake**: Tried to add `.v6` to `swiftLanguageVersions` in Package.swift while the manifest header was `swift-tools-version:5.9`. Build failed with "'v6' is unavailable".
+- **Root cause**: The `.v6` enum case in `SwiftLanguageMode` is gated behind `@available(_PackageDescription 6)`. It only exists when the manifest declares `swift-tools-version:6.0` or later.
+- **Rule**: Do not add `.v6` to `swiftLanguageVersions` unless the package manifest is upgraded to `swift-tools-version:6.0`. This is a larger migration (new default concurrency semantics, sendability requirements) and should be its own task.
+- **Example**: `swiftLanguageVersions: [.v5, .v6]` with `swift-tools-version:5.9` fails. Must first bump to `swift-tools-version:6.0`.

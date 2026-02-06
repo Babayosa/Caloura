@@ -120,6 +120,133 @@ final class FileOrganizerTests: XCTestCase {
         XCTAssertEqual(fileName, "Caloura_08-00-00_AppWithSlashes.png")
     }
 
+    // MARK: - Path Traversal Safety
+
+    func testSave_pathTraversal_dotDotSubfolder_throws() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let context = CaptureContext(
+            mode: .area,
+            sourceAppName: "TestApp",
+            timestamp: makeDate(hour: 10, minute: 0, second: 0)
+        )
+        let screenshot = makeProcessedScreenshot(context: context)
+
+        do {
+            _ = try await FileOrganizer.save(
+                screenshot,
+                baseDirectory: tempDir.path,
+                subfolder: "../../tmp/evil"
+            )
+            XCTFail("Expected pathTraversal error")
+        } catch let error as FileOrganizer.FileOrganizerError {
+            XCTAssertEqual(error, .pathTraversal)
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    func testSave_pathTraversal_normalThenDotDot_throws() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let context = CaptureContext(
+            mode: .area,
+            sourceAppName: "TestApp",
+            timestamp: makeDate(hour: 10, minute: 0, second: 0)
+        )
+        let screenshot = makeProcessedScreenshot(context: context)
+
+        do {
+            _ = try await FileOrganizer.save(
+                screenshot,
+                baseDirectory: tempDir.path,
+                subfolder: "normal/../../../etc"
+            )
+            XCTFail("Expected pathTraversal error")
+        } catch let error as FileOrganizer.FileOrganizerError {
+            XCTAssertEqual(error, .pathTraversal)
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    func testSave_normalSubfolder_succeeds() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let context = CaptureContext(
+            mode: .area,
+            sourceAppName: "TestApp",
+            timestamp: makeDate(hour: 10, minute: 0, second: 0)
+        )
+        let screenshot = makeProcessedScreenshot(context: context)
+
+        let fileURL = try await FileOrganizer.save(
+            screenshot,
+            baseDirectory: tempDir.path,
+            subfolder: "Lectures"
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        XCTAssertTrue(fileURL.path.hasPrefix(tempDir.path))
+    }
+
+    func testSave_pathTraversal_encodedSlash_noEscape() async throws {
+        // %2F is percent-encoded slash — URL(fileURLWithPath:) does NOT decode it,
+        // so it becomes a literal directory name component, staying within base.
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let context = CaptureContext(
+            mode: .area,
+            sourceAppName: "TestApp",
+            timestamp: makeDate(hour: 10, minute: 0, second: 0)
+        )
+        let screenshot = makeProcessedScreenshot(context: context)
+
+        // %2F in a file path component is treated literally by the file system,
+        // not as a directory separator. This should succeed (no traversal).
+        let fileURL = try await FileOrganizer.save(
+            screenshot,
+            baseDirectory: tempDir.path,
+            subfolder: "safe%2Fname"
+        )
+
+        XCTAssertTrue(fileURL.path.hasPrefix(tempDir.path))
+    }
+
+    func testSave_pathTraversal_deepDotDot_throws() async {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let context = CaptureContext(
+            mode: .area,
+            sourceAppName: "TestApp",
+            timestamp: makeDate(hour: 10, minute: 0, second: 0)
+        )
+        let screenshot = makeProcessedScreenshot(context: context)
+
+        do {
+            _ = try await FileOrganizer.save(
+                screenshot,
+                baseDirectory: tempDir.path,
+                subfolder: "a/b/c/../../../../../../../../tmp"
+            )
+            XCTFail("Expected pathTraversal error")
+        } catch let error as FileOrganizer.FileOrganizerError {
+            XCTAssertEqual(error, .pathTraversal)
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
     // MARK: - Helpers
 
     private func makeDate(hour: Int, minute: Int, second: Int) -> Date {

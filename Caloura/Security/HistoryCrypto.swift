@@ -1,13 +1,32 @@
 import CryptoKit
 import Foundation
 
+// MARK: - Threat Model
+//
+// HistoryCrypto encrypts history data at rest using AES-256-GCM.
+//
+// Key storage: a 256-bit root key is stored as a local file at
+// ~/Library/Application Support/Caloura/security/history.key with POSIX 0600
+// permissions (directory: 0700).
+//
+// Protects against: other users on the same machine reading history data,
+// and casual inspection of the Application Support directory.
+//
+// Does NOT protect against: malware running as the same user, or physical
+// access to an unlocked machine (the key file is readable by the current user).
+//
+// Why not Keychain: project convention avoids Keychain to prevent startup
+// authentication prompts that degrade the user experience.
+//
+// HKDF key derivation: different purposes (e.g. "history-encryption") derive
+// distinct subkeys from the single root key, enabling domain separation.
+
 enum HistoryCryptoError: Error {
     case missingCombinedBox
     case keyStorageUnavailable(String)
     case invalidKeyMaterial
     case keyReadFailed(String)
     case keyWriteFailed(String)
-    case unknownKeyVersion(UInt8)
     case keyFileCreationFailed
 }
 

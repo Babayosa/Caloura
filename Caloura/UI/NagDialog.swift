@@ -51,8 +51,7 @@ struct NagDialogView: View {
 
 @MainActor
 final class NagWindowController {
-    private var window: NSWindow?
-    private var closeObserver: NSObjectProtocol?
+    private let presenter = SingleWindowPresenter<NagDialogView>()
 
     func showIfNeeded() {
         let settings = AppSettings.shared
@@ -62,59 +61,23 @@ final class NagWindowController {
     }
 
     func show() {
-        if let existing = window, existing.isVisible {
-            existing.makeKeyAndOrderFront(nil)
-            NSApp.activate()
-            return
-        }
-
-        let view = NagDialogView(
-            onDismiss: { [weak self] in
-                self?.window?.close()
-                self?.window = nil
-            },
-            onEnterKey: { [weak self] in
-                self?.window?.close()
-                self?.window = nil
-                PreferencesWindowController.shared.show(tab: .license)
-            },
-            onBuy: {
-                NSWorkspace.shared.open(LicenseManager.gumroadPurchaseURL)
-            }
+        let config = SingleWindowPresenter<NagDialogView>.WindowConfig(
+            title: "Caloura",
+            size: CGSize(width: 400, height: 320)
         )
-
-        let hostingView = NSHostingView(rootView: view)
-        hostingView.frame = CGRect(x: 0, y: 0, width: 400, height: 320)
-
-        let window = NSWindow(
-            contentRect: hostingView.frame,
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.contentView = hostingView
-        window.title = "Caloura"
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate()
-
-        self.window = window
-
-        // Store observer token to avoid memory leak
-        closeObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                guard let self = self else { return }
-                if let token = self.closeObserver {
-                    NotificationCenter.default.removeObserver(token)
-                    self.closeObserver = nil
+        presenter.show(config: config) {
+            NagDialogView(
+                onDismiss: { [weak self] in
+                    self?.presenter.close()
+                },
+                onEnterKey: { [weak self] in
+                    self?.presenter.close()
+                    PreferencesWindowController.shared.show(tab: .license)
+                },
+                onBuy: {
+                    NSWorkspace.shared.open(LicenseManager.gumroadPurchaseURL)
                 }
-                self.window = nil
-            }
+            )
         }
     }
 }

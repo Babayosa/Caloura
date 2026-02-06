@@ -18,7 +18,7 @@ struct PermissionUIModel: Equatable {
     var isAlertCooldownActive: Bool = false
 }
 
-struct PermissionIdentity: Equatable, Codable {
+struct PermissionIdentity: Equatable {
     let bundleIdentifier: String
     let executablePath: String
     let teamIdentifier: String

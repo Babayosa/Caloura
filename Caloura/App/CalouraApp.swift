@@ -42,6 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         if AppMover.moveToApplicationsFolderIfNeeded() { return }
 
+        cleanupStaleTempFiles()
+
         let launchStart = CFAbsoluteTimeGetCurrent()
         HotKeyManager.shared.registerAll()
         setupNotificationHandlers()
@@ -222,6 +224,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+    }
+
+    private func cleanupStaleTempFiles() {
+        let tempDir = FileManager.default.temporaryDirectory
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: tempDir, includingPropertiesForKeys: nil
+        ) else { return }
+        for url in contents where url.lastPathComponent.hasPrefix("caloura-")
+            && url.pathExtension == "png" {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     private func syncLaunchAtLoginState() {

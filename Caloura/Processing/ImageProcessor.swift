@@ -1,5 +1,4 @@
 import AppKit
-import Foundation
 
 enum ImageProcessingError: LocalizedError {
     case encodingFailed(String)

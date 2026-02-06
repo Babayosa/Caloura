@@ -286,63 +286,37 @@ struct ArrowShape: Shape {
 
 @MainActor
 final class AnnotationWindowController {
-    private var window: NSWindow?
-    private var closeObserver: NSObjectProtocol?
+    private let presenter = SingleWindowPresenter<AnnotationOverlayView>()
 
     func show(image: NSImage, onSave: @escaping (NSImage) -> Void) {
-        let annotationView = AnnotationOverlayView(
-            image: image,
-            onSave: { [weak self] annotatedImage in
-                self?.window?.close()
-                self?.window = nil
-                onSave(annotatedImage)
-            },
-            onCancel: { [weak self] in
-                self?.window?.close()
-                self?.window = nil
-            }
-        )
-
-        let hostingView = NSHostingView(rootView: annotationView)
         let imageSize = image.size
         let maxDimension: CGFloat = 800
-        let scale = min(maxDimension / imageSize.width, maxDimension / imageSize.height, 1.0)
+        let scale = min(
+            maxDimension / imageSize.width,
+            maxDimension / imageSize.height,
+            1.0
+        )
         let windowSize = CGSize(
             width: imageSize.width * scale,
             height: imageSize.height * scale + 44 // toolbar height
         )
-        hostingView.frame = CGRect(origin: .zero, size: windowSize)
 
-        let window = NSWindow(
-            contentRect: CGRect(origin: .zero, size: windowSize),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
+        let config = SingleWindowPresenter<AnnotationOverlayView>.WindowConfig(
+            title: "Annotate Screenshot",
+            size: windowSize,
+            styleMask: [.titled, .closable, .resizable]
         )
-        window.isReleasedWhenClosed = false
-        window.contentView = hostingView
-        window.title = "Annotate Screenshot"
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate()
-
-        // Clean up when user closes via title bar to prevent window/view leak
-        closeObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] notification in
-            let closingWindow = notification.object as? NSWindow
-            Task { @MainActor in
-                guard self?.window === closingWindow else { return }
-                self?.window = nil
-                if let token = self?.closeObserver {
-                    NotificationCenter.default.removeObserver(token)
-                    self?.closeObserver = nil
+        presenter.show(config: config) {
+            AnnotationOverlayView(
+                image: image,
+                onSave: { [weak self] annotatedImage in
+                    self?.presenter.close()
+                    onSave(annotatedImage)
+                },
+                onCancel: { [weak self] in
+                    self?.presenter.close()
                 }
-            }
+            )
         }
-
-        self.window = window
     }
 }

@@ -1,5 +1,4 @@
 import AppKit
-import Foundation
 import os.log
 import ScreenCaptureKit
 

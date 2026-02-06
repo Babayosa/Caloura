@@ -1,4 +1,3 @@
-import Foundation
 import SwiftUI
 import os.log
 
@@ -37,6 +36,7 @@ final class AppSettings: ObservableObject {
         static let licenseKeyMigrated = "licenseKeyMigrated"
         static let lastLicenseValidationDate = "lastLicenseValidationDate"
         static let furthestDateSeen = "furthestDateSeen"
+        static let autoClearClipboard = "autoClearClipboard"
     }
 
     @Published var saveDirectory: String {
@@ -102,6 +102,10 @@ final class AppSettings: ObservableObject {
         didSet { debouncedSave() }
     }
 
+    @Published var autoClearClipboard: Bool {
+        didSet { debouncedSave() }
+    }
+
     var lastLicenseValidationDate: Date? {
         get { defaults.object(forKey: Keys.lastLicenseValidationDate) as? Date }
         set { defaults.set(newValue, forKey: Keys.lastLicenseValidationDate) }
@@ -149,6 +153,7 @@ final class AppSettings: ObservableObject {
         defaults.set(firstLaunchDate, forKey: Keys.firstLaunchDate)
         defaults.set(isLicenseActivated, forKey: Keys.isLicenseActivated)
         defaults.set(hasSeenWelcome, forKey: Keys.hasSeenWelcome)
+        defaults.set(autoClearClipboard, forKey: Keys.autoClearClipboard)
     }
 
     func persistLicenseState() {
@@ -262,6 +267,7 @@ final class AppSettings: ObservableObject {
         ) ?? ""
         self.isLicenseActivated = defaults.bool(forKey: Keys.isLicenseActivated)
         self.hasSeenWelcome = defaults.bool(forKey: Keys.hasSeenWelcome)
+        self.autoClearClipboard = defaults.object(forKey: Keys.autoClearClipboard) as? Bool ?? false
 
         migrateLegacyLicenseSilentlyIfAvailable()
         persistLicenseState()

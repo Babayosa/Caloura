@@ -1,5 +1,4 @@
 import Vision
-import AppKit
 
 struct OCREngine {
     /// Recognize text in the given image.

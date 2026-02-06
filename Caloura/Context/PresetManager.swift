@@ -1,6 +1,6 @@
 import Foundation
 
-enum CopyMode: String, Codable, CaseIterable {
+enum CopyMode: String, Codable {
     case image = "Image"
     case markdown = "Markdown"
     case citation = "Citation"
@@ -44,6 +44,10 @@ struct CapturePreset: Codable, Identifiable {
         smartCropEnabled = try container.decodeIfPresent(Bool.self, forKey: .smartCropEnabled) ?? true
         copyMode = try container.decodeIfPresent(CopyMode.self, forKey: .copyMode) ?? .image
         subfolder = try container.decodeIfPresent(String.self, forKey: .subfolder)
+        // Defense-in-depth: reject path traversal attempts at deserialization
+        if let sub = subfolder, sub.contains("..") {
+            subfolder = nil
+        }
         isBuiltIn = try container.decodeIfPresent(Bool.self, forKey: .isBuiltIn) ?? false
     }
 }

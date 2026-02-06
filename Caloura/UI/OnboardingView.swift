@@ -311,8 +311,7 @@ struct OnboardingView: View {
 
 @MainActor
 final class OnboardingWindowController {
-    private var window: NSWindow?
-    private var closeObserver: NSObjectProtocol?
+    private let presenter = SingleWindowPresenter<OnboardingView>()
 
     func showIfNeeded(settings: AppSettings) {
         guard !settings.hasCompletedOnboarding else { return }
@@ -320,49 +319,13 @@ final class OnboardingWindowController {
     }
 
     func show(settings: AppSettings) {
-        // If already showing, just bring to front
-        if let existing = window, existing.isVisible {
-            existing.makeKeyAndOrderFront(nil)
-            NSApp.activate()
-            return
-        }
-
-        let onboardingView = OnboardingView(settings: settings) { [weak self] in
-            self?.window?.close()
-            self?.window = nil
-        }
-
-        let hostingView = NSHostingView(rootView: onboardingView)
-        hostingView.frame = CGRect(x: 0, y: 0, width: 500, height: 400)
-
-        let window = NSWindow(
-            contentRect: hostingView.frame,
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
+        let config = SingleWindowPresenter<OnboardingView>.WindowConfig(
+            title: "Welcome to Caloura",
+            size: CGSize(width: 500, height: 400)
         )
-        window.isReleasedWhenClosed = false
-        window.contentView = hostingView
-        window.title = "Welcome to Caloura"
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate()
-
-        self.window = window
-
-        // Store observer token to avoid memory leak
-        closeObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                guard let self = self else { return }
-                if let token = self.closeObserver {
-                    NotificationCenter.default.removeObserver(token)
-                    self.closeObserver = nil
-                }
-                self.window = nil
+        presenter.show(config: config) {
+            OnboardingView(settings: settings) { [weak self] in
+                self?.presenter.close()
             }
         }
     }

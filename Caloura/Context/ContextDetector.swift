@@ -1,7 +1,6 @@
 import AppKit
-import Foundation
 
-enum AppCategory: String, Codable {
+enum AppCategory: String {
     case code = "Code"
     case lecture = "Lecture"
     case web = "Web"
