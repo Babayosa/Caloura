@@ -275,7 +275,7 @@ struct OnboardingView: View {
             }
             .padding()
             .background(Color.gray.opacity(0.1))
-            .cornerRadius(8)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             Button("Take First Screenshot") {
                 finishOnboarding(startCapture: true)
@@ -323,7 +323,7 @@ final class OnboardingWindowController {
         // If already showing, just bring to front
         if let existing = window, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activate()
             return
         }
 
@@ -346,7 +346,7 @@ final class OnboardingWindowController {
         window.title = "Welcome to Caloura"
         window.center()
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
 
         self.window = window
 

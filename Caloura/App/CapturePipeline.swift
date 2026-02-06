@@ -17,6 +17,11 @@ final class CapturePipeline: ObservableObject {
     var overlayWindows: [CaptureOverlayWindow] = []
     var screenOverlays: [ScreenSelectionOverlayWindow] = []
     var delayedCaptureTask: Task<Void, Never>?
+    private var ocrTask: Task<Void, Never>?
+    /// Tracks whether the first mouseDown metric has been logged for the current capture session.
+    var firstMouseDownLogged = false
+    /// Monotonic counter to detect stale overlay callbacks from a previous capture session.
+    var captureSessionID: UInt = 0
     private var performanceMetrics = PerformanceMetricsAggregator(
         maxSamplesPerStage: 200,
         reportInterval: 20
@@ -117,12 +122,13 @@ final class CapturePipeline: ObservableObject {
 
         if settings.autoSaveToDisk {
             let saveStart = CFAbsoluteTimeGetCurrent()
-            if let fileURL = try? await FileOrganizer.save(
-                processed,
-                baseDirectory: settings.saveDirectory,
-                subfolder: preset.subfolder,
-                imageFormat: settings.imageFormat
-            ) {
+            do {
+                let fileURL = try await FileOrganizer.save(
+                    processed,
+                    baseDirectory: settings.saveDirectory,
+                    subfolder: preset.subfolder,
+                    imageFormat: settings.imageFormat
+                )
                 let saveDuration = elapsedMilliseconds(since: saveStart)
                 logger.debug(
                     "Disk save completed in \(saveDuration, privacy: .public) ms"
@@ -130,6 +136,9 @@ final class CapturePipeline: ObservableObject {
                 recordMetric(stage: .save, milliseconds: saveDuration)
                 processed.filePath = fileURL
                 processed.fileName = fileURL.lastPathComponent
+            } catch {
+                let desc = error.localizedDescription
+                logger.error("File save failed: \(desc, privacy: .public)")
             }
         }
 
@@ -176,10 +185,17 @@ final class CapturePipeline: ObservableObject {
         let screenshotID = newItem.id
         appState.addScreenshot(newItem)
 
+        // Cancel any in-flight OCR task to avoid unbounded pile-up (H9).
+        // Only the latest capture's OCR matters for history.
+        ocrTask?.cancel()
+
         let cgImageForOCR = processed.cgImage
-        Task.detached {
-            if let text = try? await OCREngine.recognizeText(in: cgImageForOCR),
-               !text.isEmpty {
+        ocrTask = Task.detached {
+            do {
+                guard !Task.isCancelled else { return }
+                let text = try await OCREngine.recognizeText(in: cgImageForOCR)
+                guard !Task.isCancelled else { return }
+                guard !text.isEmpty else { return }
                 await MainActor.run {
                     let state = AppState.shared
                     guard let index = state.recentScreenshots.firstIndex(
@@ -204,6 +220,10 @@ final class CapturePipeline: ObservableObject {
                     state.recentScreenshots[index] = updated
                     state.saveHistory()
                 }
+            } catch {
+                guard !Task.isCancelled else { return }
+                let desc = error.localizedDescription
+                logger.error("OCR failed: \(desc, privacy: .public)")
             }
         }
     }

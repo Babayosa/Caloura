@@ -26,6 +26,7 @@
 		3335DDB8ED877AC807C54A0B /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE110F9A77CB9CDFB0BEDFD /* HistoryView.swift */; };
 		34E5324CD7B4F83988C9B5E9 /* ContextDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 289A896241A2CA4826901D17 /* ContextDetector.swift */; };
 		46788602D7A04D4198510E74 /* SmartCropperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC6A57E8521570F4CEA4DF3 /* SmartCropperTests.swift */; };
+		4F53B4D729658E97A058C06A /* OCREngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74FAD5F086A3E075881B59B8 /* OCREngineTests.swift */; };
 		50C4E01D5B0B17A986DB9243 /* PermissionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E2E642614FBDA33CE62ED0E /* PermissionCoordinator.swift */; };
 		5104523F1D58CAC35E4F9B5A /* ScreenSelectionOverlayWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7925DB8C1184AAB81FC7B6C6 /* ScreenSelectionOverlayWindow.swift */; };
 		5229BD214E10FF8EEA97CDFB /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70EBD1742040EEC6B5B3E4BF /* KeychainHelper.swift */; };
@@ -40,6 +41,7 @@
 		794544A3823F7C93F9A590D6 /* ClipboardManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E06C97FA5AD6991D62911BBB /* ClipboardManager.swift */; };
 		7BA56E136E58F4A2603B6743 /* PreferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A9E497EC87D04C8480FFF42 /* PreferencesView.swift */; };
 		7C348A0AB9F562926C7606FD /* RegionSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 210AA3C52A7F3E15609F826C /* RegionSelectionView.swift */; };
+		7CF0CD8221982FCDD3594E4D /* AppMover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47577EAB0E18497B60FD731A /* AppMover.swift */; };
 		7E9161CDDCDCAD51268C210D /* PreferencesView+WindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58955822BC337A41151552B2 /* PreferencesView+WindowController.swift */; };
 		7F179615E9E98C19CB23EE61 /* PermissionCoordinatorEdgeCaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4544A652FC2FC30D005144F6 /* PermissionCoordinatorEdgeCaseTests.swift */; };
 		810C64A9B70309975A1811F4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 70B82A42272A01F52D3058AF /* Assets.xcassets */; };
@@ -117,6 +119,7 @@
 		43F77302B11F70E1E6287AC8 /* AppStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateTests.swift; sourceTree = "<group>"; };
 		4544A652FC2FC30D005144F6 /* PermissionCoordinatorEdgeCaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionCoordinatorEdgeCaseTests.swift; sourceTree = "<group>"; };
 		46BF3953A403BDB295C6F00B /* ScreenshotItemTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenshotItemTests.swift; sourceTree = "<group>"; };
+		47577EAB0E18497B60FD731A /* AppMover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMover.swift; sourceTree = "<group>"; };
 		47A03B0C83EC120BD081782F /* PresetManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetManager.swift; sourceTree = "<group>"; };
 		4DF169F9564A2871EB811F42 /* PerformanceMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceMetrics.swift; sourceTree = "<group>"; };
 		5009C6D06D92464A45E631F3 /* AppStateDeferredHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateDeferredHistoryTests.swift; sourceTree = "<group>"; };
@@ -136,6 +139,7 @@
 		70B82A42272A01F52D3058AF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		70EBD1742040EEC6B5B3E4BF /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		734277A60C0B95BA7A460864 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		74FAD5F086A3E075881B59B8 /* OCREngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCREngineTests.swift; sourceTree = "<group>"; };
 		761C0501FF605DE3B70832ED /* URLSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLSchemeHandler.swift; sourceTree = "<group>"; };
 		764C6C1C3A6A9EAB8A9DC743 /* LicenseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseManager.swift; sourceTree = "<group>"; };
 		7925DB8C1184AAB81FC7B6C6 /* ScreenSelectionOverlayWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenSelectionOverlayWindow.swift; sourceTree = "<group>"; };
@@ -305,6 +309,7 @@
 			children = (
 				5106A0D854A7D2952DE36155 /* ImageProcessorEdgeCaseTests.swift */,
 				1D008E3CE2F4992B00ECAB6A /* ImageProcessorTests.swift */,
+				74FAD5F086A3E075881B59B8 /* OCREngineTests.swift */,
 				FFC6A57E8521570F4CEA4DF3 /* SmartCropperTests.swift */,
 			);
 			path = ProcessingTests;
@@ -393,6 +398,7 @@
 		DD487D146FD47B8F7B606F2F /* App */ = {
 			isa = PBXGroup;
 			children = (
+				47577EAB0E18497B60FD731A /* AppMover.swift */,
 				94717F3B4A2F7CD0E0C4CC64 /* CalouraApp.swift */,
 				EC3E8A84DF9CCD9D210B6C62 /* CapturePipeline.swift */,
 				27A5664D8399083D08C413C5 /* CapturePipeline+Distribution.swift */,
@@ -511,6 +517,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2D60260CDD124631BA134F02 /* AnnotationOverlay.swift in Sources */,
+				7CF0CD8221982FCDD3594E4D /* AppMover.swift in Sources */,
 				B9EAF059EFD5EADA3AE031C3 /* AppSettings.swift in Sources */,
 				5D8E2B1B7347BD13B563B152 /* AppState.swift in Sources */,
 				A19416F135431777D7F7DBDA /* CalouraApp.swift in Sources */,
@@ -580,6 +587,7 @@
 				E7C20492C5376D041A62C9AB /* LicenseManagerEdgeCaseTests.swift in Sources */,
 				21B0332B75BD9E09DBBB3FAD /* LicenseManagerTests.swift in Sources */,
 				B6F2DEB21F0072D13E7522DE /* MarkdownExporterTests.swift in Sources */,
+				4F53B4D729658E97A058C06A /* OCREngineTests.swift in Sources */,
 				9750A2BD8C0216B4B60CFDC6 /* OnboardingFlowModelTests.swift in Sources */,
 				970C1D56A27B288B61551101 /* OnboardingPermissionPresentationTests.swift in Sources */,
 				07CDE71F03D5217A48548659 /* PerformanceMetricsTests.swift in Sources */,

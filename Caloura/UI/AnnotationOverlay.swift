@@ -323,15 +323,17 @@ final class AnnotationWindowController {
         window.title = "Annotate Screenshot"
         window.center()
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
 
         // Clean up when user closes via title bar to prevent window/view leak
         closeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            let closingWindow = notification.object as? NSWindow
             Task { @MainActor in
+                guard self?.window === closingWindow else { return }
                 self?.window = nil
                 if let token = self?.closeObserver {
                     NotificationCenter.default.removeObserver(token)

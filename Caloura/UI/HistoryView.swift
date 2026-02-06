@@ -84,7 +84,7 @@ struct HistoryView: View {
             }
             .padding(8)
             .background(Color.gray.opacity(0.1))
-            .cornerRadius(8)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
             .padding()
 
             if filteredScreenshots.isEmpty {
@@ -225,7 +225,7 @@ struct HistoryGridItem: View {
                 }
             }
             .frame(height: 120)
-            .cornerRadius(6)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
                     .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
@@ -288,7 +288,7 @@ struct HistoryGridItem: View {
                                     .padding(.horizontal, 4)
                                     .padding(.vertical, 2)
                                     .background(Color.gray.opacity(0.15))
-                                    .cornerRadius(4)
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
                             }
                             .buttonStyle(.plain)
                             .popover(isPresented: $isAddingTag) {
@@ -314,7 +314,7 @@ struct HistoryGridItem: View {
         }
         .padding(4)
         .background(isSelected ? Color.accentColor.opacity(0.1) : Color.clear)
-        .cornerRadius(8)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
         .task(id: item.id) {
             thumbnail = await loadThumbnailAsync()
         }

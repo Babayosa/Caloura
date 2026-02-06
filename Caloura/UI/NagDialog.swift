@@ -64,7 +64,7 @@ final class NagWindowController {
     func show() {
         if let existing = window, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activate()
             return
         }
 
@@ -97,7 +97,7 @@ final class NagWindowController {
         window.title = "Caloura"
         window.center()
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
 
         self.window = window
 

@@ -9,7 +9,6 @@ enum PermissionDetail: Equatable {
 
 struct OnboardingPermissionPresentation: Equatable {
     let detail: PermissionDetail
-    let guidanceText: String?
     let shouldShowMismatchBanner: Bool
     let showsGrantButton: Bool
     let showsCheckAgainButton: Bool
@@ -55,7 +54,6 @@ struct OnboardingPermissionPresentation: Equatable {
 
         return OnboardingPermissionPresentation(
             detail: detail,
-            guidanceText: uiModel.guidanceText,
             shouldShowMismatchBanner: uiModel.shouldShowSignatureMismatchBanner,
             showsGrantButton: showsGrantButton,
             showsCheckAgainButton: true,

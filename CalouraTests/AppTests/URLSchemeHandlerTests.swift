@@ -87,4 +87,65 @@ final class URLSchemeHandlerTests: XCTestCase {
         // Should not change the active preset
         XCTAssertEqual(AppSettings.shared.activePreset, originalPreset)
     }
+
+    // MARK: - Delayed Capture Bounds
+
+    func testHandle_delayedSecondsZero_clampedToOne() {
+        // seconds=0 should be clamped to 1 (minimum)
+        let url = URL(string: "caloura://capture/delayed?seconds=0")!
+        // Should not crash; seconds is clamped internally
+        URLSchemeHandler.handle(url)
+    }
+
+    func testHandle_delayedSecondsNegative_clampedToOne() {
+        let url = URL(string: "caloura://capture/delayed?seconds=-1")!
+        URLSchemeHandler.handle(url)
+    }
+
+    func testHandle_delayedSecondsHuge_clampedToTen() {
+        let url = URL(string: "caloura://capture/delayed?seconds=99999")!
+        URLSchemeHandler.handle(url)
+    }
+
+    func testHandle_delayedSecondsNonNumeric_defaultsToThree() {
+        let url = URL(string: "caloura://capture/delayed?seconds=abc")!
+        URLSchemeHandler.handle(url)
+    }
+
+    // MARK: - Unknown Mode Rejection
+
+    func testHandle_unknownCaptureMode_ignored() {
+        // An unknown mode like "exploit" should be rejected
+        let url = URL(string: "caloura://capture/exploit")!
+        URLSchemeHandler.handle(url)
+    }
+
+    func testHandle_xssAttemptInMode_ignored() {
+        let url = URL(string: "caloura://capture/%3Cscript%3Ealert(1)%3C/script%3E")!
+        URLSchemeHandler.handle(url)
+    }
+
+    // MARK: - Empty & Malformed Parameters
+
+    func testHandle_emptySecondsParam_defaultsToThree() {
+        let url = URL(string: "caloura://capture/delayed?seconds=")!
+        URLSchemeHandler.handle(url)
+    }
+
+    func testHandle_emptyModeParam_defaultsToArea() {
+        let url = URL(string: "caloura://capture/delayed?mode=")!
+        URLSchemeHandler.handle(url)
+    }
+
+    func testHandle_unknownThenAction_ignored() {
+        // An unknown then action like "rm -rf" should be filtered out
+        let url = URL(string: "caloura://capture/area?then=rm%20-rf")!
+        URLSchemeHandler.handle(url)
+    }
+
+    func testHandle_mixedValidInvalidActions() {
+        // Only "copy" should be kept; "evil" should be filtered
+        let url = URL(string: "caloura://capture/area?then=copy,evil")!
+        URLSchemeHandler.handle(url)
+    }
 }

@@ -117,7 +117,7 @@ final class FileOrganizerTests: XCTestCase {
         let fileName = FileOrganizer.generateFileName(for: screenshot)
 
         XCTAssertFalse(fileName.contains("/"), "Filename should not contain slashes")
-        XCTAssertEqual(fileName, "Caloura_08-00-00_App-With-Slashes.png")
+        XCTAssertEqual(fileName, "Caloura_08-00-00_AppWithSlashes.png")
     }
 
     // MARK: - Helpers

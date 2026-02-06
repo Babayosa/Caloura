@@ -21,7 +21,10 @@ final class ScreenSelectionOverlayWindow: NSWindow {
         self.acceptsMouseMovedEvents = true
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        let selectionView = ScreenSelectionView(frame: screen.frame, screen: screen)
+        let selectionView = ScreenSelectionView(
+            frame: NSRect(origin: .zero, size: screen.frame.size),
+            screen: screen
+        )
         selectionView.onScreenSelected = { [weak self] screen in
             self?.onScreenSelected?(screen)
         }

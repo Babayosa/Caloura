@@ -60,7 +60,7 @@ final class AppStateEdgeCaseTests: XCTestCase {
     func testRapid100Adds_cappedAt50() {
         for i in 0..<100 {
             appState.addScreenshot(
-                makeItem(fileName: "rapid_\(i).png")
+                AppStateTestHelpers.makeItem(fileName: "rapid_\(i).png")
             )
         }
 
@@ -70,7 +70,7 @@ final class AppStateEdgeCaseTests: XCTestCase {
     func testRapid100Adds_newestFirst() {
         for i in 0..<100 {
             appState.addScreenshot(
-                makeItem(fileName: "rapid_\(i).png")
+                AppStateTestHelpers.makeItem(fileName: "rapid_\(i).png")
             )
         }
 
@@ -89,7 +89,7 @@ final class AppStateEdgeCaseTests: XCTestCase {
     func testRapid100Adds_orderIsCorrect() {
         for i in 0..<100 {
             appState.addScreenshot(
-                makeItem(fileName: "rapid_\(i).png")
+                AppStateTestHelpers.makeItem(fileName: "rapid_\(i).png")
             )
         }
 
@@ -109,7 +109,7 @@ final class AppStateEdgeCaseTests: XCTestCase {
     func testPersistenceIntegrity_afterRapidAdds() async throws {
         for i in 0..<60 {
             appState.addScreenshot(
-                makeItem(fileName: "persist_\(i).png")
+                AppStateTestHelpers.makeItem(fileName: "persist_\(i).png")
             )
         }
 
@@ -139,14 +139,14 @@ final class AppStateEdgeCaseTests: XCTestCase {
     // MARK: - Interleaved add + clear
 
     func testInterleavedAddClear_noStaleData() {
-        appState.addScreenshot(makeItem(fileName: "a.png"))
-        appState.addScreenshot(makeItem(fileName: "b.png"))
+        appState.addScreenshot(AppStateTestHelpers.makeItem(fileName: "a.png"))
+        appState.addScreenshot(AppStateTestHelpers.makeItem(fileName: "b.png"))
         XCTAssertEqual(appState.recentScreenshots.count, 2)
 
         appState.clearHistory()
         XCTAssertTrue(appState.recentScreenshots.isEmpty)
 
-        appState.addScreenshot(makeItem(fileName: "c.png"))
+        appState.addScreenshot(AppStateTestHelpers.makeItem(fileName: "c.png"))
         XCTAssertEqual(appState.recentScreenshots.count, 1)
         XCTAssertEqual(
             appState.recentScreenshots[0].fileName,
@@ -158,7 +158,7 @@ final class AppStateEdgeCaseTests: XCTestCase {
         for cycle in 0..<3 {
             for index in 0..<5 {
                 appState.addScreenshot(
-                    makeItem(fileName: "cycle\(cycle)_\(index).png")
+                    AppStateTestHelpers.makeItem(fileName: "cycle\(cycle)_\(index).png")
                 )
             }
             appState.clearHistory()
@@ -169,7 +169,7 @@ final class AppStateEdgeCaseTests: XCTestCase {
         }
 
         // After all clears, add one more and verify no stale items
-        appState.addScreenshot(makeItem(fileName: "final.png"))
+        appState.addScreenshot(AppStateTestHelpers.makeItem(fileName: "final.png"))
         XCTAssertEqual(appState.recentScreenshots.count, 1)
         XCTAssertEqual(
             appState.recentScreenshots[0].fileName,
@@ -180,14 +180,14 @@ final class AppStateEdgeCaseTests: XCTestCase {
     func testClearThenRapidAdds_noStaleData() {
         for i in 0..<30 {
             appState.addScreenshot(
-                makeItem(fileName: "pre_clear_\(i).png")
+                AppStateTestHelpers.makeItem(fileName: "pre_clear_\(i).png")
             )
         }
         appState.clearHistory()
 
         for i in 0..<10 {
             appState.addScreenshot(
-                makeItem(fileName: "post_clear_\(i).png")
+                AppStateTestHelpers.makeItem(fileName: "post_clear_\(i).png")
             )
         }
 
@@ -201,21 +201,4 @@ final class AppStateEdgeCaseTests: XCTestCase {
         }
     }
 
-    // MARK: - Helpers
-
-    private func makeItem(
-        fileName: String,
-        appName: String? = nil,
-        ocrText: String? = nil
-    ) -> ScreenshotItem {
-        ScreenshotItem(
-            filePath: "/tmp/\(fileName)",
-            fileName: fileName,
-            sourceAppName: appName,
-            captureMode: "area",
-            ocrText: ocrText,
-            width: 100,
-            height: 100
-        )
-    }
 }

@@ -34,13 +34,7 @@ final class AppStateDeferredHistoryTests: XCTestCase {
     }
 
     private func makeItem(_ name: String) -> ScreenshotItem {
-        ScreenshotItem(
-            filePath: "/tmp/\(name)",
-            fileName: name,
-            captureMode: "area",
-            width: 100,
-            height: 80
-        )
+        AppStateTestHelpers.makeItem(fileName: name, height: 80)
     }
 
     private func waitUntil(

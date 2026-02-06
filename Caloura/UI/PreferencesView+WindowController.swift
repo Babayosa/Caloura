@@ -9,7 +9,7 @@ final class PreferencesWindowController {
     func show(tab: PreferencesTab? = nil) {
         if let existing = window, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activate()
             if let tab {
                 setTab(tab)
             }
@@ -40,7 +40,7 @@ final class PreferencesWindowController {
         }
         window.center()
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
 
         closeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,

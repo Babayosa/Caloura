@@ -1,5 +1,26 @@
 # Lessons Learned
 
+## 2026-02-05: Never use CODE_SIGNING_ALLOWED=NO when launching the app for manual testing
+
+- **Mistake**: Built with `CODE_SIGNING_ALLOWED=NO` to launch Caloura for manual cursor testing. The app had no code signature, so macOS couldn't match it to the existing screen capture permission grant — resulting in a permission error on launch.
+- **Root cause**: macOS ties screen capture (and other TCC) permissions to the app's code signature identity. `CODE_SIGNING_ALLOWED=NO` strips the signature, making the app appear as a new unsigned binary with no permissions.
+- **Rule**: Only use `CODE_SIGNING_ALLOWED=NO` for CI/test builds that don't need runtime permissions. When building to launch and manually test, always build WITH code signing (omit the flag entirely). The command is: `xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData`
+- **Example**: `CODE_SIGNING_ALLOWED=NO` → permission denied on area capture. Remove the flag → app launches with existing permissions intact.
+
+## 2026-02-05: Vision framework rejects images smaller than 3x3
+
+- **Mistake**: Wrote an OCR test using a 1x1 black image. Vision threw "The image is too small in at least one dimension 2 x 2 (each dimension has to be more than 2 pixels)".
+- **Root cause**: VNRecognizeTextRequest requires images to be at least 3x3 pixels.
+- **Rule**: When writing OCR tests with minimal images, use at least 10x10 to stay safely above Vision's minimum.
+- **Example**: `makeSolidBlackImage(width: 10, height: 10)` instead of `(width: 1, height: 1)`.
+
+## 2026-02-05: Changing method signature to throws requires updating ALL call sites including tests
+
+- **Mistake**: Changed `ImageProcessor.pngRepresentation(of:)` from `-> Data` to `throws -> Data` but initially missed test files and `CalouraApp.swift` call sites, causing build failures.
+- **Root cause**: Only checked main source with grep but forgot test files are compiled separately and have their own call sites.
+- **Rule**: When changing a method signature, grep both `Caloura/` and `CalouraTests/` directories for all call sites before running build.
+- **Example**: `grep -r "ImageProcessor.pngRepresentation" Caloura/ CalouraTests/`
+
 ## 2026-02-05: SPUUpdater delegate can only be set at init time
 
 - **Mistake**: Attempted to set `updaterController.updater.delegate = self` and `updaterController.updaterDelegate = self` after initialization. Neither property exists as a settable Swift property.
@@ -48,6 +69,13 @@
 - **Root cause**: Historical planning/status notes were maintained in-place instead of being archived, so outdated guidance remained in canonical docs.
 - **Rule**: Archive stale planning/todo material into `tasks/archive/` and keep only current behavior in live docs (`README.md`, `plan.md`, runbooks). Every permission/auth flow change must include same-day doc updates.
 - **Example**: Legacy notes referenced `1.0.5` and a 4-step onboarding model while shipped `1.0.6` uses a 2-step flow with `Grant Permission` + `Check Again` and auto-check feedback.
+
+## 2026-02-05: NSCursor.set() loses to cursor rect system — use push/pop
+
+- **Mistake**: Used `NSCursor.crosshair.set()` to show crosshair during overlay, then `NSCursor.arrow.set()` on completion. The cursor rect system asynchronously reasserted the crosshair after `set()`, causing the crosshair to persist after mouse release.
+- **Root cause**: `NSCursor.set()` is a momentary override. The cursor rect system (from `resetCursorRects`/`addCursorRect`) recalculates and reasserts its cursor asynchronously — even after `orderOut`/`close`. Adding `selectionComplete` flags, `ignoresMouseEvents`, `orderOut(nil)` were all fighting the rect system and losing.
+- **Rule**: Use `NSCursor.crosshair.push()` when entering a custom cursor mode and `NSCursor.pop()` when leaving. This works with the cursor stack instead of against the cursor rect system. Keep `resetCursorRects`/`addCursorRect` for the declarative API. Don't use `.set()` as manual reinforcement.
+- **Example**: `viewDidMoveToWindow` → `NSCursor.crosshair.push()` (only when `window != nil`). `mouseUp` (valid selection) → `NSCursor.pop()`. `keyDown` (Escape) → `NSCursor.pop()`.
 
 ## 2026-02-05: OSLogMessage does not support String concatenation with `+`
 

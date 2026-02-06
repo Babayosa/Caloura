@@ -4,13 +4,15 @@ struct MarkdownExporter {
     // Cached formatter to avoid repeated allocations
     private static let citationDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "MMM d, yyyy h:mm a"
         return formatter
     }()
     /// ![Screenshot from AppName](filename.png)
     static func markdownImageTag(for screenshot: ProcessedScreenshot) -> String {
-        let altText = altTextFor(screenshot)
-        let fileName = screenshot.fileName.isEmpty ? "screenshot.png" : screenshot.fileName
+        let altText = escapeMarkdown(altTextFor(screenshot))
+        let rawFileName = screenshot.fileName.isEmpty ? "screenshot.png" : screenshot.fileName
+        let fileName = percentEncodeFileName(rawFileName)
         return "![\(altText)](\(fileName))"
     }
 
@@ -46,14 +48,31 @@ struct MarkdownExporter {
         var parts: [String] = []
 
         if let appName = screenshot.context.sourceAppName {
-            parts.append(appName)
+            parts.append(escapeMarkdown(appName))
         }
         if let title = screenshot.context.sourceWindowTitle {
-            parts.append(title)
+            parts.append(escapeMarkdown(title))
         }
 
         let source = parts.isEmpty ? "Unknown" : parts.joined(separator: " -- ")
         return "*Source: \(source) (\(dateStr))*"
+    }
+
+    private static func escapeMarkdown(_ text: String) -> String {
+        var result = text
+        for char in ["\\", "`", "*", "_", "{", "}", "[", "]", "(", ")", "#", "+", "-", ".", "!", "|", "<", ">", "~"] {
+            result = result.replacingOccurrences(of: char, with: "\\\(char)")
+        }
+        result = result.replacingOccurrences(of: "\n", with: " ")
+        result = result.replacingOccurrences(of: "\r", with: " ")
+        return result
+    }
+
+    private static func percentEncodeFileName(_ name: String) -> String {
+        // Percent-encode for use inside markdown URL parentheses.
+        // Allow common filename characters through; encode the rest.
+        let allowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "()"))
+        return name.addingPercentEncoding(withAllowedCharacters: allowed) ?? name
     }
 
     private static func escapeHTML(_ string: String) -> String {

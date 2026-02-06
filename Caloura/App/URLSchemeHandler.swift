@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os.log
 
 /// Handles incoming `caloura://` URLs for automation integration.
 ///
@@ -18,6 +19,26 @@ import Foundation
 /// ```
 @MainActor
 struct URLSchemeHandler {
+
+    private static let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.caloura",
+        category: "URLSchemeHandler"
+    )
+
+    /// Allowed capture modes for the main mode switch.
+    private static let allowedCaptureModes: Set<String> = [
+        "area", "fullscreen", "window", "repeat", "delayed"
+    ]
+
+    /// Allowed modes for the delayed capture `mode` parameter.
+    private static let allowedDelayModes: Set<String> = [
+        "area", "fullscreen", "window"
+    ]
+
+    /// Allowed post-capture actions for the `then` parameter.
+    private static let allowedPostCaptureActions: Set<String> = [
+        "copy", "copy-markdown", "copy-citation", "copy-ocr", "save"
+    ]
 
     /// Route an incoming URL to the appropriate action.
     static func handle(_ url: URL) {
@@ -43,49 +64,84 @@ struct URLSchemeHandler {
 
     // MARK: - Capture Routes
 
-    private static func handleCapture(pathComponents: [String], params: [String: String]) {
+    private static func handleCapture(
+        pathComponents: [String],
+        params: [String: String]
+    ) {
         let mode = (pathComponents.first ?? "area").lowercased()
 
-        // Apply preset if specified
-        if let presetName = params["preset"] {
-            let normalized = presetName.replacingOccurrences(of: "-", with: " ").capitalized
-            if PresetManager.builtInPresetNames.contains(normalized) {
-                AppSettings.shared.activePreset = normalized
-            }
+        guard allowedCaptureModes.contains(mode) else {
+            let msg = "Unknown capture mode ignored: \(mode)"
+            logger.warning("\(msg, privacy: .public)")
+            return
         }
 
-        let pipeline = CapturePipeline.shared
-        var captureInitiated = false
+        applyPresetIfSpecified(params: params)
+        let captureInitiated = dispatchCapture(mode: mode, params: params)
 
+        if captureInitiated, let thenParam = params["then"] {
+            let validActions = filterPostCaptureActions(thenParam)
+            if !validActions.isEmpty {
+                schedulePostCaptureActions(validActions)
+            }
+        }
+    }
+
+    private static func applyPresetIfSpecified(params: [String: String]) {
+        guard let presetName = params["preset"] else { return }
+        let normalized = presetName.replacingOccurrences(of: "-", with: " ").capitalized
+        if PresetManager.builtInPresetNames.contains(normalized) {
+            AppSettings.shared.activePreset = normalized
+        }
+    }
+
+    private static func dispatchCapture(
+        mode: String,
+        params: [String: String]
+    ) -> Bool {
+        let pipeline = CapturePipeline.shared
         switch mode {
         case "area":
             pipeline.captureArea()
-            captureInitiated = true
         case "fullscreen":
             pipeline.captureFullscreen()
-            captureInitiated = true
         case "window":
             pipeline.captureWindow()
-            captureInitiated = true
         case "repeat":
             pipeline.captureRepeat()
-            captureInitiated = true
         case "delayed":
-            let seconds = Int(params["seconds"] ?? "3") ?? 3
-            let delayMode = captureModeFrom(params["mode"] ?? "area")
+            let seconds = max(1, min(10, Int(params["seconds"] ?? "3") ?? 3))
+            let delayMode = validatedDelayMode(from: params)
             pipeline.captureDelayed(seconds: seconds, mode: delayMode)
-            captureInitiated = true
         default:
-            break
+            return false
         }
+        return true
+    }
 
-        // Only register post-capture observer if a capture was actually initiated
-        if captureInitiated, let thenParam = params["then"] {
-            let actions = thenParam.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
-            if !actions.isEmpty {
-                schedulePostCaptureActions(actions)
-            }
+    private static func validatedDelayMode(
+        from params: [String: String]
+    ) -> CaptureMode {
+        let raw = (params["mode"] ?? "area").lowercased()
+        if allowedDelayModes.contains(raw) {
+            return captureModeFrom(raw)
         }
+        let msg = "Unknown delay mode '\(raw)', defaulting to area"
+        logger.warning("\(msg, privacy: .public)")
+        return .area
+    }
+
+    private static func filterPostCaptureActions(_ thenParam: String) -> [String] {
+        thenParam.split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { action in
+                if allowedPostCaptureActions.contains(action) {
+                    return true
+                }
+                let msg = "Unknown post-capture action ignored: \(action)"
+                logger.warning("\(msg, privacy: .public)")
+                return false
+            }
     }
 
     // MARK: - Copy Routes
@@ -173,7 +229,9 @@ struct URLSchemeHandler {
                     case "save":
                         break // Already handled by pipeline if autoSaveToDisk is on
                     default:
-                        break
+                        // Actions are pre-validated, so this is unreachable.
+                        let msg = "Unexpected post-capture action skipped: \(action)"
+                        logger.warning("\(msg, privacy: .public)")
                     }
                 }
             }

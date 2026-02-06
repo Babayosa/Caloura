@@ -17,7 +17,7 @@ struct DetectedContext {
 }
 
 struct ContextDetector {
-    // MARK: - Category Lookup (O(1) instead of O(n))
+    // MARK: - Category Lookup (O(1) for direct matches via dictionary lookup, O(n) fallback for prefix matches)
 
     private static let categoryMap: [String: AppCategory] = {
         var map = [String: AppCategory]()

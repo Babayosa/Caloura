@@ -17,7 +17,7 @@ final class QuickAccessOverlay {
         dismiss()
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 52),
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 52),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
@@ -62,8 +62,8 @@ final class QuickAccessOverlay {
         self.panel = panel
         panel.orderFrontRegardless()
 
-        // Auto-dismiss after 8 seconds (gives users time to read labels)
-        dismissTimer = Timer.scheduledTimer(withTimeInterval: 8.0, repeats: false) { [weak self] _ in
+        // Auto-dismiss after 3 seconds
+        dismissTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 self?.dismiss()
             }
@@ -84,6 +84,20 @@ final class QuickAccessOverlay {
                 await ClipboardManager.copyImage(screenshot)
             }
             AppState.shared.statusMessage = "Copied image"
+        case .save:
+            Task {
+                do {
+                    let settings = AppSettings.shared
+                    try await FileOrganizer.save(
+                        screenshot,
+                        baseDirectory: settings.saveDirectory,
+                        imageFormat: settings.imageFormat
+                    )
+                    AppState.shared.statusMessage = "Saved to disk"
+                } catch {
+                    AppState.shared.statusMessage = "Save failed"
+                }
+            }
         case .markdown:
             ClipboardManager.copyAsMarkdown(screenshot)
             AppState.shared.statusMessage = "Copied as Markdown"
@@ -103,6 +117,7 @@ final class QuickAccessOverlay {
 
 enum QuickAction {
     case copy
+    case save
     case markdown
     case citation
     case annotate
@@ -118,6 +133,7 @@ struct QuickAccessOverlayView: View {
     var body: some View {
         HStack(spacing: 4) {
             overlayButton(title: "Copy", icon: "doc.on.doc", action: .copy)
+            overlayButton(title: "Save", icon: "square.and.arrow.down", action: .save)
             overlayButton(title: "Markdown", icon: "doc.text", action: .markdown)
             overlayButton(title: "Citation", icon: "quote.closing", action: .citation)
             overlayButton(title: "Annotate", icon: "pencil.tip", action: .annotate)
@@ -152,7 +168,7 @@ private struct OverlayActionButton: View {
             }
             .frame(width: 54, height: 36)
             .background(isHovered ? Color.primary.opacity(0.1) : Color.clear)
-            .cornerRadius(6)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())

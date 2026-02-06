@@ -15,6 +15,7 @@ final class RegionSelectionView: NSView {
     private var selectionEnd: NSPoint?
     private var isSelecting = false
     private var hasSentFirstMouseDown = false
+    private var cursorPushed = false
     private var trackingArea: NSTrackingArea?
 
     // Selection styling
@@ -29,9 +30,13 @@ final class RegionSelectionView: NSView {
         if let window = window {
             window.makeFirstResponder(self)
             window.acceptsMouseMovedEvents = true
+            NSCursor.crosshair.push()
+            cursorPushed = true
+        } else if cursorPushed {
+            NSCursor.pop()
+            cursorPushed = false
         }
         window?.invalidateCursorRects(for: self)
-        NSCursor.crosshair.set()
     }
 
     override func updateTrackingAreas() {
@@ -52,10 +57,6 @@ final class RegionSelectionView: NSView {
     override func resetCursorRects() {
         discardCursorRects()
         addCursorRect(bounds, cursor: .crosshair)
-    }
-
-    override func cursorUpdate(with event: NSEvent) {
-        NSCursor.crosshair.set()
     }
 
     // MARK: - Drawing
@@ -186,7 +187,6 @@ final class RegionSelectionView: NSView {
             hasSentFirstMouseDown = true
             onFirstMouseDown?()
         }
-        NSCursor.crosshair.set()
         let point = convert(event.locationInWindow, from: nil)
         selectionStart = point
         selectionEnd = point
@@ -196,14 +196,9 @@ final class RegionSelectionView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         guard isSelecting else { return }
-        NSCursor.crosshair.set()
         let point = convert(event.locationInWindow, from: nil)
         selectionEnd = point
         needsDisplay = true
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        NSCursor.crosshair.set()
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -219,6 +214,10 @@ final class RegionSelectionView: NSView {
 
         // Minimum selection size (10x10)
         if rect.width >= 10 && rect.height >= 10 {
+            if cursorPushed {
+                NSCursor.pop()
+                cursorPushed = false
+            }
             onRegionSelected?(rect)
         } else {
             // Too small, reset
@@ -235,6 +234,10 @@ final class RegionSelectionView: NSView {
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == UInt16(kVK_Escape) {
+            if cursorPushed {
+                NSCursor.pop()
+                cursorPushed = false
+            }
             onCancelled?()
         }
     }

@@ -48,8 +48,8 @@ final class AppStateTests: XCTestCase {
     // MARK: - addScreenshot
 
     func testAddScreenshot_insertsAtFront() {
-        let item1 = makeItem(fileName: "first.png")
-        let item2 = makeItem(fileName: "second.png")
+        let item1 = AppStateTestHelpers.makeItem(fileName: "first.png")
+        let item2 = AppStateTestHelpers.makeItem(fileName: "second.png")
 
         appState.addScreenshot(item1)
         appState.addScreenshot(item2)
@@ -61,7 +61,7 @@ final class AppStateTests: XCTestCase {
 
     func testAddScreenshot_enforces50ItemLimit() {
         for i in 0..<55 {
-            appState.addScreenshot(makeItem(fileName: "screenshot_\(i).png"))
+            appState.addScreenshot(AppStateTestHelpers.makeItem(fileName: "screenshot_\(i).png"))
         }
 
         XCTAssertEqual(appState.recentScreenshots.count, 50)
@@ -72,8 +72,8 @@ final class AppStateTests: XCTestCase {
     // MARK: - clearHistory
 
     func testClearHistory_removesAll() {
-        appState.addScreenshot(makeItem(fileName: "a.png"))
-        appState.addScreenshot(makeItem(fileName: "b.png"))
+        appState.addScreenshot(AppStateTestHelpers.makeItem(fileName: "a.png"))
+        appState.addScreenshot(AppStateTestHelpers.makeItem(fileName: "b.png"))
 
         appState.clearHistory()
 
@@ -83,7 +83,7 @@ final class AppStateTests: XCTestCase {
     // MARK: - JSON persistence round-trip
 
     func testPersistence_roundTrip() {
-        let item = makeItem(fileName: "persist.png", appName: "Safari", ocrText: "Hello World")
+        let item = AppStateTestHelpers.makeItem(fileName: "persist.png", appName: "Safari", ocrText: "Hello World")
         appState.addScreenshot(item)
 
         // Force a re-load by accessing shared (persistence uses UserDefaults)
@@ -95,14 +95,14 @@ final class AppStateTests: XCTestCase {
     }
 
     func testAddScreenshot_preservesID() {
-        let item = makeItem(fileName: "id_test.png")
+        let item = AppStateTestHelpers.makeItem(fileName: "id_test.png")
         let originalID = item.id
         appState.addScreenshot(item)
         XCTAssertEqual(appState.recentScreenshots[0].id, originalID)
     }
 
     func testAddScreenshot_multipleItemsPreserveOrder() {
-        let items = (0..<5).map { makeItem(fileName: "item_\($0).png") }
+        let items = (0..<5).map { AppStateTestHelpers.makeItem(fileName: "item_\($0).png") }
         items.forEach { appState.addScreenshot($0) }
 
         XCTAssertEqual(appState.recentScreenshots.count, 5)
@@ -114,7 +114,7 @@ final class AppStateTests: XCTestCase {
     // MARK: - Mutation persistence
 
     func testTitleEdit_persistsAfterSave() {
-        let item = makeItem(fileName: "title_test.png")
+        let item = AppStateTestHelpers.makeItem(fileName: "title_test.png")
         appState.addScreenshot(item)
 
         appState.recentScreenshots[0].title = "Edited Title"
@@ -124,7 +124,7 @@ final class AppStateTests: XCTestCase {
     }
 
     func testTagAddRemove_persistsAfterSave() {
-        let item = makeItem(fileName: "tag_test.png")
+        let item = AppStateTestHelpers.makeItem(fileName: "tag_test.png")
         appState.addScreenshot(item)
 
         // Add tag and save
@@ -139,7 +139,7 @@ final class AppStateTests: XCTestCase {
     }
 
     func testOCRUpdate_preservesTitleAndTags() {
-        let item = makeItem(fileName: "ocr_test.png")
+        let item = AppStateTestHelpers.makeItem(fileName: "ocr_test.png")
         appState.addScreenshot(item)
 
         // Set title and tags
@@ -172,21 +172,4 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(appState.recentScreenshots[0].ocrText, "Recognized text from OCR")
     }
 
-    // MARK: - Helpers
-
-    private func makeItem(
-        fileName: String,
-        appName: String? = nil,
-        ocrText: String? = nil
-    ) -> ScreenshotItem {
-        ScreenshotItem(
-            filePath: "/tmp/\(fileName)",
-            fileName: fileName,
-            sourceAppName: appName,
-            captureMode: "area",
-            ocrText: ocrText,
-            width: 100,
-            height: 100
-        )
-    }
 }

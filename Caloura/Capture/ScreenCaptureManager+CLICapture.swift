@@ -18,6 +18,7 @@ extension ScreenCaptureManager {
     func runScreencapture(args: [String]) async throws -> CGImage {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("caloura-\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         let tempPath = tempURL.path
         let fullArgs = args + ["-x", "-t", "png", tempPath]
 
@@ -53,8 +54,6 @@ extension ScreenCaptureManager {
                     + "\(error.localizedDescription)"
                 )
             }
-            try? FileManager.default.removeItem(at: tempURL)
-
             guard let source = CGImageSourceCreateWithData(
                 imageData as CFData, nil
             ) else {
@@ -97,8 +96,8 @@ extension ScreenCaptureManager {
         }
         let bounds = CGDisplayBounds(displayID)
         return try await runScreencapture(args: [
-            "-R\(Int(bounds.origin.x)),"
-            + "\(Int(bounds.origin.y)),"
+            "-R\(Int(floor(bounds.origin.x))),"
+            + "\(Int(floor(bounds.origin.y))),"
             + "\(Int(bounds.width)),"
             + "\(Int(bounds.height))"
         ])
@@ -129,8 +128,8 @@ extension ScreenCaptureManager {
         let globalY = displayBounds.origin.y + localCGY
 
         return try await runScreencapture(args: [
-            "-R\(Int(globalX)),"
-            + "\(Int(globalY)),"
+            "-R\(Int(floor(globalX))),"
+            + "\(Int(floor(globalY))),"
             + "\(Int(rect.width)),"
             + "\(Int(rect.height))"
         ])

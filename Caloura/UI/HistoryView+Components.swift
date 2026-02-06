@@ -21,7 +21,7 @@ struct TagChip: View {
         .padding(.horizontal, 5)
         .padding(.vertical, 2)
         .background(Color.accentColor.opacity(0.15))
-        .cornerRadius(4)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 }
 

@@ -54,11 +54,21 @@ extension ScreenCaptureManager {
             ?? NSScreen.screens.first else {
             throw CaptureError.noDisplay
         }
+        let screenKey = NSDeviceDescriptionKey("NSScreenNumber")
+        guard let displayID = targetScreen
+            .deviceDescription[screenKey] as? CGDirectDisplayID else {
+            throw CaptureError.noDisplay
+        }
         let screenFrame = targetScreen.frame
-        // Convert AppKit coords (bottom-left) to CG coords (top-left)
+        let displayBounds = CGDisplayBounds(displayID)
+
+        // Convert AppKit local coords (bottom-left origin)
+        // to global CG coords (top-left origin)
+        let localCGY = screenFrame.height
+            - rect.origin.y - rect.height
         let cgRect = CGRect(
-            x: rect.origin.x,
-            y: screenFrame.height - rect.origin.y - rect.height,
+            x: displayBounds.origin.x + rect.origin.x,
+            y: displayBounds.origin.y + localCGY,
             width: rect.width,
             height: rect.height
         )
@@ -139,8 +149,8 @@ extension ScreenCaptureManager {
                 }
             }
 
-            let title = info[kCGWindowName] as? String ?? ""
-            guard !title.isEmpty else { continue }
+            let rawTitle = info[kCGWindowName] as? String ?? ""
+            let title = rawTitle.isEmpty ? ownerName : rawTitle
 
             // Extract window bounds
             guard let boundsDict = info[kCGWindowBounds]

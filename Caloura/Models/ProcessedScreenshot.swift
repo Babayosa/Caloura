@@ -1,14 +1,56 @@
 import AppKit
 import Foundation
 
-final class ProcessedScreenshot {
+final class ProcessedScreenshot: @unchecked Sendable {
     let image: NSImage
     let cgImage: CGImage
     let context: CaptureContext
     let ocrText: String?
-    var filePath: URL?
-    var fileName: String
-    var presetName: String?
+
+    private var _filePath: URL?
+    var filePath: URL? {
+        get {
+            dataLock.lock()
+            let value = _filePath
+            dataLock.unlock()
+            return value
+        }
+        set {
+            dataLock.lock()
+            _filePath = newValue
+            dataLock.unlock()
+        }
+    }
+
+    private var _fileName: String
+    var fileName: String {
+        get {
+            dataLock.lock()
+            let value = _fileName
+            dataLock.unlock()
+            return value
+        }
+        set {
+            dataLock.lock()
+            _fileName = newValue
+            dataLock.unlock()
+        }
+    }
+
+    private var _presetName: String?
+    var presetName: String? {
+        get {
+            dataLock.lock()
+            let value = _presetName
+            dataLock.unlock()
+            return value
+        }
+        set {
+            dataLock.lock()
+            _presetName = newValue
+            dataLock.unlock()
+        }
+    }
 
     var width: Int { cgImage.width }
     var height: Int { cgImage.height }
@@ -30,7 +72,7 @@ final class ProcessedScreenshot {
         }
         dataLock.unlock()
 
-        let data = ImageProcessor.pngRepresentation(of: cgImage)
+        let data = (try? ImageProcessor.pngRepresentation(of: cgImage)) ?? Data()
 
         dataLock.lock()
         _pngData = data
@@ -54,7 +96,7 @@ final class ProcessedScreenshot {
         }
         dataLock.unlock()
 
-        let data = ImageProcessor.tiffRepresentation(of: cgImage)
+        let data = (try? ImageProcessor.tiffRepresentation(of: cgImage)) ?? Data()
 
         dataLock.lock()
         _tiffData = data
@@ -77,9 +119,9 @@ final class ProcessedScreenshot {
         self._pngData = pngData
         self.context = context
         self.ocrText = ocrText
-        self.filePath = filePath
-        self.fileName = fileName
-        self.presetName = presetName
+        self._filePath = filePath
+        self._fileName = fileName
+        self._presetName = presetName
     }
 
     func cachePNGData(_ data: Data) {
@@ -95,6 +137,14 @@ final class ProcessedScreenshot {
         if _tiffData == nil {
             _tiffData = data
         }
+        dataLock.unlock()
+    }
+
+    /// Release cached encoded data to free memory after clipboard/file operations complete.
+    func releaseEncodedData() {
+        dataLock.lock()
+        _pngData = nil
+        _tiffData = nil
         dataLock.unlock()
     }
 

@@ -62,7 +62,7 @@ final class CaptureOverlayWindow: NSWindow {
         var windows: [CaptureOverlayWindow] = []
 
         // Activate app so the first click is a real mouseDown, not a window-activation click
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
 
         for screen in NSScreen.screens {
             let overlay = CaptureOverlayWindow(for: screen)
@@ -91,6 +91,18 @@ final class CaptureOverlayWindow: NSWindow {
                 onCancelled()
             }
             overlay.onFirstMouseDown = onFirstMouseDown
+
+            // Break retain cycle: nil out closures when the window closes
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification,
+                object: overlay,
+                queue: .main
+            ) { [weak overlay] _ in
+                overlay?.onRegionSelected = nil
+                overlay?.onCancelled = nil
+                overlay?.onFirstMouseDown = nil
+            }
+
             overlay.makeKeyAndOrderFront(nil)
             windows.append(overlay)
         }

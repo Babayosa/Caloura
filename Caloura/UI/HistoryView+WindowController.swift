@@ -1,4 +1,3 @@
-import Foundation
 import SwiftUI
 import os.log
 
@@ -34,7 +33,7 @@ final class HistoryWindowController {
         window.title = "Caloura History"
         window.center()
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
 
         let openMilliseconds = (CFAbsoluteTimeGetCurrent() - openStart) * 1000
         historyLogger.debug(

@@ -68,6 +68,7 @@ extension CapturePipeline {
     func captureArea() {
         guard !appState.isCapturing else { return }
         appState.isCapturing = true
+        captureSessionID &+= 1
 
         Task {
             let entryStart = CFAbsoluteTimeGetCurrent()
@@ -99,13 +100,15 @@ extension CapturePipeline {
         frozenImages: [NSScreen: CGImage],
         entryStart: CFAbsoluteTime
     ) {
-        var firstMouseDownLogged = false
+        firstMouseDownLogged = false
+        let sessionID = captureSessionID
 
         overlayWindows = CaptureOverlayWindow.showOnAllScreens(
             frozenImages: frozenImages,
             onRegionSelected: { [weak self] rect, screen in
                 guard let self = self else { return }
                 Task { @MainActor in
+                    guard self.captureSessionID == sessionID else { return }
                     self.overlayWindows = []
                     self.appState.lastCaptureRect = rect
                     self.appState.lastCaptureScreen = screen
@@ -124,13 +127,14 @@ extension CapturePipeline {
             onCancelled: { [weak self] in
                 guard let self = self else { return }
                 Task { @MainActor in
+                    guard self.captureSessionID == sessionID else { return }
                     self.overlayWindows = []
                     self.appState.isCapturing = false
                 }
             },
             onFirstMouseDown: { [weak self] in
-                guard let self = self, !firstMouseDownLogged else { return }
-                firstMouseDownLogged = true
+                guard let self = self, !self.firstMouseDownLogged else { return }
+                self.firstMouseDownLogged = true
                 let duration = self.elapsedMilliseconds(since: entryStart)
                 entryLogger.info(
                     "Capture entry: first mouseDown at \(duration, privacy: .public) ms"
@@ -237,7 +241,13 @@ extension CapturePipeline {
         guard !appState.isCapturing else { return }
         appState.isCapturing = true
 
-        let screen = appState.lastCaptureScreen
+        // Validate the stored screen is still connected (M21).
+        if let screen = appState.lastCaptureScreen,
+           !NSScreen.screens.contains(where: { $0 == screen }) {
+            appState.lastCaptureScreen = nil
+        }
+        let screen = appState.lastCaptureScreen ?? NSScreen.main
+
         Task {
             await performCapture(mode: .area) {
                 try await self.captureManager.captureArea(
@@ -276,6 +286,10 @@ extension CapturePipeline {
             self.appState.isCountingDown = false
             self.appState.countdownRemaining = 0
             CountdownOverlay.shared.dismiss()
+
+            // Final cancellation check to close the race window between
+            // the last Task.isCancelled check and capture dispatch (M7).
+            guard !Task.isCancelled else { return }
 
             switch mode {
             case .area:

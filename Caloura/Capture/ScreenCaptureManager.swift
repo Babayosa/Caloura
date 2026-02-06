@@ -8,15 +8,89 @@ private let logger = Logger(subsystem: "com.caloura.app", category: "ScreenCaptu
 final class ScreenCaptureManager {
     static let shared = ScreenCaptureManager()
 
-    /// Once SCK fails (e.g. debug build), skip it on subsequent captures
-    /// to avoid repeated system prompts and latency.
+    /// Once SCK fails permanently (e.g. user denied permission), skip it on
+    /// subsequent captures to avoid repeated system prompts and latency.
     var sckFailed: Bool = false
+
+    /// Consecutive transient SCK failure count. After
+    /// `maxTransientFailures` consecutive transient failures, `sckFailed`
+    /// is set to `true` to avoid repeated slow fallback paths.
+    private var sckFailureCount: Int = 0
+
+    /// Number of consecutive transient failures before giving up on SCK.
+    private let maxTransientFailures = 3
+
+    /// Observer token for app-became-active notification.
+    private var didBecomeActiveObserver: (any NSObjectProtocol)?
+
+    /// Reset the SCK failure flag so that the next capture retries SCK.
+    /// Called when permission is freshly granted or on app reactivation.
+    func resetSCKState() {
+        sckFailed = false
+        sckFailureCount = 0
+        logger.info("SCK failure flag reset")
+    }
 
     /// Cache app icons by bundle ID to avoid repeated lookups
     private var iconCache = NSCache<NSString, NSImage>()
 
     init() {
         iconCache.countLimit = 50 // Limit cache size
+        didBecomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.resetSCKState()
+            }
+        }
+    }
+
+    deinit {
+        if let observer = didBecomeActiveObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    // MARK: - SCK Error Classification
+
+    /// Returns `true` for errors that indicate a permanent SCK failure
+    /// (e.g. user denied screen recording permission). Transient errors
+    /// (timeouts, resource contention, unknown) return `false`.
+    private func isSCKErrorPermanent(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        guard nsError.domain == SCStreamError.errorDomain else {
+            return false
+        }
+        if let code = SCStreamError.Code(rawValue: nsError.code) {
+            return code == .userDeclined
+        }
+        return false
+    }
+
+    /// Record an SCK failure. Permanent errors disable SCK immediately.
+    /// Transient errors increment a counter; after `maxTransientFailures`
+    /// consecutive transient failures, SCK is disabled until reset.
+    private func handleSCKFailure(_ error: Error) {
+        if isSCKErrorPermanent(error) {
+            sckFailed = true
+            sckFailureCount = 0
+            logger.warning("SCK permanently disabled (user declined)")
+        } else {
+            sckFailureCount += 1
+            let count = sckFailureCount
+            logger.warning(
+                "SCK transient failure \(count)/\(self.maxTransientFailures)"
+            )
+            if sckFailureCount >= maxTransientFailures {
+                sckFailed = true
+                let desc = error.localizedDescription
+                logger.warning(
+                    "SCK disabled after \(count) transient failures: \(desc)"
+                )
+            }
+        }
     }
 
     /// Get app icon, using cache to avoid repeated lookups
@@ -45,7 +119,7 @@ final class ScreenCaptureManager {
                 logger.warning(
                     "SCK captureFullScreen failed: \(error.localizedDescription)"
                 )
-                sckFailed = true
+                handleSCKFailure(error)
             }
         }
         // Try screencapture CLI (has its own entitlements, no permission gate needed)
@@ -69,6 +143,12 @@ final class ScreenCaptureManager {
         rect: CGRect,
         screen: NSScreen? = nil
     ) async throws -> CGImage {
+        guard rect.width > 0, rect.height > 0 else {
+            let desc = rect.debugDescription
+            logger.warning("Rejecting degenerate capture rect: \(desc)")
+            throw CaptureError.captureFailed("Zero or negative size rect")
+        }
+
         if !sckFailed {
             do {
                 return try await sckCaptureArea(rect: rect, screen: screen)
@@ -76,7 +156,7 @@ final class ScreenCaptureManager {
                 logger.warning(
                     "SCK captureArea failed: \(error.localizedDescription)"
                 )
-                sckFailed = true
+                handleSCKFailure(error)
             }
         }
 
@@ -129,7 +209,7 @@ final class ScreenCaptureManager {
                 logger.warning(
                     "SCK captureWindow failed: \(error.localizedDescription)"
                 )
-                sckFailed = true
+                handleSCKFailure(error)
             }
         }
 
@@ -192,7 +272,7 @@ final class ScreenCaptureManager {
                 logger.warning(
                     "SCK getWindows failed: \(error.localizedDescription)"
                 )
-                sckFailed = true
+                handleSCKFailure(error)
             }
         }
         if checkPermission() {

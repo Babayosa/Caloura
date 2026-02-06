@@ -294,6 +294,8 @@ final class PermissionCoordinator: ObservableObject {
             + " state=\(alertDesc) path=\(alertPath)"
         logger.info("\(alertMsg, privacy: .public)")
         isShowingAlert = true
+        // IMPORTANT: alertPresenter MUST be synchronous/blocking (e.g., NSAlert.runModal()).
+        // isShowingAlert is set to false immediately after, which is only correct if the presenter blocks.
         alertPresenter(alertState)
         isShowingAlert = false
         lastBlockingAlertAt = now
@@ -314,9 +316,8 @@ final class PermissionCoordinator: ObservableObject {
         switch status {
         case .denied:
             return .neverGranted
-        case .signatureMismatch:
-            return .signatureMismatch
-        case .grantedNeedsRelaunch, .grantedWorking, .unknown:
+        case .signatureMismatch,
+             .grantedNeedsRelaunch, .grantedWorking, .unknown:
             return .grantedButFailing
         }
     }

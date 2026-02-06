@@ -1,441 +1,393 @@
-# Task 09 — Seamless Updates: Move-to-Applications + In-Menu Update Banner
+# Task 12 — Comprehensive 7-Stream Codebase Audit
 
 Date: 2026-02-05
 Owner: Caloura Engineering
-Status: Complete
+Status: Complete — Phase 1 + Phase 2 All Fixed
 
-## Feature 1: AppMover (Move to /Applications prompt)
+## Consolidated Findings (Ranked by Severity)
 
-- [x] Create `Caloura/App/AppMover.swift` (~80 lines)
-- [x] Add `AppMover.moveToApplicationsFolderIfNeeded()` call in `applicationDidFinishLaunching`
+### CRITICAL (2 findings)
 
-## Feature 2: In-Menu Update Banner
+- [x] **C1: Triple/quadruple encoding of same image — ~130 MB transient allocation per capture**
+  - Stream: Performance | File: `ImageProcessor.swift`, `ClipboardManager.swift:8-14,39-58`, `FileOrganizer.swift:47-69`
+  - A single capture independently encodes CGImage up to 4x via separate `NSBitmapImageRep` allocations: PNG for disk, PNG for clipboard, TIFF for clipboard, multiFormat. Each creates a ~33 MB pixel buffer copy.
+  - Fix: Encode PNG once in pipeline, pass `Data` to both FileOrganizer and ClipboardManager. Generate TIFF lazily only when clipboard needs it.
+  - **Done**: ClipboardManager and FileOrganizer now use `screenshot.pngData`/`screenshot.tiffData` (cached properties) instead of calling ImageProcessor directly. PNG/TIFF encoded at most once.
 
-- [x] Rewrite `UpdateManager.swift` — separate `UpdateDelegateHandler` for SPUUpdaterDelegate
-- [x] Add `updateAvailable`/`updateVersion` published properties
-- [x] Add update banner at top of `MenuBarView.swift` body
+- [x] **C2: ProcessedScreenshot retains CGImage + NSImage + cached PNG + TIFF simultaneously (~114 MB)**
+  - Stream: Performance | File: `ProcessedScreenshot.swift:5-63`
+  - Holds strong references to NSImage (~33 MB), CGImage (~33 MB), cached PNG (~5-15 MB), cached TIFF (~33 MB). Lives in `AppState.lastScreenshot`, QuickAccessOverlay closure, and pinned windows.
+  - Fix: Add `releaseEncodedData()` method. Discard PNG/TIFF caches after clipboard write. Make NSImage lazy.
+  - **Done**: Added `releaseEncodedData()` that nils out `_pngData` and `_tiffData` under lock. NSImage now uses `NSSize.zero` (H8 fix).
 
-## Verification
+### HIGH (11 findings)
 
-- [x] `swift build` — compiles (0 errors)
-- [x] `swiftlint lint --quiet` — 0 warnings
-- [x] `swift test` — 136 tests, 0 failures
+- [x] **H1: sckFailed flag never resets on transient failures — permanent CG fallback**
+  - Stream: Logic | File: `ScreenCaptureManager.swift:48-55, 79-86`
+  - Any SCK error permanently sets `sckFailed = true`. `resetSCKState()` exists but is never called. Only recovery requires explicit user permission re-check.
+  - Fix: Add automatic retry logic or classify errors (permanent vs transient). Call `resetSCKState()` on app reactivation.
+  - **Done**: Added `isSCKErrorPermanent()` classifier (only `.userDeclined` is permanent), `sckFailureCount` with threshold of 3 transient failures, `handleSCKFailure()` dispatcher, and `didBecomeActiveNotification` observer to auto-reset. Build + lint pass.
+
+- [x] **H2: cgCaptureArea Y-flip ignores multi-monitor global offset — wrong crop on secondary monitors**
+  - Stream: Logic | File: `ScreenCaptureManager+CGCapture.swift:57-64`
+  - Uses `screenFrame.height` for Y-flip but doesn't add screen's global CG origin offset. `CGWindowListCreateImage` expects global CG coordinates. CLI fallback correctly uses `displayBounds.origin`.
+  - Fix: Convert to global CG coordinates using `CGDisplayBounds(displayID)` for both X and Y.
+  - **Done**: Extract `displayID` from `NSScreenNumber`, use `CGDisplayBounds(displayID)` to add global X/Y offsets. Matches CLI capture approach.
+
+- [x] **H3: ProcessedScreenshot mutable fields not protected by lock — data race**
+  - Stream: Concurrency | File: `ProcessedScreenshot.swift:9-11`
+  - `filePath`, `fileName`, `presetName` are plain `var` with no synchronization. Written from MainActor but passed to `Task.detached` closures that read them.
+  - Fix: Protect behind `dataLock`, or make them `let` by setting before the object escapes construction.
+  - **Done**: Added private `_filePath`/`_fileName`/`_presetName` backing stores with computed property wrappers that lock/unlock `dataLock` around access.
+
+- [x] **H4: WindowPickerManager continuation leak — never resumed on unexpected dismiss**
+  - Stream: Concurrency | File: `WindowPickerManager.swift:25-31`
+  - If `SCContentSharingPicker` is dismissed without firing any delegate method, the continuation is never resumed, permanently suspending the calling Task. `CheckedContinuation` will crash in debug.
+  - Fix: Add timeout safety net. Resume with `nil` on cancellation.
+  - Done: Added 30s timeout task that resumes continuation with nil. `resumeAndClear()` helper ensures single-resume safety.
+
+- [x] **H5: WindowPickerManager continuation overwritten on double-call**
+  - Stream: Concurrency | File: `WindowPickerManager.swift:25-31`
+  - Second `pickWindow()` call before first completes overwrites the continuation without resuming. First caller's task leaks permanently.
+  - Fix: Resume existing continuation with `nil` before storing new one.
+  - Done: `pickWindow()` now resumes any existing continuation with nil before storing the new one.
+
+- [x] **H6: NSCursor push/pop imbalance on multi-monitor setups**
+  - Stream: Error Handling | File: `RegionSelectionView.swift:32`
+  - Each `RegionSelectionView` pushes cursor, but only the active window pops. Non-active windows' cursors remain on stack. Grows unboundedly with repeated captures.
+  - Fix: Pop cursor in `viewDidMoveToWindow()` when `window` becomes `nil`.
+  - **Done**: Added `cursorPushed` tracking flag, `viewDidMoveToWindow` safety-net pop, guarded existing pop sites.
+
+- [x] **H7: NSCursor push/pop imbalance when window closes without mouseUp/Escape**
+  - Stream: Error Handling | File: `RegionSelectionView.swift:32`
+  - If overlay window is closed by any mechanism other than selection or Escape, cursor is never popped. No deinit/viewWillMove safety net.
+  - Fix: Same as H6 — use `viewDidMoveToWindow(window: nil)` as canonical pop point.
+  - **Done**: Same fix as H6 — `viewDidMoveToWindow(window: nil)` is the canonical cleanup point.
+
+- [x] **H8: NSImage created with pixel dimensions instead of point dimensions**
+  - Stream: Performance | File: `ImageProcessor.swift:30-33`
+  - `NSImage(cgImage:size:)` called with pixel sizes but `NSImage.size` is in points. On 2x Retina, images appear 2x intended size. Affects pinned windows and thumbnails.
+  - Fix: Use `NSSize(width: cgImage.width / scaleFactor, height: cgImage.height / scaleFactor)`.
+  - **Done**: Changed to `NSSize.zero` which lets NSImage derive size from CGImage's native resolution.
+
+- [x] **H9: OCR requests pile up unbounded — no concurrency limit**
+  - Stream: Performance | File: `CapturePipeline.swift:178-217`, `OCREngine.swift:7-11`
+  - Every capture fires `Task.detached` for OCR with no queue or limit. 10 rapid screenshots = 10 concurrent OCR tasks holding ~330 MB of CGImages.
+  - Fix: Cancel-previous-on-new pattern via `ocrTask` property. Limits to 1 concurrent OCR; previous is cancelled before new starts.
+
+- [x] **H10: AppState array trimming uses O(n) insert + copy**
+  - Stream: Performance | File: `AppState.swift:43-48`
+  - `insert(at: 0)` is O(n), trimming creates new array via `Array(prefix(maxRecentItems))`. Triggers full SwiftUI diff on each insert.
+  - Fix: Use `removeLast(count - max)` instead of copying. O(k) where k is excess elements (usually 1).
+  - **Done**: Replaced `Array(prefix(...))` with `removeLast(count - maxRecentItems)`.
+
+- [x] **H11: Encoding methods lack autoreleasepool**
+  - Stream: Performance | File: `ImageProcessor.swift:43-67`
+  - `NSBitmapImageRep(cgImage:)` allocates autorelease objects. In `Task.detached`, no autorelease pool drain until task completes. ~33 MB autoreleased memory held longer than needed per encoding.
+  - Fix: Wrap each encoding call in `autoreleasepool { }`.
+  - **Done**: All three encoding methods (`pngRepresentation`, `jpegRepresentation`, `tiffRepresentation`) wrapped in `autoreleasepool { }`.
+
+### MEDIUM (24 findings)
+
+- [x] **M1: Gumroad verification ignores refund/dispute/chargeback status**
+  - Stream: Security | File: `LicenseManager.swift:117-122`
+  - Only checks `json["success"] == true`. Refunded/chargebacked licenses still validate.
+  - Fix: Check `purchase.refunded`, `purchase.disputed`, `purchase.chargebacked` fields.
+  - **Done**: Added refund/dispute/chargeback check after success==true in both `activate()` and `revalidateLicense()`.
+
+- [x] **M2: License activation has no periodic re-validation**
+  - Stream: Security | File: `LicenseManager.swift:68-76`
+  - Once `isLicenseActivated = true`, never re-validates against server. Revoked license works forever.
+  - Fix: Periodic server-side re-validation (once per day or per launch).
+  - **Done**: Added `lastLicenseValidationDate` to AppSettings, `scheduleRevalidationIfNeeded()` in `refreshState()`, and `revalidateLicense()` background task. Re-validates every 24h; network errors skip (don't revoke); definitive invalid/refunded responses revoke.
+
+- [x] **M3: Legacy plaintext license key fallback still accepts strings from UserDefaults**
+  - Stream: Security | File: `AppSettings.swift:166-177`
+  - `decryptLicenseKey` falls back to accepting raw `String` from UserDefaults. Combined with UserDefaults being writable plist, allows injecting arbitrary license key.
+  - Fix: Stop accepting plaintext strings after first successful encryption.
+  - **Done**: Added `licenseKeyMigrated` UserDefaults key, set to `true` on successful encryption in `persistLicenseState()`. `decryptLicenseKey()` rejects plaintext fallback when migrated==true.
+
+- [x] **M4: Same encryption key used for history and license without domain separation**
+  - Stream: Security | File: `HistoryCrypto.swift` / `AppSettings.swift:161-163`
+  - Fix: Derive purpose-specific subkeys via HKDF with different context strings.
+  - **Done**: Added `deriveKey(rootKey:purpose:)` using `HKDF<SHA256>`. `encrypt()`/`decrypt()` accept optional `purpose` param (default `"history-encryption"`). Backward-compatible: decrypt falls back to raw root key for pre-HKDF data.
+
+- [x] **M5: Atomic write race window on key file permissions**
+  - Stream: Security | File: `HistoryCrypto.swift:68-69`
+  - Temp file created with default umask before `setAttributes(0o600)`. Brief window with permissive permissions.
+  - Fix: Use `FileManager.createFile(atPath:contents:attributes:)` with permissions at creation.
+  - **Done**: Replaced `Data.write(to:options:.atomic)` + `setAttributes` with single `FileManager.createFile(atPath:contents:attributes:)` call. Added `keyFileCreationFailed` error case.
+
+- [x] **M6: No key rotation or versioning mechanism**
+  - Stream: Security | File: `HistoryCrypto.swift:33-76`
+  - Fix: Add key version byte prefix to encrypted output. Enables future rotation.
+  - **Done**: Added `currentKeyVersion = 1` constant. `encrypt()` prepends version byte. `decrypt()` checks first byte for version, handles both versioned (v1) and legacy (no prefix) formats. Falls through to legacy path if versioned decryption fails (handles coincidental first-byte match).
+
+- [x] **M7: delayedCaptureTask cancellation race**
+  - Stream: Concurrency | File: `CapturePipeline+EntryPoints.swift:264-291`
+  - Fix: Add `Task.isCancelled` check before each capture dispatch.
+  - **Done**: Added `guard !Task.isCancelled else { return }` immediately before the `switch mode` dispatch, closing the race window after countdown dismissal.
+
+- [x] **M8: firstMouseDownLogged mutable capture in closure**
+  - Stream: Concurrency | File: `CapturePipeline+EntryPoints.swift:102-133`
+  - Fix: Replace local `var` with class-level flag or `AtomicBool`.
+  - **Done**: Moved `firstMouseDownLogged` to class-level property on `CapturePipeline`. Reset to `false` at start of `showAreaOverlays`. Callback reads/writes `self.firstMouseDownLogged` -- safe under `@MainActor`.
+
+- [x] **M9: UpdateDelegateHandler closure properties not Sendable-safe**
+  - Stream: Concurrency | File: `UpdateManager.swift:48-51`
+  - Fix: Make closures `let` via initializer, or mark `@MainActor`.
+  - **Done**: Changed closure properties from `var` optionals to `let` non-optionals, passed via initializer. Eliminates data race between Sparkle's background thread and main actor.
+
+- [x] **M10: SmartCropper timeout not actually enforced**
+  - Stream: Concurrency | File: `SmartCropper.swift:22-38`
+  - TaskGroup waits for all children even after timeout fires.
+  - Fix: Use wrapper enum to distinguish saliency result from timeout.
+  - **Done**: Added `CropResult` enum (`.saliency`/`.timeout`). `for await` loop now switches on result type — whichever finishes first wins, other is cancelled via `group.cancelAll()`.
+
+- [x] **M11: overlayWindows stale callback interleaving**
+  - Stream: Concurrency | File: `CapturePipeline+EntryPoints.swift:104-130`
+  - Fix: Associate generation counter/session ID with each overlay batch.
+  - **Done**: Added `captureSessionID` (UInt, wrapping increment) to `CapturePipeline`. Incremented at start of `captureArea()`. Callbacks capture `sessionID` and guard against stale sessions before clearing `overlayWindows`.
+
+- [x] **M12: Temp file not cleaned up if screencapture process fails**
+  - Stream: Error Handling | File: `ScreenCaptureManager+CLICapture.swift:25-39`
+  - Fix: Use `defer` to ensure cleanup on all exit paths.
+  - **Done**: Added `defer { try? FileManager.default.removeItem(at: tempURL) }` right after temp URL construction. Covers all exit paths.
+
+- [x] **M13: Temp file not cleaned up if Data(contentsOf:) fails**
+  - Stream: Error Handling | File: `ScreenCaptureManager+CLICapture.swift:50-54`
+  - Fix: Add `defer { try? FileManager.default.removeItem(at: tempURL) }`.
+  - **Done**: Same defer as M12 covers this path. Removed redundant manual cleanup.
+
+- [x] **M14: CaptureOverlayWindow closures create retain cycle via windows array**
+  - Stream: Error Handling | File: `CaptureOverlayWindow.swift:75-92`
+  - Fix: Nil out callbacks in `willClose` observer or use `[weak item]`.
+  - **Done**: Added `willCloseNotification` observer per overlay that nils out `onRegionSelected`, `onCancelled`, `onFirstMouseDown` via `[weak overlay]`.
+
+- [x] **M15: AppMover leaves incomplete copy on verification failure**
+  - Stream: Error Handling | File: `AppMover.swift:65-78`
+  - Fix: Remove destination bundle when verification fails.
+  - **Done**: Added `try? fileManager.removeItem(at: destinationURL)` in verification failure branch.
+
+- [x] **M16: AppMover trashes original but doesn't restore on copy failure**
+  - Stream: Error Handling | File: `AppMover.swift:58-66`
+  - Fix: Capture `resultingItemURL` from `trashItem` and restore if copy fails.
+  - **Done**: Capture trash URL via `var trashedItemURL: NSURL?`. Wrapped `copyItem` in nested do/catch that restores trashed copy on failure.
+
+- [x] **M17: AnnotationWindowController close observer Task creates TOCTOU race**
+  - Stream: Error Handling | File: `AnnotationOverlay.swift:329-341`
+  - Fix: Guard with identity check inside Task.
+  - **Done**: Capture `closingWindow` before Task, guard `self?.window === closingWindow` inside Task.
+
+- [x] **M18: Empty window title filtering excludes valid windows**
+  - Stream: Logic | File: `+SCKCapture.swift:129`, `+CGCapture.swift:143`
+  - Fix: Remove `!title.isEmpty` guard. Use appName as fallback display label.
+  - **Done**: SCK path: removed empty-title guard. CG path: empty titles now use `ownerName` as fallback label. 50x50 size filter still excludes utility windows.
+
+- [x] **M19: diagnosePermissionState() never returns .signatureMismatch**
+  - Stream: Logic | File: `+Permission.swift:76-84`
+  - Fix: Remove `.signatureMismatch` from `PermissionState` or wire detection.
+  - **Done**: Removed `.signatureMismatch` from `PermissionState` enum and its switch case. Updated `PermissionCoordinator.alertState` to map `.signatureMismatch` to `.grantedButFailing`. Removed superfluous SwiftLint disable.
+
+- [x] **M20: sckCaptureFullScreen truncates fractional backingScaleFactor**
+  - Stream: Logic | File: `+SCKCapture.swift:37-39`
+  - Fix: Use `CGFloat` for scale factor, consistent with `sckCaptureArea`.
+  - **Done**: Changed `let scale` from `Int` to `CGFloat`. Width/height computed via `Int(CGFloat(scDisplay.width) * scale)`.
+
+- [x] **M21: captureRepeat() uses stale screen reference without validation**
+  - Stream: Logic | File: `CapturePipeline+EntryPoints.swift:232-248`
+  - Fix: Validate `lastCaptureScreen` is still in `NSScreen.screens`.
+  - **Done**: Added screen connectivity check before use. If stored screen is disconnected, clears it and falls back to `NSScreen.main`.
+
+- [x] **M22: No markdown escaping in MarkdownExporter**
+  - Stream: API | File: `MarkdownExporter.swift:11-56`
+  - Fix: Add `escapeMarkdown` helper for `[`, `]`, `(`, `)`, `*`, `_`, backtick, `|`, `<`, `>`.
+  - **Done**: Added `escapeMarkdown()` (20 special chars + newline/CR replacement) and `percentEncodeFileName()`. Applied to alt text in `markdownImageTag`, filename URL via percent-encoding, and source components in `citationLine`.
+
+- [x] **M23: CapturePreset has no resilient Codable decoder**
+  - Stream: API | File: `PresetManager.swift:10-33`
+  - Fix: Add custom `init(from decoder:)` with `decodeIfPresent` and defaults.
+  - **Done**: Added explicit `CodingKeys` enum and custom `init(from decoder:)`. `name` uses `decode` (required). All other fields use `decodeIfPresent` with sensible defaults matching the memberwise init.
+
+- [x] **M24: PresetManager.ensureBuiltInPresets triggers N+1 redundant saves on init**
+  - Stream: API | File: `PresetManager.swift:40-49, 105-111`
+  - Fix: Suppress `didSet` during initialization or build array in local variable.
+  - **Done**: Added `isInitializing` flag, `didSet` guard skips saves during init. Single explicit `savePresets()` at end of `init()`. Removed redundant `savePresets()` from `ensureBuiltInPresets()`.
+
+### LOW (25+ findings — selected fixes below)
+
+- [x] **L1: Testing helpers accessible in production builds**
+  - Stream: Security | File: `HistoryCrypto.swift`
+  - `resetCachedKeyForTesting()`, `setSecurityDirectoryForTesting(_:)`, and `securityDirectoryOverride` had no compile-time guard.
+  - Fix: Wrapped all three in `#if DEBUG` / `#endif`. Updated `securityDirectoryURL()` to only check override in DEBUG builds.
+  - **Done**: Tests (148/148) still pass since test target uses Debug configuration.
+
+- [x] **L2: Gumroad product ID publicly exposed**
+  - Stream: Security | File: `LicenseManager.swift`
+  - `gumroadProductID` and `gumroadVerifyURL` at default (internal) access, only used within the class.
+  - Fix: Changed both to `private`. `gumroadPurchaseURL` kept internal (used by NagDialog + PreferencesView).
+  - **Done**: Build succeeded.
+
+- [x] **L16: SMAppService.register() errors silently swallowed**
+  - Stream: Error Handling | File: `CalouraApp.swift:240-248`
+  - `try?` replaced with `do/catch`. Error logged at warning level via `appLaunchLogger`. On failure, `settings.launchAtLogin` reset to `false` to keep UI consistent.
+  - **Done**: Build succeeded, lint clean.
+
+- [x] **L17: ContextDetector O(1) comment incorrect**
+  - Stream: Documentation | File: `ContextDetector.swift:20`
+  - Comment corrected to: "O(1) for direct matches via dictionary lookup, O(n) fallback for prefix matches"
+  - **Done**: Comment-only change.
+
+- [x] **L18: DateFormatter locale not pinned**
+  - Stream: Logic | File: `MarkdownExporter.swift:7`
+  - Added `formatter.locale = Locale(identifier: "en_US_POSIX")` to `citationDateFormatter`.
+  - **Done**: Build succeeded, lint clean.
+
+- [x] **L20: ScreenshotItem has no schema version**
+  - Stream: API | File: `ScreenshotItem.swift`
+  - Added `schemaVersion` property (default `1`), explicit `CodingKeys` enum, `decodeIfPresent` in decoder (defaults to `1`), and explicit `encode(to:)` method.
+  - **Done**: Build succeeded, 6/6 ScreenshotItemTests pass, lint clean.
+
+Key remaining items: notification observer patterns, `NSApp.activate(ignoringOtherApps:)` deprecation (10 call sites), redundant imports, `.cornerRadius()` deprecation, window controller boilerplate duplication (4 files), test helper duplication (6+ files), PerformanceMetrics O(n) trimming, and various cosmetic issues.
+
+## Severity Summary
+
+| Severity | Count |
+|----------|-------|
+| Critical | 2 |
+| High | 11 |
+| Medium | 24 |
+| Low | 25+ |
+
+## Implementation Priority
+
+**Phase 1 — Critical + High (ship-blocking)**
+1. C1+C2: Consolidate image encoding, add `releaseEncodedData()`
+2. H1: Add sckFailed auto-reset on transient failures
+3. H2: Fix cgCaptureArea multi-monitor coordinate conversion
+4. H3-H5: Fix ProcessedScreenshot data races and WindowPickerManager continuation leaks
+5. H6-H7: Fix NSCursor push/pop imbalance (viewDidMoveToWindow guard)
+6. H8: Fix NSImage pixel-vs-point size
+7. H9: Add OCR concurrency limit
+8. H10-H11: Fix array trimming + autoreleasepool
+
+**Phase 2 — Medium (complete)**
+- License validation improvements (M1-M3) ✓
+- Crypto improvements (M4-M6) ✓
+- Concurrency cleanup (M7-M11) ✓
+- Resource cleanup (M12-M17) ✓
+- Logic fixes (M18-M21) ✓
+- API hardening (M22-M24) ✓
 
 ## Review / Evidence
 
-- `swift build` — Build complete! (1.53s)
-- `swiftlint lint --quiet` — no output (0 violations)
-- `swift test` — Executed 136 tests, with 0 failures
-
-## Design Notes
-
-- `UpdateManager` uses a separate `UpdateDelegateHandler` (NSObject) as the SPUUpdaterDelegate,
-  since SPUStandardUpdaterController requires the delegate at init time and `self` isn't
-  available before `super.init()`. Closures wire callbacks back to the manager.
-- `AppMover` uses `FileManager.trashItem` for safe removal of existing /Applications copy.
-- Menu banner uses `arrow.down.circle.fill` SF Symbol for visual prominence.
-
----
-
-# Task 08 — God Class Refactoring + Edge-Case Tests + SwiftLint Zero
-
-Date: 2026-02-05
-Owner: Caloura Engineering
-Status: Complete
-
-## Stream 1: Refactor ScreenCaptureManager (645→5 files)
-
-- [x] Extract `ScreenCaptureManager+Permission.swift` (175 lines) — permission checks, alerts
-- [x] Extract `ScreenCaptureManager+SCKCapture.swift` (137 lines) — SCK capture methods
-- [x] Extract `ScreenCaptureManager+CLICapture.swift` (146 lines) — screencapture CLI fallback
-- [x] Extract `ScreenCaptureManager+CGCapture.swift` (176 lines) — CoreGraphics fallback
-- [x] Slim main `ScreenCaptureManager.swift` to 227 lines (orchestrator + routing)
-- [x] Change `sckFailed` from `private` to `internal` for cross-file access
-- [x] SwiftLint: 0 violations across all 5 files
-- [x] Build: passed
-
-## Stream 2: Refactor CapturePipeline (457→3 files)
-
-- [x] Extract `CapturePipeline+EntryPoints.swift` (303 lines) — capture entry points
-- [x] Extract `CapturePipeline+Distribution.swift` (28 lines) — clipboard helpers
-- [x] Slim main `CapturePipeline.swift` to 230 lines (pipeline core)
-- [x] Split `performCapture` (113 lines, complexity 13) into focused methods
-- [x] SwiftLint: 0 violations across all 3 files
-- [x] Build: passed
-
-## Stream 3: Fix 46 Mechanical SwiftLint Warnings
-
-- [x] `line_length` (22): wrapped long strings/expressions across 16 files
-- [x] `for_where` (7): SmartCropper, ContextDetector, PresetManager
-- [x] `identifier_name` (5): renamed short vars (`w`→`item`, `a`→`lhs`, `j`→`index`)
-- [x] `redundant_string_enum_value` (3): CaptureMode enum
-- [x] `function_body_length` (2): CalouraApp, PinnedScreenshotWindow
-- [x] `file_length` (2): HistoryView, PreferencesView — extracted to extension files
-- [x] `cyclomatic_complexity` (1): SmartCropper — extracted `scanBorders` helper
-- [x] `large_tuple` (1): ContextDetector — created `DetectedContext` struct
-- [x] Fixed OSLogMessage `+` concatenation errors in logger calls
-- [x] `swiftlint lint --quiet` = 0 warnings, 0 errors
-
-## Stream 4: Edge-Case Tests (31 new tests)
-
-- [x] `AppStateEdgeCaseTests.swift` (7 tests): rapid adds, cap at 50, persistence, interleaved ops
-- [x] `LicenseManagerEdgeCaseTests.swift` (10 tests): day-7 boundary, future dates, expired
-- [x] `ImageProcessorEdgeCaseTests.swift` (8 tests): 1x1 pixel, solid color, large images
-- [x] `PermissionCoordinatorEdgeCaseTests.swift` (6 tests): repeated refresh, rapid failure handling
-
-## Integration Verification
-
-- [x] `swift build` — 0 errors
-- [x] `swiftlint lint --quiet` — 0 warnings (down from 67)
-- [x] `swift test` — 136 tests, 0 failures (up from 102)
-- [x] `RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.7 ./scripts/release.sh 1.0.7` — passed
-- [x] Lesson recorded: OSLogMessage `+` concatenation (lessons.md)
-
-## New Files Created (13)
-
-### Stream 1 — ScreenCaptureManager extensions
-- `Caloura/Capture/ScreenCaptureManager+Permission.swift`
-- `Caloura/Capture/ScreenCaptureManager+SCKCapture.swift`
-- `Caloura/Capture/ScreenCaptureManager+CLICapture.swift`
-- `Caloura/Capture/ScreenCaptureManager+CGCapture.swift`
-
-### Stream 2 — CapturePipeline extensions
-- `Caloura/App/CapturePipeline+EntryPoints.swift`
-- `Caloura/App/CapturePipeline+Distribution.swift`
-
-### Stream 3 — UI extractions
-- `Caloura/UI/HistoryView+WindowController.swift`
-- `Caloura/UI/PreferencesView+WindowController.swift`
-- `Caloura/UI/PreferencesView+Tabs.swift`
-
-### Stream 4 — Test files
-- `CalouraTests/ModelTests/AppStateEdgeCaseTests.swift`
-- `CalouraTests/AppTests/LicenseManagerEdgeCaseTests.swift`
-- `CalouraTests/ProcessingTests/ImageProcessorEdgeCaseTests.swift`
-- `CalouraTests/AppTests/PermissionCoordinatorEdgeCaseTests.swift`
-
----
-
-# Task 07 — Codebase Audit Fix Implementation
-
-Date: 2026-02-05
-Owner: Caloura Engineering
-Status: Complete
-
-## Phase 1 — Critical Fixes
-- [x] 1. `scripts/release.sh` — Add notarization exit code check
-- [x] 2. `Caloura/Security/HistoryCrypto.swift` — Thread-safe cached key access
-- [x] 3. `Caloura/App/URLSchemeHandler.swift` — Fix `@unchecked Sendable` suppression
-
-## Phase 2 — High Priority
-- [x] 4. `Caloura/Models/AppSettings.swift` — Encrypt license key with HistoryCrypto
-- [x] 5. `Package.swift` — Pin Sparkle to `.exact("2.8.1")`
-- [x] 6. `Caloura/UI/PreferencesView.swift` — Replace force unwraps with `if let`
-- [x] 7. `Caloura/App/LicenseManager.swift` — URL-encode license POST body
-- [x] 8. `.swiftlint.yml` — Re-enable rules with thresholds
-- [x] 9. `.github/workflows/ci.yml` — Pin macos-14, tool versions, add coverage
-
-## Phase 3 — Medium Priority
-- [x] 10. Refactor god classes (CapturePipeline, ScreenCaptureManager) — completed in Task 08
-- [x] 11. Strengthen URLSchemeHandlerTests assertions (+2 notification tests)
-- [x] 12. Fix flaky wait pattern in AppStateDeferredHistoryTests (XCTestExpectation)
-- [x] 13. Gumroad API response host validation
-- [x] 14. HTML-escape user strings in MarkdownExporter
-- [x] 15. `scripts/release.sh` — Fix build version overflow (%Y%m%d%H%M%S)
-- [x] 16. `scripts/public_download_qa.sh` — Add ZIP size/SHA256/codesign verification
-- [x] 17. Add missing edge-case tests — completed in Task 08 (31 new tests)
-
-## Phase 4 — Polish
-- [x] 18. Use `kVK_Escape` constant instead of hardcoded 53
-- [x] 19. Explicit file permissions (0o755) on screenshot directories
-- [x] 20. Add doc comments on key public methods (ScreenCaptureManager, PermissionCoordinator)
-- [x] 21. Auto-trigger `PresetManager.savePresets()` via `didSet`
-- [ ] 22. Reduce thumbnail cache dimensions — skipped (320px is correct for Retina)
-- [x] 23. Add `.github/dependabot.yml` for Swift + GitHub Actions
-- [x] 24. Pin CI to `macos-14` (done in item 9)
-
-## Review / Evidence
-
-### Phase 1 (Critical)
-- `swift build` — succeeded
-- Notarization now aborts on failure (release.sh)
-- `HistoryCrypto.getOrCreateKey()` wrapped in `keyQueue.sync` for thread safety
-- `TokenHolder` replaced with `@MainActor`-isolated class
-
-### Phase 2 (High Priority)
-- License key encrypted via `HistoryCrypto` before persisting to UserDefaults
-- Sparkle pinned to `.exact("2.8.1")`
-- Force unwraps replaced with `if let` in PreferencesView
-- License POST body uses `URLComponents` for proper encoding
-- SwiftLint rules re-enabled with thresholds (0 errors, 67 warnings)
-- CI pinned to macos-14 with versioned tools + coverage
-
-### Phase 3 (Medium Priority)
-- 2 new notification-based tests for URLSchemeHandler
-- `waitUntil()` helper replaced with `XCTestExpectation`
-- HTML entity escaping added to `MarkdownExporter.htmlImageTag()`
-- Build version uses `%Y%m%d%H%M%S` (seconds precision)
-- ZIP download verification: size check + SHA256 + codesign
-
-### Phase 4 (Polish)
-- `kVK_Escape` constant replaces magic number 53
-- Directories created with explicit `0o755` permissions
-- Doc comments added to ScreenCaptureManager + PermissionCoordinator
-- `PresetManager.presets` auto-saves via `didSet`
-- Dependabot configured for weekly checks
-
-### Final Verification
-- `swift build` — succeeded
-- `swift test` — 102 tests, 0 failures
-- `swiftlint` — 67 warnings, 0 errors
-- `RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.7 ./scripts/release.sh 1.0.7` — passed
-
----
-
-# Task 06 — v1.0.7 Full Project Audit
-
-Date: 2026-02-05
-Owner: Caloura Engineering
-Status: Complete
-
-## Plan Checklist
-
-- [x] Audit codebase (42 Swift files, 7,177 LOC)
-- [x] Audit tests (16 suites, 100 tests, 1,690 LOC)
-- [x] Audit build pipeline (scripts, CI/CD)
-- [x] Audit documentation freshness
-- [x] **Fix: Update project.yml to v1.0.7** (MARKETING_VERSION + CURRENT_PROJECT_VERSION)
-- [x] Verify build/lint/test pass after fix
-
-## Review / Evidence
-
-- `swift build` (succeeded)
-- `swiftlint` (18 warnings, 0 serious)
-- `swift test` (100 tests passed)
-- Version alignment verified:
-  ```
-  MARKETING_VERSION: "1.0.7"
-  CURRENT_PROJECT_VERSION: "7"
-  ```
-
-## Audit Summary
-
-| Area | Score | Status |
-|------|-------|--------|
-| Code Quality | 7.5/10 | Good - well-structured, some large files |
-| Test Coverage | Good | 100 tests, 1,690 LOC across 16 suites |
-| Build Pipeline | Excellent | Production-grade with notarization |
-| Documentation | Excellent | Comprehensive and current |
-| Release Readiness | 100% | Config issue fixed |
-
-## Recommendations (Future Work)
-
-1. Split large files (PreferencesView 630 LOC, ScreenCaptureManager 640 LOC)
-2. Add UI tests for critical flows
-3. Integrate perf_audit.sh into CI
-4. Re-enable SwiftLint rules after refactoring
-
----
-
-# Task 05 — Release 1.0.7 (Public Update)
-
-Date: 2026-02-05
-Owner: Caloura Engineering
-Status: Complete
-
-## Plan Checklist
-
-- [x] Create `codex/tasks/task-05.md`
-- [x] Update version references to 1.0.7 in public docs/runbooks
-- [x] Run required validation: `swift build`, `swiftlint`, `swift test`
-- [x] Run full release flow: `./scripts/release.sh 1.0.7`
-- [x] Run public download QA (post-upload) or record as pending if blocked
-- [x] Update `codex/CONTEXT-CHAIN.md` and commit
-
-## Review / Evidence
-
-- `swift build` (succeeded; CGWindowListCreateImage deprecation warnings)
-- `swiftlint` (succeeded; warnings only — 18 violations, 0 serious)
-- `swift test` (100 tests passed)
-- `RELEASE_TAG=v1.0.7 ./scripts/release.sh 1.0.7` (succeeded; notarization accepted; zip at `build/Caloura-1.0.7.zip`)
-- caloura-site publish: appcast + download link updated; `releases/Caloura-1.0.7.zip` pushed
-- `scripts/public_download_qa.sh --version 1.0.7 verify` (succeeded)
-- Gumroad upload pending (manual step)
-
----
-
-# Task 04 — Codex Map + Scope Refresh
-
-Date: 2026-02-05  
-Owner: Caloura Engineering  
-Status: Complete
-
-## Plan Checklist
-
-- [x] Create `codex/tasks/task-04.md`
-- [x] Refresh `codex/CODEMAP.md` (high-level)
-- [x] Refresh `codex/SCOPE.md` (two-layer scope)
-- [x] Cleanup ignored junk (safe targets only)
-- [x] Run required validation: `swift build`, `swiftlint`, `swift test`
-- [x] Update `codex/CONTEXT-CHAIN.md` and commit
-
-## Review / Evidence
-
-- `swift build` (succeeded)
-- `swiftlint` (succeeded; warnings only — 18 violations, 0 serious)
-- `swift test` (first run exited with signal 5; rerun succeeded — 100 tests passed)
-- Cleanup check: no `.DS_Store`, `.build/`, `DerivedData/`, or `xcuserdata/` present
-
----
-
-# Task 03 — Performance Evidence Loop
-
-Date: 2026-02-04  
-Owner: Caloura Engineering  
-Status: Complete
-
-## Plan Checklist
-
-- [x] Create `codex/tasks/task-03.md`
-- [x] Emit `metric_sample` at info level (capture + history)
-- [x] Harden `scripts/perf_audit.sh` (info logs, python3 preflight, metadata)
-- [x] Add stage-name contract test
-- [x] Update performance audit guidance if needed (`tasks/security-performance-audit.md`)
-- [x] Run required validation: `swift build`, `swiftlint`, `swift test`
-- [x] Run performance audit script and capture outputs
-- [x] Update `codex/CONTEXT-CHAIN.md` and commit
-
-## Review / Evidence
-
-- `swift build` (succeeded)
-- `swiftlint` (succeeded; warnings only — 18 violations, 0 serious)
-- `swift test` (100 tests passed)
-- `scripts/perf_audit.sh --minutes 30 --label task-03-local` (exited 1: no metric_sample logs; run after generating captures and History opens)
-
----
-
-# Task 02 — Public Download QA Script
-
-Date: 2026-02-04  
-Owner: Caloura Engineering  
-Status: Complete
-
-## Plan Checklist
-
-- [x] Create `codex/tasks/task-02.md`
-- [x] Update `scripts/public_download_qa.sh` for current v1.0.6 behavior (file-backed history, no runtime keychain)
-- [x] Update runbook/docs if needed (`tasks/public-download-qa-runbook.md`, `README.md`)
-- [x] Run required validation: `swift build`, `swiftlint`, `swift test`
-- [x] Smoke the script locally (`manual-checks`, usage/errors)
-- [x] Update `codex/CONTEXT-CHAIN.md` and commit
-
-## Review / Evidence
-
-- `swift build` (succeeded)
-- `swiftlint` (succeeded; warnings only — 18 violations, 0 serious)
-- `swift test` (99 tests passed)
-- `scripts/public_download_qa.sh manual-checks` (prints file-backed history expectations + perms)
-- `scripts/public_download_qa.sh verify` (exits 1; requires explicit `--version`)
-- `scripts/public_download_qa.sh --version 1.0.6 verify` (artifact HEAD returns HTTP 200)
-- `scripts/public_download_qa.sh --version 1.0.6 clean-room-reset` (succeeded; storage snapshot shows history state removed)
-
----
-
-# Task 01 — CI Checks
-
-Date: 2026-02-04  
-Owner: Caloura Engineering  
-Status: Complete
-
-## Plan Checklist
-
-- [x] Create `codex/tasks/task-01.md`
-- [x] Add CI workflow (`.github/workflows/ci.yml`) for SwiftPM + Xcode checks
-- [x] Update `codex/CODEMAP.md` for CI
-- [x] Run required validation: `swift build`, `swiftlint`, `swift test`
-- [x] Run Xcode parity checks: `xcodegen generate`, `xcodebuild test` (+ no-sign variant)
-- [x] Update `codex/CONTEXT-CHAIN.md` and commit
-
-## Review / Evidence
-
-- `swift build` (succeeded)
-- `swiftlint` (succeeded; warnings only)
-- `swift test` (99 tests passed)
-- `xcodegen generate` (succeeded)
-- `xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug` (99 tests passed)
-- `xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""` (99 tests passed)
-
----
-
-# Task 00 — Release Confidence Loop
-
-Date: 2026-02-04  
-Owner: Caloura Engineering  
-Status: Complete
-
-## Plan Checklist
-
-- [x] Create/update `codex/` docs (`SCOPE.md`, `CODEMAP.md`, `codex/tasks/task-00.md`)
-- [x] Add SwiftPM support (`Package.swift`, `.gitignore` updates)
-- [x] Run required validation: `swift build`, `swiftlint`, `swift test`
-- [x] Run release-confidence checks: `xcodegen generate`, `xcodebuild test`, release guard
-- [x] Update `codex/CONTEXT-CHAIN.md` and commit
-
-## Review / Evidence
-
-- `brew install swiftlint` (installed SwiftLint 0.63.2)
-- `swift build` (succeeded; CGWindowListCreateImage deprecation warnings)
-- `swiftlint` (succeeded; 0 serious, warnings only)
-- `swift test` (99 tests passed)
-- `xcodegen generate` (succeeded)
-- `xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug` (99 tests passed)
-- `RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.6 ./scripts/release.sh 1.0.6` (guard-only checks passed)
-
----
-
-# Documentation Maintenance Checklist
-
-Date: 2026-02-04
-Owner: Caloura Engineering
-Status: Complete
-
-## Documentation Freshness Cadence
-
-- [x] Weekly README accuracy review policy documented.
-- [x] Per-release version/reference review policy documented.
-- [x] Per-UX-change runbook update policy documented.
-
-## Release Documentation Checklist
-
-- [x] `README.md` updated for current onboarding/permission/auth/runtime behavior.
-- [x] `README.md` release guard and public QA pointers verified.
-- [x] `tasks/public-download-qa-runbook.md` normalized for v1.0.6 checks.
-- [x] `tasks/security-performance-audit.md` refreshed with onboarding UX and release evidence checks.
-- [x] `plan.md` rewritten as a concise current-state plan.
-- [x] Legacy snapshots archived under `tasks/archive/`.
-
-## Runbook Validation Checklist
-
-- [x] `scripts/public_download_qa.sh` usage output validated.
-- [x] `scripts/permission_diagnose.sh` exists and is executable.
-- [x] `RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.6 ./scripts/release.sh 1.0.6` passed.
-- [x] Primary docs checked for stale `1.0.5` references where `1.0.6` is expected.
-- [x] Primary docs checked for stale 4-step onboarding references.
-- [x] Primary docs checked for conflicting runtime keychain claims.
-
-## Docs Audit Summary
-
-- Command: `scripts/public_download_qa.sh`
-  Outcome: prints usage successfully (no command errors).
-- Command: `test -x scripts/permission_diagnose.sh`
-  Outcome: passed (`scripts/permission_diagnose.sh` is executable).
-- Command: `RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.6 ./scripts/release.sh 1.0.6`
-  Outcome: passed (`Release tag check passed`, `Guard-only mode passed`).
-- Content drift checks on primary docs (`README.md`, `plan.md`, `tasks/public-download-qa-runbook.md`, `tasks/security-performance-audit.md`):
-  - `1.0.5` stale references: none found
-  - 4-step onboarding references: none found
-  - runtime keychain claims: consistent with no-startup-prompt model
-- Manual doc QA:
-  - no placeholder TODOs in active user-facing docs
-  - referenced local doc/script paths resolve
-  - duplicate checklist line removed from public QA runbook
+### Audit Phase
+- 7 parallel audit agents completed successfully
+- ~70 source files analyzed across all streams
+- 62+ total findings produced
+- Findings cross-referenced against already-fixed issues (Tasks 06-11) — no duplicates
+
+### Phase 1 Implementation (2026-02-05)
+- 7 parallel fix agents, zero file conflicts
+- **All 13 Critical + High findings fixed** (C1, C2, H1-H11)
+- `xcodebuild build` — BUILD SUCCEEDED
+- `swift test` — 148/148 tests passed, 0 failures
+- `swiftlint lint --quiet` — clean, no warnings
+- Files modified (10 total):
+  - `ProcessedScreenshot.swift` — thread-safe fields, `releaseEncodedData()`
+  - `ImageProcessor.swift` — `autoreleasepool`, `NSSize.zero`
+  - `ClipboardManager.swift` — use cached encoding
+  - `FileOrganizer.swift` — use cached encoding
+  - `ScreenCaptureManager.swift` — error classification, transient retry, auto-reset
+  - `ScreenCaptureManager+CGCapture.swift` — multi-monitor coordinate fix
+  - `WindowPickerManager.swift` — continuation safety, timeout, double-call guard
+  - `RegionSelectionView.swift` — `cursorPushed` flag, `viewDidMoveToWindow` pop
+  - `CapturePipeline.swift` — OCR cancel-previous-on-new
+  - `AppState.swift` — `removeLast` instead of array copy
+
+### Phase 2 Implementation (2026-02-05)
+- 8 parallel fix agents, zero file conflicts
+- **All 24 Medium findings fixed** (M1-M24)
+- `xcodebuild build` — BUILD SUCCEEDED
+- `swift test` — 148/148 tests passed, 0 failures
+- `swiftlint lint --quiet` — clean, no warnings
+- Files modified (15 total):
+  - `LicenseManager.swift` — refund/chargeback check, periodic re-validation
+  - `AppSettings.swift` — `lastLicenseValidationDate`, `licenseKeyMigrated` flag, plaintext fallback closed
+  - `HistoryCrypto.swift` — HKDF domain separation, atomic key file permissions, version byte prefix
+  - `CapturePipeline+EntryPoints.swift` — cancellation guard, class-level firstMouseDownLogged, session ID, stale screen check
+  - `CapturePipeline.swift` — new `firstMouseDownLogged` + `captureSessionID` properties
+  - `UpdateManager.swift` — closure properties changed to `let` via initializer
+  - `SmartCropper.swift` — `CropResult` enum, proper timeout enforcement via `cancelAll()`
+  - `ScreenCaptureManager+CLICapture.swift` — `defer` for temp file cleanup
+  - `CaptureOverlayWindow.swift` — `willCloseNotification` nils out closures
+  - `AppMover.swift` — remove incomplete copy on verify fail, restore trashed original on copy fail
+  - `AnnotationOverlay.swift` — identity guard in close observer Task
+  - `ScreenCaptureManager+SCKCapture.swift` — removed empty-title filter, CGFloat scale factor
+  - `ScreenCaptureManager+CGCapture.swift` — removed empty-title filter, ownerName fallback
+  - `ScreenCaptureManager+Permission.swift` — removed dead `.signatureMismatch` case + superfluous lint disable
+  - `MarkdownExporter.swift` — `escapeMarkdown()`, `percentEncodeFileName()`
+  - `PresetManager.swift` — resilient Codable decoder, `isInitializing` flag suppresses N+1 saves
+
+### Phase 3 — Low-Severity Audit Fixes (L23-L28)
+
+#### L23: Shared TestImageFactory
+- [x] Create `CalouraTests/Helpers/` directory
+- [x] Create `TestImageFactory.swift` with unified image creation helpers:
+  - `makeTestImage(width:height:)` — solid purple fill via CGContext
+  - `makeTestImage(width:height:color:)` — specific CGColor fill via CGContext
+  - `makeSolidColorImage(width:height:r:g:b:)` — pixel-level RGB fill via CGDataProvider
+- [x] Update `ImageProcessorTests.swift` — remove local `makeTestImage`, use `TestImageFactory`
+- [x] Update `ImageProcessorEdgeCaseTests.swift` — remove local `makeTestImage`+`makeSolidColorImage`, use `TestImageFactory`
+- [x] Update `SmartCropperTests.swift` — remove local `makeUniformImage`, use `TestImageFactory.makeSolidColorImage`
+- [x] Update `OCREngineTests.swift` — remove local `makeSolidBlackImage`, use `TestImageFactory.makeSolidColorImage`
+
+#### L24: Permission test helper dedup
+- [x] Create `PermissionTestHelpers.swift` with shared `makeDefaults` and `makeIdentity`
+- [x] Update `PermissionCoordinatorTests.swift` — remove local helpers, use shared
+- [x] Update `PermissionCoordinatorEdgeCaseTests.swift` — remove local helpers, use shared
+
+#### L25: AppState test helper dedup
+- [x] Create `AppStateTestHelpers.swift` with shared `makeItem`
+- [x] Update `AppStateTests.swift` — remove local `makeItem`, use shared
+- [x] Update `AppStateEdgeCaseTests.swift` — remove local `makeItem`, use shared
+- [x] Update `AppStateDeferredHistoryTests.swift` — remove local `makeItem`, use shared (thin wrapper kept for positional `makeItem("name")` syntax)
+
+#### L23-L25 Verification
+- [x] `swift test` — 148/148 tests passed, 0 failures
+- [x] No local duplicates remain in updated files
+
+#### L6: alertPresenter implicit synchronous-blocking contract (doc-only)
+- [x] Added comment above `alertPresenter(alertState)` in `PermissionCoordinator.handleCapturePermissionFailure()` documenting the blocking contract.
+
+#### L15: PinnedScreenshotManager close observer potential retain cycle
+- [x] Changed `registerCloseObserver` to use `weak var closedPanel` before the `Task` block so the panel is not strongly retained by the async task closure.
+
+#### L21: OnboardingPermissionPresentation.guidanceText never read
+- [x] Grep confirmed no downstream reads of `presentation.guidanceText` — only `uiModel.guidanceText` is used (on the input model).
+- [x] Removed `guidanceText` stored property from `OnboardingPermissionPresentation`.
+- [x] Removed `guidanceText:` argument from the factory method's return statement.
+- [x] Tests (3/3) still pass — tests only reference `guidanceText` on `PermissionUIModel`, not the presentation.
+
+#### L6/L15/L21 Verification
+- [x] `xcodebuild build` — BUILD SUCCEEDED
+- [x] `xcodebuild test` — 148/148 tests passed, 0 failures
+- [x] `swiftlint lint --quiet` — clean, no warnings
+
+#### Existing L26-L28
+- [x] **L26: Replace `NSApp.activate(ignoringOtherApps:)` -- 10 call sites**
+  - Deprecated in macOS 14.0. Replace with `NSApp.activate()`.
+  - Files: CaptureOverlayWindow.swift, ScreenCaptureManager+Permission.swift, PreferencesView+WindowController.swift (2), HistoryView+WindowController.swift, AnnotationOverlay.swift, OnboardingView.swift (2), NagDialog.swift (2)
+- [x] **L27: Remove redundant `import Foundation` in HistoryView+WindowController.swift**
+  - `import SwiftUI` already re-exports Foundation.
+- [x] **L28: Replace `.cornerRadius(_:)` -- 8 call sites**
+  - Deprecated modifier. Replace with `.clipShape(RoundedRectangle(cornerRadius: N))`.
+  - Files: OnboardingView.swift, HistoryView.swift (4), QuickAccessOverlay.swift, HistoryView+Components.swift, PreferencesView.swift
+
+#### L26-L28 Review / Evidence
+- L26: 10/10 activate(ignoringOtherApps:) replaced. Post-fix grep: 0 remaining.
+- L27: import Foundation removed from HistoryView+WindowController.swift. Post-fix grep: 0 remaining.
+- L28: 8/8 .cornerRadius() replaced. Post-fix grep: 0 remaining.
+- xcodebuild build -- BUILD SUCCEEDED
+- swift test -- 148/148 tests passed, 0 failures
+- swiftlint lint --quiet -- clean, no warnings

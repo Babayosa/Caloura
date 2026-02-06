@@ -65,19 +65,12 @@ struct ClipboardManager {
             return (cachedPNG, cachedTIFF)
         }
 
-        let cgImage = screenshot.cgImage
         let generated = await Task.detached(priority: .utility) {
-            let png = cachedPNG ?? ImageProcessor.pngRepresentation(of: cgImage)
-            let tiff = cachedTIFF ?? ImageProcessor.tiffRepresentation(of: cgImage)
+            let png = screenshot.pngData
+            let tiff = screenshot.tiffData
             return (png: png, tiff: tiff)
         }.value
 
-        if cachedPNG == nil {
-            screenshot.cachePNGData(generated.png)
-        }
-        if cachedTIFF == nil {
-            screenshot.cacheTIFFData(generated.tiff)
-        }
         return generated
     }
 }

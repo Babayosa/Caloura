@@ -181,9 +181,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     if let cgImage = annotatedImage.cgImage(
                         forProposedRect: nil, context: nil, hints: nil
                     ) {
-                        let pngData = ImageProcessor.pngRepresentation(of: cgImage)
                         if let filePath = screenshot.filePath {
                             do {
+                                let pngData = try ImageProcessor.pngRepresentation(of: cgImage)
                                 try pngData.write(to: filePath)
                             } catch {
                                 Logger(
@@ -238,7 +238,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settings.launchAtLogin = false
         }
         if settings.launchAtLogin {
-            try? SMAppService.mainApp.register()
+            do {
+                try SMAppService.mainApp.register()
+            } catch {
+                let desc = error.localizedDescription
+                appLaunchLogger.warning("SMAppService.register() failed: \(desc, privacy: .public)")
+                settings.launchAtLogin = false
+            }
         }
     }
 }

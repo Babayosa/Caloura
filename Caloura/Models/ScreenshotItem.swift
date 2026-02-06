@@ -14,6 +14,15 @@ struct ScreenshotItem: Identifiable, Codable, Hashable {
     let height: Int
     var title: String?
     var tags: [String]
+    let schemaVersion: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id, timestamp, filePath, fileName
+        case sourceAppName, sourceWindowTitle
+        case captureMode, presetName, ocrText
+        case width, height, title, tags
+        case schemaVersion
+    }
 
     init(
         id: UUID = UUID(),
@@ -28,7 +37,8 @@ struct ScreenshotItem: Identifiable, Codable, Hashable {
         width: Int = 0,
         height: Int = 0,
         title: String? = nil,
-        tags: [String] = []
+        tags: [String] = [],
+        schemaVersion: Int = 1
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -43,6 +53,7 @@ struct ScreenshotItem: Identifiable, Codable, Hashable {
         self.height = height
         self.title = title
         self.tags = tags
+        self.schemaVersion = schemaVersion
     }
 
     static func == (lhs: ScreenshotItem, rhs: ScreenshotItem) -> Bool {
@@ -68,5 +79,24 @@ struct ScreenshotItem: Identifiable, Codable, Hashable {
         height = try container.decodeIfPresent(Int.self, forKey: .height) ?? 0
         title = try container.decodeIfPresent(String.self, forKey: .title)
         tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(timestamp, forKey: .timestamp)
+        try container.encode(filePath, forKey: .filePath)
+        try container.encode(fileName, forKey: .fileName)
+        try container.encodeIfPresent(sourceAppName, forKey: .sourceAppName)
+        try container.encodeIfPresent(sourceWindowTitle, forKey: .sourceWindowTitle)
+        try container.encode(captureMode, forKey: .captureMode)
+        try container.encodeIfPresent(presetName, forKey: .presetName)
+        try container.encodeIfPresent(ocrText, forKey: .ocrText)
+        try container.encode(width, forKey: .width)
+        try container.encode(height, forKey: .height)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encode(tags, forKey: .tags)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
     }
 }

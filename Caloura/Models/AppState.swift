@@ -43,7 +43,7 @@ final class AppState: ObservableObject {
     func addScreenshot(_ item: ScreenshotItem) {
         recentScreenshots.insert(item, at: 0)
         if recentScreenshots.count > maxRecentItems {
-            recentScreenshots = Array(recentScreenshots.prefix(maxRecentItems))
+            recentScreenshots.removeLast(recentScreenshots.count - maxRecentItems)
         }
         debouncedSaveHistory()
     }

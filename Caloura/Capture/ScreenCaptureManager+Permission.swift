@@ -14,7 +14,6 @@ extension ScreenCaptureManager {
     enum PermissionState {
         case neverGranted
         case grantedButFailing
-        case signatureMismatch
     }
 
     /// Quick check using CoreGraphics — no prompt, but may not reflect
@@ -92,13 +91,13 @@ extension ScreenCaptureManager {
     }
 
     /// Show a permission guidance alert for a specific diagnosed state.
-    func showPermissionAlert( // swiftlint:disable:this function_body_length
+    func showPermissionAlert(
         for state: PermissionState
     ) {
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
 
         let settingsURLString = "x-apple.systempreferences:"
             + "com.apple.preference.security?Privacy_ScreenCapture"
@@ -148,24 +147,6 @@ extension ScreenCaptureManager {
                 try? task.run()
                 NSApp.terminate(nil)
             } else if response == .alertSecondButtonReturn {
-                if let url = URL(string: settingsURLString) {
-                    NSWorkspace.shared.open(url)
-                }
-            }
-        case .signatureMismatch:
-            alert.messageText = "Permission Granted To Different Build"
-            alert.informativeText =
-                "Screen Recording appears to be authorized for a "
-                + "different Caloura build (for example, App "
-                + "Store/Public vs Xcode). Re-grant access for the "
-                + "currently running build in System Settings.\n\n"
-                + "For stable behavior, run "
-                + "/Applications/Caloura.app."
-            alert.addButton(withTitle: "Open System Settings")
-            alert.addButton(withTitle: "Cancel")
-
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
                 if let url = URL(string: settingsURLString) {
                     NSWorkspace.shared.open(url)
                 }

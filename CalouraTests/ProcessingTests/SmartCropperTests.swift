@@ -96,7 +96,7 @@ final class SmartCropperTests: XCTestCase {
     // MARK: - autoCrop integration
 
     func testAutoCrop_returnsImage() async {
-        let image = makeUniformImage(width: 200, height: 200, r: 128, g: 128, b: 128)
+        let image = TestImageFactory.makeSolidColorImage(width: 200, height: 200, r: 128, g: 128, b: 128)
         let result = await SmartCropper.autoCrop(image)
         // Should return something (either cropped or original)
         XCTAssertGreaterThan(result.width, 0)
@@ -190,36 +190,4 @@ final class SmartCropperTests: XCTestCase {
         XCTAssertNil(cropped, "Should not crop when removed area is below threshold")
     }
 
-    // MARK: - Helpers
-
-    private func makeUniformImage(width: Int, height: Int, r: UInt8, g: UInt8, b: UInt8) -> CGImage {
-        let bytesPerPixel = 4
-        let bytesPerRow = width * bytesPerPixel
-        var pixels = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
-        for y in 0..<height {
-            for x in 0..<width {
-                let offset = y * bytesPerRow + x * bytesPerPixel
-                pixels[offset] = r
-                pixels[offset + 1] = g
-                pixels[offset + 2] = b
-                pixels[offset + 3] = 255
-            }
-        }
-        let data = Data(pixels)
-        let provider = CGDataProvider(data: data as CFData)!
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        return CGImage(
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bitsPerPixel: 32,
-            bytesPerRow: bytesPerRow,
-            space: colorSpace,
-            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-            provider: provider,
-            decode: nil,
-            shouldInterpolate: false,
-            intent: .defaultIntent
-        )!
-    }
 }

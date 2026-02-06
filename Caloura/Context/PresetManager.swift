@@ -30,6 +30,22 @@ struct CapturePreset: Codable, Identifiable {
         self.subfolder = subfolder
         self.isBuiltIn = isBuiltIn
     }
+
+    // MARK: - Resilient Codable
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, smartCropEnabled, copyMode, subfolder, isBuiltIn
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try container.decode(String.self, forKey: .name)
+        smartCropEnabled = try container.decodeIfPresent(Bool.self, forKey: .smartCropEnabled) ?? true
+        copyMode = try container.decodeIfPresent(CopyMode.self, forKey: .copyMode) ?? .image
+        subfolder = try container.decodeIfPresent(String.self, forKey: .subfolder)
+        isBuiltIn = try container.decodeIfPresent(Bool.self, forKey: .isBuiltIn) ?? false
+    }
 }
 
 @MainActor
@@ -38,14 +54,20 @@ final class PresetManager: ObservableObject {
     static let builtInPresetNames = ["Quick Capture", "Lecture Notes", "Code Snippet", "Assignment"]
 
     @Published var presets: [CapturePreset] = [] {
-        didSet { savePresets() }
+        didSet {
+            guard !isInitializing else { return }
+            savePresets()
+        }
     }
 
     private let presetsKey = "capturePresets"
+    private var isInitializing = true
 
     private init() {
         loadPresets()
         ensureBuiltInPresets()
+        isInitializing = false
+        savePresets()
     }
 
     // MARK: - Built-in Presets
@@ -107,7 +129,6 @@ final class PresetManager: ObservableObject {
             where !presets.contains(where: { $0.name == builtIn.name }) {
             presets.append(builtIn)
         }
-        savePresets()
     }
 
     private func savePresets() {

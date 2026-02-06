@@ -5,39 +5,17 @@ import XCTest
 @MainActor
 final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
 
-    private func makeDefaults(_ testName: String) -> UserDefaults {
-        let suite = "com.caloura.tests.permission.edge.\(testName)"
-        guard let defaults = UserDefaults(suiteName: suite) else {
-            fatalError("Could not create defaults suite: \(suite)")
-        }
-        defaults.removePersistentDomain(forName: suite)
-        return defaults
-    }
-
-    private func makeIdentity(
-        _ suffix: String
-    ) -> PermissionIdentity {
-        PermissionIdentity(
-            bundleIdentifier: "com.caloura.app",
-            executablePath: "/tmp/Caloura-\(suffix)"
-                + ".app/Contents/MacOS/Caloura",
-            teamIdentifier: "NG4ML6Q47T",
-            signingIdentityType: "apple-development",
-            designatedRequirementHash: "hash-\(suffix)"
-        )
-    }
-
     // MARK: - refreshPassiveStatus repeated calls
 
     func testRepeatedRefreshPassiveStatus_stableResult() {
-        let defaults = makeDefaults(#function)
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
             interactiveCheck: { true },
             alertPresenter: { _ in },
             permissionRequester: { true },
-            identityProvider: { self.makeIdentity("stable") },
+            identityProvider: { PermissionTestHelpers.makeIdentity("stable") },
             statusMessageSink: { _ in },
             now: { Date(timeIntervalSince1970: 10_000) }
         )
@@ -60,14 +38,14 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
     }
 
     func testRepeatedRefreshPassiveStatus_deniedIsStable() {
-        let defaults = makeDefaults(#function)
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { false },
             interactiveCheck: { false },
             alertPresenter: { _ in },
             permissionRequester: { true },
-            identityProvider: { self.makeIdentity("denied") },
+            identityProvider: { PermissionTestHelpers.makeIdentity("denied") },
             statusMessageSink: { _ in },
             now: { Date(timeIntervalSince1970: 11_000) }
         )
@@ -86,14 +64,14 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
     // MARK: - refreshPassiveStatus does not crash
 
     func testRefreshPassiveStatus_doesNotCrashWithGranted() {
-        let defaults = makeDefaults(#function)
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
             interactiveCheck: { true },
             alertPresenter: { _ in },
             permissionRequester: { true },
-            identityProvider: { self.makeIdentity("granted") },
+            identityProvider: { PermissionTestHelpers.makeIdentity("granted") },
             statusMessageSink: { _ in },
             now: { Date(timeIntervalSince1970: 12_000) }
         )
@@ -106,7 +84,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
     // MARK: - UI model consistency after repeated calls
 
     func testUIModelConsistency_afterRepeatedRefreshCalls() {
-        let defaults = makeDefaults(#function)
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
         var callCount = 0
         let coordinator = PermissionCoordinator(
             defaults: defaults,
@@ -114,7 +92,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             interactiveCheck: { true },
             alertPresenter: { _ in },
             permissionRequester: { true },
-            identityProvider: { self.makeIdentity("uimodel") },
+            identityProvider: { PermissionTestHelpers.makeIdentity("uimodel") },
             statusMessageSink: { _ in callCount += 1 },
             now: { Date(timeIntervalSince1970: 13_000) }
         )
@@ -137,8 +115,8 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
     // MARK: - Mismatch detection stability
 
     func testMismatchDetection_repeatedCalls_stableBanner() {
-        let defaults = makeDefaults(#function)
-        let identity = makeIdentity("mismatch-stable")
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        let identity = PermissionTestHelpers.makeIdentity("mismatch-stable")
         defaults.set(
             "different-fingerprint",
             forKey: "permissionLastWorkingIdentityFingerprint"
@@ -177,7 +155,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
     // MARK: - handleCapturePermissionFailure repeated rapid calls
 
     func testHandleCapturePermissionFailure_rapidCalls_dedupe() {
-        let defaults = makeDefaults(#function)
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
         var alertCount = 0
         let coordinator = PermissionCoordinator(
             defaults: defaults,
@@ -185,7 +163,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             interactiveCheck: { false },
             alertPresenter: { _ in alertCount += 1 },
             permissionRequester: { true },
-            identityProvider: { self.makeIdentity("rapid-fail") },
+            identityProvider: { PermissionTestHelpers.makeIdentity("rapid-fail") },
             statusMessageSink: { _ in },
             now: { Date(timeIntervalSince1970: 15_000) }
         )

@@ -34,9 +34,9 @@ extension ScreenCaptureManager {
             excludingWindows: []
         )
         let config = SCStreamConfiguration()
-        let scale = Int(targetScreen.backingScaleFactor)
-        config.width = scDisplay.width * scale
-        config.height = scDisplay.height * scale
+        let scale = targetScreen.backingScaleFactor
+        config.width = Int(CGFloat(scDisplay.width) * scale)
+        config.height = Int(CGFloat(scDisplay.height) * scale)
         config.showsCursor = false
         config.captureResolution = .best
 
@@ -126,8 +126,6 @@ extension ScreenCaptureManager {
         let content = try await SCShareableContent
             .excludingDesktopWindows(false, onScreenWindowsOnly: true)
         return content.windows.filter { window in
-            guard let title = window.title,
-                  !title.isEmpty else { return false }
             guard window.isOnScreen else { return false }
             // Exclude our own app
             return window.owningApplication?.bundleIdentifier

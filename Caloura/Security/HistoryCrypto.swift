@@ -7,27 +7,65 @@ enum HistoryCryptoError: Error {
     case invalidKeyMaterial
     case keyReadFailed(String)
     case keyWriteFailed(String)
+    case unknownKeyVersion(UInt8)
+    case keyFileCreationFailed
 }
 
 enum HistoryCrypto {
     private static let keyFileName = "history.key"
     private static let keyQueue = DispatchQueue(label: "com.caloura.historycrypto.key")
     private static var cachedKey: SymmetricKey?
+    #if DEBUG
     private static var securityDirectoryOverride: URL?
+    #endif
+    private static let currentKeyVersion: UInt8 = 1
+    // AES-GCM nonce (12) + tag (16) = 28 bytes minimum for a valid sealed box
+    private static let minimumSealedBoxLength = 28
 
-    static func encrypt(_ data: Data) throws -> Data {
-        let key = try getOrCreateKey()
-        let sealed = try AES.GCM.seal(data, using: key)
+    static func encrypt(_ data: Data, purpose: String = "history-encryption") throws -> Data {
+        let rootKey = try getOrCreateKey()
+        let derivedKey = deriveKey(rootKey: rootKey, purpose: purpose)
+        let sealed = try AES.GCM.seal(data, using: derivedKey)
         guard let combined = sealed.combined else {
             throw HistoryCryptoError.missingCombinedBox
         }
-        return combined
+        return Data([currentKeyVersion]) + combined
     }
 
-    static func decrypt(_ data: Data) throws -> Data {
-        let key = try getOrCreateKey()
+    static func decrypt(_ data: Data, purpose: String = "history-encryption") throws -> Data {
+        let rootKey = try getOrCreateKey()
+        let derivedKey = deriveKey(rootKey: rootKey, purpose: purpose)
+
+        // Try versioned format: first byte is a known version, rest is sealed box
+        if let firstByte = data.first,
+           firstByte == currentKeyVersion,
+           data.count >= 1 + minimumSealedBoxLength {
+            do {
+                let sealedData = data.dropFirst()
+                let sealed = try AES.GCM.SealedBox(combined: sealedData)
+                return try AES.GCM.open(sealed, using: derivedKey)
+            } catch {
+                // First byte coincidentally matched version — fall through to legacy
+            }
+        }
+
+        // Legacy format (no version prefix, no HKDF): try derived key first,
+        // then fall back to raw master key for pre-HKDF data
         let sealed = try AES.GCM.SealedBox(combined: data)
-        return try AES.GCM.open(sealed, using: key)
+        do {
+            return try AES.GCM.open(sealed, using: derivedKey)
+        } catch {
+            return try AES.GCM.open(sealed, using: rootKey)
+        }
+    }
+
+    private static func deriveKey(rootKey: SymmetricKey, purpose: String) -> SymmetricKey {
+        let info = Data(purpose.utf8)
+        return SymmetricKey(data: HKDF<SHA256>.deriveKey(
+            inputKeyMaterial: rootKey,
+            info: info,
+            outputByteCount: 32
+        ))
     }
 
     private static func getOrCreateKey() throws -> SymmetricKey {
@@ -65,8 +103,13 @@ enum HistoryCrypto {
                     withIntermediateDirectories: true,
                     attributes: [.posixPermissions: 0o700]
                 )
-                try keyData.write(to: keyFile, options: .atomic)
-                try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: keyFile.path)
+                guard fileManager.createFile(
+                    atPath: keyFile.path,
+                    contents: keyData,
+                    attributes: [.posixPermissions: 0o600]
+                ) else {
+                    throw HistoryCryptoError.keyFileCreationFailed
+                }
                 cachedKey = key
                 return key
             } catch {
@@ -81,17 +124,17 @@ enum HistoryCrypto {
     }
 
     private static func securityDirectoryURL() throws -> URL {
-        let baseDir: URL
+        #if DEBUG
         if let override = securityDirectoryOverride {
-            baseDir = override
-        } else if let appSupport = FileManager.default.urls(
+            return override
+        }
+        #endif
+        guard let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
-        ).first {
-            baseDir = appSupport.appendingPathComponent("Caloura").appendingPathComponent("security")
-        } else {
+        ).first else {
             throw HistoryCryptoError.keyStorageUnavailable("Could not resolve Application Support directory.")
         }
-        return baseDir
+        return appSupport.appendingPathComponent("Caloura").appendingPathComponent("security")
     }
 
     static func auditStoragePermissions(historyFileURL: URL) -> [String] {
@@ -165,6 +208,7 @@ enum HistoryCrypto {
 
     // MARK: - Testing Helpers
 
+    #if DEBUG
     static func resetCachedKeyForTesting() {
         keyQueue.sync { cachedKey = nil }
     }
@@ -173,4 +217,5 @@ enum HistoryCrypto {
         securityDirectoryOverride = url
         keyQueue.sync { cachedKey = nil }
     }
+    #endif
 }

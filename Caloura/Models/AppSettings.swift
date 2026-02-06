@@ -34,6 +34,8 @@ final class AppSettings: ObservableObject {
         static let isLicenseActivated = "isLicenseActivated"
         static let hasSeenWelcome = "hasSeenWelcome"
         static let hasAttemptedLegacyLicenseMigration = "hasAttemptedLegacyLicenseMigration"
+        static let licenseKeyMigrated = "licenseKeyMigrated"
+        static let lastLicenseValidationDate = "lastLicenseValidationDate"
     }
 
     @Published var saveDirectory: String {
@@ -99,6 +101,11 @@ final class AppSettings: ObservableObject {
         didSet { debouncedSave() }
     }
 
+    var lastLicenseValidationDate: Date? {
+        get { defaults.object(forKey: Keys.lastLicenseValidationDate) as? Date }
+        set { defaults.set(newValue, forKey: Keys.lastLicenseValidationDate) }
+    }
+
     var saveDirectoryURL: URL {
         URL(fileURLWithPath: saveDirectory)
     }
@@ -149,9 +156,9 @@ final class AppSettings: ObservableObject {
         } else {
             if let encrypted = Self.encryptLicenseKey(normalized) {
                 defaults.set(encrypted, forKey: Keys.licenseKey)
+                defaults.set(true, forKey: Keys.licenseKeyMigrated)
             } else {
-                // Fallback: store as-is if encryption unavailable (first launch edge case)
-                defaults.set(normalized, forKey: Keys.licenseKey)
+                logger.error("Failed to encrypt license key — not persisting")
             }
         }
         defaults.set(isLicenseActivated, forKey: Keys.isLicenseActivated)
@@ -164,7 +171,10 @@ final class AppSettings: ObservableObject {
         return try? HistoryCrypto.encrypt(data)
     }
 
-    nonisolated private static func decryptLicenseKey(_ stored: Any?) -> String? {
+    nonisolated private static func decryptLicenseKey(
+        _ stored: Any?,
+        migrated: Bool
+    ) -> String? {
         if let data = stored as? Data {
             // Encrypted format
             guard let decrypted = try? HistoryCrypto.decrypt(data),
@@ -173,7 +183,10 @@ final class AppSettings: ObservableObject {
             }
             return string
         }
-        // Legacy plaintext format (String in UserDefaults)
+        // Legacy plaintext format — only accept if encryption has never succeeded
+        if migrated {
+            return nil
+        }
         return stored as? String
     }
 
@@ -222,7 +235,7 @@ final class AppSettings: ObservableObject {
         let defaultDir = Self.defaultSaveDirectory
         self.saveDirectory = defaults.string(forKey: Keys.saveDirectory) ?? defaultDir
         self.autoCopyToClipboard = defaults.object(forKey: Keys.autoCopyToClipboard) as? Bool ?? true
-        self.autoSaveToDisk = defaults.object(forKey: Keys.autoSaveToDisk) as? Bool ?? true
+        self.autoSaveToDisk = defaults.object(forKey: Keys.autoSaveToDisk) as? Bool ?? false
         self.smartCropEnabled = defaults.object(forKey: Keys.smartCropEnabled) as? Bool ?? true
         self.playCaptureSound = defaults.object(forKey: Keys.playCaptureSound) as? Bool ?? false
         self.activePreset = defaults.string(forKey: Keys.activePreset) ?? "Quick Capture"
@@ -241,7 +254,10 @@ final class AppSettings: ObservableObject {
             defaults.set(now, forKey: Keys.firstLaunchDate)
         }
 
-        self.licenseKey = Self.decryptLicenseKey(defaults.object(forKey: Keys.licenseKey)) ?? ""
+        self.licenseKey = Self.decryptLicenseKey(
+            defaults.object(forKey: Keys.licenseKey),
+            migrated: defaults.bool(forKey: Keys.licenseKeyMigrated)
+        ) ?? ""
         self.isLicenseActivated = defaults.bool(forKey: Keys.isLicenseActivated)
         self.hasSeenWelcome = defaults.bool(forKey: Keys.hasSeenWelcome)
 

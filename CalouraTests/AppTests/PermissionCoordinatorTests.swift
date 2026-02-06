@@ -5,34 +5,15 @@ import XCTest
 @MainActor
 final class PermissionCoordinatorTests: XCTestCase {
 
-    private func makeDefaults(_ testName: String) -> UserDefaults {
-        let suite = "com.caloura.tests.permission.\(testName)"
-        guard let defaults = UserDefaults(suiteName: suite) else {
-            fatalError("Could not create defaults suite: \(suite)")
-        }
-        defaults.removePersistentDomain(forName: suite)
-        return defaults
-    }
-
-    private func makeIdentity(_ suffix: String) -> PermissionIdentity {
-        PermissionIdentity(
-            bundleIdentifier: "com.caloura.app",
-            executablePath: "/tmp/Caloura-\(suffix).app/Contents/MacOS/Caloura",
-            teamIdentifier: "NG4ML6Q47T",
-            signingIdentityType: "apple-development",
-            designatedRequirementHash: "hash-\(suffix)"
-        )
-    }
-
     func testRefreshPassiveStatusDeniedWhenCGNotGranted() {
-        let defaults = makeDefaults(#function)
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { false },
             interactiveCheck: { true },
             alertPresenter: { _ in },
             permissionRequester: { true },
-            identityProvider: { self.makeIdentity("denied") },
+            identityProvider: { PermissionTestHelpers.makeIdentity("denied") },
             statusMessageSink: { _ in },
             now: { Date(timeIntervalSince1970: 1_000) }
         )
@@ -44,8 +25,8 @@ final class PermissionCoordinatorTests: XCTestCase {
     }
 
     func testMismatchDetectionAndBannerSuppression() {
-        let defaults = makeDefaults(#function)
-        let identity = makeIdentity("mismatch")
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        let identity = PermissionTestHelpers.makeIdentity("mismatch")
         defaults.set("different-fingerprint", forKey: "permissionLastWorkingIdentityFingerprint")
 
         let coordinator = PermissionCoordinator(
@@ -69,7 +50,7 @@ final class PermissionCoordinatorTests: XCTestCase {
     }
 
     func testCaptureFailureAlertIsDedupedByCooldown() {
-        let defaults = makeDefaults(#function)
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
         var alertCount = 0
         var statusMessage = ""
         var now = Date(timeIntervalSince1970: 3_000)
@@ -80,7 +61,7 @@ final class PermissionCoordinatorTests: XCTestCase {
             interactiveCheck: { false },
             alertPresenter: { _ in alertCount += 1 },
             permissionRequester: { true },
-            identityProvider: { self.makeIdentity("cooldown") },
+            identityProvider: { PermissionTestHelpers.makeIdentity("cooldown") },
             statusMessageSink: { statusMessage = $0 },
             now: { now }
         )
@@ -96,10 +77,10 @@ final class PermissionCoordinatorTests: XCTestCase {
     }
 
     func testUserInitiatedValidationTransitions() async {
-        let defaults = makeDefaults(#function)
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
         var interactiveAuthorized = false
 
-        let firstIdentity = makeIdentity("primary")
+        let firstIdentity = PermissionTestHelpers.makeIdentity("primary")
         let firstCoordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
@@ -124,7 +105,7 @@ final class PermissionCoordinatorTests: XCTestCase {
             interactiveCheck: { false },
             alertPresenter: { _ in },
             permissionRequester: { true },
-            identityProvider: { self.makeIdentity("secondary") },
+            identityProvider: { PermissionTestHelpers.makeIdentity("secondary") },
             statusMessageSink: { _ in },
             now: { Date(timeIntervalSince1970: 4_100) }
         )
