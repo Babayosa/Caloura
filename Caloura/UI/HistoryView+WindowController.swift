@@ -15,6 +15,7 @@ final class HistoryWindowController {
         let openStart = CFAbsoluteTimeGetCurrent()
         if let existing = window, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
+            NSApp.activate()
             return
         }
 

@@ -183,6 +183,5 @@ extension Notification.Name {
     static let showHistory = Notification.Name("showHistory")
     static let captureCompleted = Notification.Name("captureCompleted")
     static let showSettings = Notification.Name("showSettings")
-    static let showSetupGuide = Notification.Name("showSetupGuide")
     static let cancelDelayedCapture = Notification.Name("cancelDelayedCapture")
 }

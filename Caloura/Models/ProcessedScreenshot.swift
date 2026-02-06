@@ -124,30 +124,6 @@ final class ProcessedScreenshot: @unchecked Sendable {
         self._presetName = presetName
     }
 
-    func cachePNGData(_ data: Data) {
-        dataLock.lock()
-        if _pngData == nil {
-            _pngData = data
-        }
-        dataLock.unlock()
-    }
-
-    func cacheTIFFData(_ data: Data) {
-        dataLock.lock()
-        if _tiffData == nil {
-            _tiffData = data
-        }
-        dataLock.unlock()
-    }
-
-    /// Release cached encoded data to free memory after clipboard/file operations complete.
-    func releaseEncodedData() {
-        dataLock.lock()
-        _pngData = nil
-        _tiffData = nil
-        dataLock.unlock()
-    }
-
     func toScreenshotItem() -> ScreenshotItem {
         ScreenshotItem(
             filePath: filePath?.path ?? "",

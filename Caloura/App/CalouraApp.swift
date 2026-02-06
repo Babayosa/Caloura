@@ -222,11 +222,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        nc.addObserver(forName: .showSetupGuide, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                self?.onboardingController.show(settings: AppSettings.shared)
-            }
-        }
     }
 
     private func syncLaunchAtLoginState() {

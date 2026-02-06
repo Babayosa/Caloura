@@ -83,3 +83,17 @@
 - **Root cause**: Swift `os.Logger` methods accept `OSLogMessage`, which conforms to `ExpressibleByStringInterpolation` but NOT `ExpressibleByStringConcatenation`. The `+` operator produces a `String`, not an `OSLogMessage`. The compiler error is: `cannot convert value of type 'String' to expected argument type 'OSLogMessage'`.
 - **Rule**: Never use `+` inside Logger calls. To break long logger lines: (1) extract values into local variables before the call, (2) use a single string literal with `\()` interpolation, or (3) build a `String` variable first, then pass it as `logger.info("\(msg, privacy: .public)")`.
 - **Example**: `logger.error("Failed to decode \(source): \(desc). " + "Attempting recovery.")` fails. Fix: `let errMsg = "Failed to decode \(source): \(desc). Attempting recovery."` then `logger.error("\(errMsg)")`.
+
+## 2026-02-05: Security fix tests must reflect the new behavior
+
+- **Mistake**: The S2-16 license bypass fix caused `testActivationState_licensed` to fail because the test set `isLicenseActivated = true` without providing a `licenseKey`. The new code correctly revokes licenses with empty keys, but the test didn't account for this.
+- **Root cause**: Existing tests assumed the old (buggy) behavior where an empty key + activated flag was a valid state.
+- **Rule**: When fixing a security bug that tightens validation, always check existing tests — they may depend on the insecure behavior. Update tests to set up valid state, and add a new test that explicitly validates the fix rejects the insecure path.
+- **Example**: Added `settings.licenseKey = "XXXXXXXX-..."` to the licensed test, and added `testActivationState_licensed_emptyKeyRevokes` that verifies the S2-16 fix.
+
+## 2026-02-05: Rate-limiting static state needs test isolation
+
+- **Mistake**: Adding URL scheme rate limiting (S2-3) with a static `lastHandledDate` property would have broken 24 existing URL scheme tests that fire requests in rapid succession.
+- **Root cause**: Static state persists between test cases. A 0.5s throttle means only the first test in the suite would actually process its URL — all subsequent tests would be throttled and silently pass without testing anything.
+- **Rule**: When adding rate-limiting or throttling with static state, make the timestamp property `internal` (not `private`) and reset it in the test suite's `setUp()`. This keeps production behavior correct while allowing tests to bypass the throttle.
+- **Example**: `URLSchemeHandler.lastHandledDate = nil` in `setUp()` resets the throttle before each test.

@@ -10,10 +10,10 @@ options:
 packages:
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
-    from: "2.0.0"
+    from: "2.4.0"
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
-    from: "2.5.0"
+    exactVersion: "2.8.1"
 
 settings:
   base:
@@ -21,6 +21,8 @@ settings:
     MACOSX_DEPLOYMENT_TARGET: "14.0"
     MARKETING_VERSION: "1.0.7"
     CURRENT_PROJECT_VERSION: "7"
+    SWIFT_STRICT_CONCURRENCY: complete
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
 
 targets:
   Caloura:

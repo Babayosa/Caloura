@@ -20,6 +20,16 @@ extension ScreenCaptureManager {
             .appendingPathComponent("caloura-\(UUID().uuidString).png")
         defer { try? FileManager.default.removeItem(at: tempURL) }
         let tempPath = tempURL.path
+
+        // Pre-create the file with restrictive permissions (owner-only
+        // read/write) to prevent other users from reading the screenshot
+        // during the capture window (TOCTOU mitigation).
+        FileManager.default.createFile(
+            atPath: tempPath,
+            contents: nil,
+            attributes: [.posixPermissions: 0o600]
+        )
+
         let fullArgs = args + ["-x", "-t", "png", tempPath]
 
         // Run process off main thread to avoid blocking UI

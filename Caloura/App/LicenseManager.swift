@@ -47,8 +47,14 @@ final class LicenseManager: ObservableObject {
     // MARK: - Testable Core Logic
 
     func trialDaysRemaining(settings: AppSettings) -> Int {
+        // Use the later of current date and furthest-seen date to resist clock rollback (S2-15)
+        let now = Date()
+        let effectiveNow = max(now, settings.furthestDateSeen ?? now)
+        if now >= (settings.furthestDateSeen ?? .distantPast) {
+            settings.furthestDateSeen = now
+        }
         let elapsed = Calendar.current.dateComponents(
-            [.day], from: settings.firstLaunchDate, to: Date()
+            [.day], from: settings.firstLaunchDate, to: effectiveNow
         ).day ?? 0
         return max(0, Self.trialDurationDays - elapsed)
     }
@@ -80,7 +86,12 @@ final class LicenseManager: ObservableObject {
     private func scheduleRevalidationIfNeeded(settings: AppSettings) {
         let needsRevalidation: Bool
         if let lastValidation = settings.lastLicenseValidationDate {
-            needsRevalidation = Date().timeIntervalSince(lastValidation) > Self.revalidationInterval
+            // Reject future-dated validation timestamps (S2-17)
+            if lastValidation > Date() {
+                needsRevalidation = true
+            } else {
+                needsRevalidation = Date().timeIntervalSince(lastValidation) > Self.revalidationInterval
+            }
         } else {
             needsRevalidation = true
         }
@@ -88,7 +99,13 @@ final class LicenseManager: ObservableObject {
         guard needsRevalidation else { return }
 
         let key = settings.licenseKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { return }
+        guard !key.isEmpty else {
+            // Empty key with active license is invalid — revoke (S2-16)
+            logger.info("License key empty but activated — revoking.")
+            settings.isLicenseActivated = false
+            refreshState(settings: settings)
+            return
+        }
 
         Task { [weak self] in
             await self?.revalidateLicense(key: key, settings: settings)

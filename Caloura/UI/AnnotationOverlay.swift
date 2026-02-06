@@ -319,6 +319,7 @@ final class AnnotationWindowController {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = hostingView
         window.title = "Annotate Screenshot"
         window.center()

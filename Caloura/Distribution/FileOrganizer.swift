@@ -68,47 +68,6 @@ struct FileOrganizer {
         return savedURL
     }
 
-    /// Synchronous save for cases where async isn't available.
-    /// Prefer the async version when possible.
-    @discardableResult
-    static func saveSync(
-        _ screenshot: ProcessedScreenshot,
-        baseDirectory: String,
-        subfolder: String? = nil,
-        imageFormat: String = "png"
-    ) throws -> URL {
-        let baseURL = URL(fileURLWithPath: baseDirectory)
-        let dateFolder = dateFormatter.string(from: screenshot.context.timestamp)
-
-        var directoryURL = baseURL.appendingPathComponent(dateFolder)
-        if let subfolder = subfolder, !subfolder.isEmpty {
-            directoryURL = baseURL.appendingPathComponent(subfolder).appendingPathComponent(dateFolder)
-        }
-
-        try FileManager.default.createDirectory(
-            at: directoryURL,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-
-        let fileName = generateFileName(for: screenshot, imageFormat: imageFormat)
-        let fileURL = directoryURL.appendingPathComponent(fileName)
-
-        let imageData: Data
-        switch imageFormat {
-        case "jpeg":
-            imageData = try ImageProcessor.jpegRepresentation(of: screenshot.cgImage)
-        case "tiff":
-            imageData = screenshot.tiffData
-        default:
-            imageData = screenshot.pngData
-        }
-        try validatePathSafety(url: fileURL, baseDirectory: baseDirectory)
-        try imageData.write(to: fileURL)
-
-        return fileURL
-    }
-
     /// Generate filename: Caloura_HH-mm-ss_AppName.{ext}
     static func generateFileName(for screenshot: ProcessedScreenshot, imageFormat: String = "png") -> String {
         let timeStr = timeFormatter.string(from: screenshot.context.timestamp)

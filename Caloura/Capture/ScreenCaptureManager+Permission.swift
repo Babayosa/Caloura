@@ -66,30 +66,6 @@ extension ScreenCaptureManager {
         await checkSCKAccess()
     }
 
-    /// Diagnose the current permission state by combining multiple
-    /// signals. CGPreflight is the authoritative OS-level check.
-    /// CGWindowList can give false positives on some macOS versions
-    /// (returns named windows even when screen recording permission
-    /// is denied), so it is only used as a supplementary signal when
-    /// CGPreflight confirms permission is granted.
-    func diagnosePermissionState() -> PermissionState {
-        let cgPreflight = CGPreflightScreenCaptureAccess()
-
-        if cgPreflight {
-            // OS confirms permission is granted, but SCK isn't working
-            return .grantedButFailing
-        }
-        return .neverGranted
-    }
-
-    /// Show an alert explaining the user needs to grant screen
-    /// recording permission. Adapts the message based on whether
-    /// permission was never granted or is granted but failing.
-    func showPermissionAlert() {
-        let state = diagnosePermissionState()
-        showPermissionAlert(for: state)
-    }
-
     /// Show a permission guidance alert for a specific diagnosed state.
     func showPermissionAlert(
         for state: PermissionState

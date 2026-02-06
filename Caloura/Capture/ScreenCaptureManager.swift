@@ -31,11 +31,7 @@ final class ScreenCaptureManager {
         logger.info("SCK failure flag reset")
     }
 
-    /// Cache app icons by bundle ID to avoid repeated lookups
-    private var iconCache = NSCache<NSString, NSImage>()
-
     init() {
-        iconCache.countLimit = 50 // Limit cache size
         didBecomeActiveObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
@@ -91,21 +87,6 @@ final class ScreenCaptureManager {
                 )
             }
         }
-    }
-
-    /// Get app icon, using cache to avoid repeated lookups
-    func cachedIcon(for bundleID: String) -> NSImage? {
-        let key = bundleID as NSString
-        if let cached = iconCache.object(forKey: key) {
-            return cached
-        }
-        if let icon = NSRunningApplication
-            .runningApplications(withBundleIdentifier: bundleID)
-            .first?.icon {
-            iconCache.setObject(icon, forKey: key)
-            return icon
-        }
-        return nil
     }
 
     // MARK: - Full Screen Capture
@@ -194,92 +175,6 @@ final class ScreenCaptureManager {
         )
     }
 
-    /// Capture a window directly from an SCWindow reference.
-    func captureWindow(scWindow: SCWindow) async throws -> CGImage {
-        return try await sckCaptureWindow(scWindow)
-    }
-
-    /// Capture a window by its CaptureWindow descriptor,
-    /// falling back through SCK, CLI, and CG backends.
-    func captureWindow(_ window: CaptureWindow) async throws -> CGImage {
-        if let scWindow = window.scWindow, !sckFailed {
-            do {
-                return try await sckCaptureWindow(scWindow)
-            } catch {
-                logger.warning(
-                    "SCK captureWindow failed: \(error.localizedDescription)"
-                )
-                handleSCKFailure(error)
-            }
-        }
-
-        do {
-            logger.info("Trying screencapture CLI for window \(window.id)")
-            return try await screencaptureWindow(windowID: window.id)
-        } catch {
-            logger.warning(
-                "screencapture CLI failed: \(error.localizedDescription), falling back to CG"
-            )
-        }
-        guard checkPermission() else { throw CaptureError.noPermission }
-        return try cgCaptureWindow(windowID: window.id)
-    }
-
-    // MARK: - Window Enumeration
-
-    /// Return all on-screen windows (excluding this app), sorted in front-to-back z-order.
-    func getWindows() async throws -> [CaptureWindow] {
-        if !sckFailed {
-            do {
-                let scWindows = try await sckGetWindows()
-                var captureWindows = scWindows.compactMap { window -> CaptureWindow? in
-                    let frame = window.frame
-                    // Skip tiny utility windows and status items
-                    guard frame.width >= 50, frame.height >= 50 else {
-                        return nil
-                    }
-                    // Use cached icon lookup
-                    let icon: NSImage? = {
-                        guard let bid = window.owningApplication?.bundleIdentifier
-                        else { return nil }
-                        return cachedIcon(for: bid)
-                    }()
-                    return CaptureWindow(
-                        id: window.windowID,
-                        title: window.title ?? "Untitled",
-                        appName: window.owningApplication?.applicationName ?? "",
-                        frame: frame,
-                        scWindow: window,
-                        appIcon: icon
-                    )
-                }
-
-                // SCK does not guarantee z-order — sort by CG front-to-back order
-                let zOrderIDs = zOrderedWindowIDs()
-                if !zOrderIDs.isEmpty {
-                    let orderIndex = Dictionary(
-                        uniqueKeysWithValues: zOrderIDs.enumerated()
-                            .map { ($1, $0) }
-                    )
-                    captureWindows.sort { lhs, rhs in
-                        (orderIndex[lhs.id] ?? Int.max)
-                            < (orderIndex[rhs.id] ?? Int.max)
-                    }
-                }
-
-                return captureWindows
-            } catch {
-                logger.warning(
-                    "SCK getWindows failed: \(error.localizedDescription)"
-                )
-                handleSCKFailure(error)
-            }
-        }
-        if checkPermission() {
-            return getWindowsCG()
-        }
-        throw CaptureError.noPermission
-    }
 }
 
 // MARK: - Errors

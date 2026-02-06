@@ -4,6 +4,13 @@ import XCTest
 @MainActor
 final class URLSchemeHandlerTests: XCTestCase {
 
+    override func setUp() {
+        super.setUp()
+        // Reset throttle state so each test can fire a URL scheme request
+        // without being rejected by the rate limiter.
+        URLSchemeHandler.lastHandledDate = nil
+    }
+
     // MARK: - URL Parsing
 
     func testHandle_captureAreaURL() {

@@ -99,27 +99,6 @@ final class PinnedScreenshotManager {
         observers[panel] = observer
     }
 
-    /// Close all pinned windows.
-    func unpinAll() {
-        let windowsToClose = pinnedWindows
-        let observersToRemove = observers
-
-        // Clear tracking state first so willCloseNotification callbacks are no-ops
-        pinnedWindows.removeAll()
-        observers.removeAll()
-        panelsByKey.removeAll()
-
-        // Close panels before removing observers so willCloseNotification fires
-        // while observers are still valid (avoiding stale-state callbacks)
-        for panel in windowsToClose {
-            panel.close()
-        }
-
-        // Now remove observers after panels are closed
-        for (_, token) in observersToRemove {
-            NotificationCenter.default.removeObserver(token)
-        }
-    }
 }
 
 // MARK: - SwiftUI View

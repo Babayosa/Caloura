@@ -15,7 +15,6 @@ final class OnboardingPermissionPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.detail, .notGranted)
         XCTAssertTrue(presentation.showsGrantButton)
         XCTAssertTrue(presentation.showsCheckAgainButton)
-        XCTAssertFalse(presentation.showsQuitButton)
         XCTAssertFalse(presentation.shouldShowMismatchBanner)
         XCTAssertEqual(presentation.statusHeadline, "Permission not granted yet")
         XCTAssertEqual(presentation.statusMessage, "You can continue now and grant this anytime.")
@@ -33,7 +32,6 @@ final class OnboardingPermissionPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.detail, .grantedNotWorking)
         XCTAssertFalse(presentation.showsGrantButton)
         XCTAssertTrue(presentation.showsCheckAgainButton)
-        XCTAssertTrue(presentation.showsQuitButton)
         XCTAssertEqual(presentation.statusHeadline, "Permission granted")
         XCTAssertEqual(presentation.statusMessage, "Restart")
     }

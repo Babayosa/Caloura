@@ -122,14 +122,4 @@ extension ScreenCaptureManager {
         return image
     }
 
-    func sckGetWindows() async throws -> [SCWindow] {
-        let content = try await SCShareableContent
-            .excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        return content.windows.filter { window in
-            guard window.isOnScreen else { return false }
-            // Exclude our own app
-            return window.owningApplication?.bundleIdentifier
-                != Bundle.main.bundleIdentifier
-        }
-    }
 }

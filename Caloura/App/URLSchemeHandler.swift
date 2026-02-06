@@ -25,6 +25,12 @@ struct URLSchemeHandler {
         category: "URLSchemeHandler"
     )
 
+    /// Minimum interval between accepted URL scheme requests (seconds).
+    private static let throttleInterval: TimeInterval = 0.5
+
+    /// Timestamp of the last successfully accepted request.
+    static var lastHandledDate: Date?
+
     /// Allowed capture modes for the main mode switch.
     private static let allowedCaptureModes: Set<String> = [
         "area", "fullscreen", "window", "repeat", "delayed"
@@ -43,6 +49,15 @@ struct URLSchemeHandler {
     /// Route an incoming URL to the appropriate action.
     static func handle(_ url: URL) {
         guard url.scheme == "caloura" else { return }
+
+        // Rate-limit: reject requests arriving faster than throttleInterval.
+        let now = Date()
+        if let last = lastHandledDate,
+           now.timeIntervalSince(last) < throttleInterval {
+            logger.warning("URL scheme request throttled (too frequent)")
+            return
+        }
+        lastHandledDate = now
 
         let host = (url.host ?? "").lowercased()
         let pathComponents = url.pathComponents.filter { $0 != "/" }

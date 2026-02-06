@@ -12,7 +12,6 @@ struct OnboardingPermissionPresentation: Equatable {
     let shouldShowMismatchBanner: Bool
     let showsGrantButton: Bool
     let showsCheckAgainButton: Bool
-    let showsQuitButton: Bool
     let statusHeadline: String
     let statusMessage: String
 
@@ -57,7 +56,6 @@ struct OnboardingPermissionPresentation: Equatable {
             shouldShowMismatchBanner: uiModel.shouldShowSignatureMismatchBanner,
             showsGrantButton: showsGrantButton,
             showsCheckAgainButton: true,
-            showsQuitButton: detail == .grantedNotWorking,
             statusHeadline: statusHeadline,
             statusMessage: statusMessage
         )

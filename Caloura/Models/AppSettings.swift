@@ -36,6 +36,7 @@ final class AppSettings: ObservableObject {
         static let hasAttemptedLegacyLicenseMigration = "hasAttemptedLegacyLicenseMigration"
         static let licenseKeyMigrated = "licenseKeyMigrated"
         static let lastLicenseValidationDate = "lastLicenseValidationDate"
+        static let furthestDateSeen = "furthestDateSeen"
     }
 
     @Published var saveDirectory: String {
@@ -106,8 +107,9 @@ final class AppSettings: ObservableObject {
         set { defaults.set(newValue, forKey: Keys.lastLicenseValidationDate) }
     }
 
-    var saveDirectoryURL: URL {
-        URL(fileURLWithPath: saveDirectory)
+    var furthestDateSeen: Date? {
+        get { defaults.object(forKey: Keys.furthestDateSeen) as? Date }
+        set { defaults.set(newValue, forKey: Keys.furthestDateSeen) }
     }
 
     private static var defaultSaveDirectory: String {

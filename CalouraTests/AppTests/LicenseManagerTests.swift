@@ -94,9 +94,19 @@ final class LicenseManagerTests: XCTestCase {
     // MARK: - Activation State
 
     func testActivationState_licensed() {
+        settings.licenseKey = "XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX"
         settings.isLicenseActivated = true
         license.refreshState(settings: settings)
         XCTAssertEqual(license.activationState, .licensed)
+    }
+
+    func testActivationState_licensed_emptyKeyRevokes() {
+        // S2-16: Empty key with isLicenseActivated=true must revoke
+        settings.licenseKey = ""
+        settings.isLicenseActivated = true
+        license.refreshState(settings: settings)
+        XCTAssertFalse(settings.isLicenseActivated)
+        XCTAssertNotEqual(license.activationState, .licensed)
     }
 
     func testActivationState_trial() {
