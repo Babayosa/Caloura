@@ -9,7 +9,9 @@ final class AppState: ObservableObject {
     static let shared = AppState()
 
     @Published var recentScreenshots: [ScreenshotItem] = []
-    @Published var lastScreenshot: ProcessedScreenshot?
+    @Published var lastScreenshot: ProcessedScreenshot? {
+        didSet { resetLastScreenshotTimer() }
+    }
     @Published var isCapturing: Bool = false
     @Published var hasScreenRecordingPermission: Bool = false
     @Published var statusMessage: String = ""
@@ -31,6 +33,7 @@ final class AppState: ObservableObject {
     // Debounce save operations to avoid hammering disk writes.
     private var saveTask: Task<Void, Never>?
     private let saveDebounceInterval: UInt64 = 500_000_000 // 500ms
+    private var lastScreenshotTimer: Timer?
 
     init(defaults: UserDefaults = .standard, historyStoreURL: URL? = nil) {
         self.defaults = defaults
@@ -68,7 +71,7 @@ final class AppState: ObservableObject {
     }
 
     /// Force immediate save without debouncing.
-    private func saveHistoryNow() {
+    func saveHistoryNow() {
         saveTask?.cancel()
         saveTask = nil
 
@@ -206,6 +209,17 @@ final class AppState: ObservableObject {
         }
         for warning in warnings {
             appStateLogger.warning("\(warning, privacy: .public)")
+        }
+    }
+
+    private func resetLastScreenshotTimer() {
+        lastScreenshotTimer?.invalidate()
+        lastScreenshotTimer = nil
+        guard lastScreenshot != nil else { return }
+        lastScreenshotTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.lastScreenshot = nil
+            }
         }
     }
 

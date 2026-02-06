@@ -3,7 +3,7 @@ import SwiftUI
 
 /// A floating post-capture toolbar that appears after a screenshot is taken.
 /// Shows action buttons: Copy, Markdown, Citation, Annotate, Pin, Dismiss.
-/// Auto-dismisses after 5 seconds.
+/// Auto-dismisses after 3 seconds.
 @MainActor
 final class QuickAccessOverlay {
     static let shared = QuickAccessOverlay()

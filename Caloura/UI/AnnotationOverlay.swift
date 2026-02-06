@@ -136,6 +136,7 @@ struct AnnotationOverlayView: View {
                         }
                         .onEnded { _ in
                             if let annotation = currentAnnotation {
+                                if undoStack.count >= 30 { undoStack.removeFirst() }
                                 undoStack.append(annotations)
                                 redoStack.removeAll()
                                 annotations.append(annotation)

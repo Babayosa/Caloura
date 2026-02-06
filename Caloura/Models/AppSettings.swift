@@ -138,7 +138,7 @@ final class AppSettings: ObservableObject {
         }
     }
 
-    private func saveAllSettings() {
+    func saveAllSettings() {
         defaults.set(saveDirectory, forKey: Keys.saveDirectory)
         defaults.set(autoCopyToClipboard, forKey: Keys.autoCopyToClipboard)
         defaults.set(autoSaveToDisk, forKey: Keys.autoSaveToDisk)

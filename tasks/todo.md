@@ -1,75 +1,139 @@
-# Task 14 — Six-Stream Cleanup & Hardening
+# Task 16 — Implement Deferred Audit Fixes
 
-Date: 2026-02-05
+Date: 2026-02-06
 Owner: Caloura Engineering
 Status: Complete
 
-## Stream 1: P0 Test Coverage (Security-Critical)
+## Fixes Implemented
 
-Write tests for the 3 P0 untested security paths:
-
-- [x] `FileOrganizer.validatePathSafety` — 5 tests: `../../tmp/evil`, `normal/../../../etc`, normal subfolder baseline, `%2F` encoded slash, deep `../` chain (in FileOrganizerTests.swift)
-- [x] `HistoryCrypto` — 16 tests: encrypt/decrypt round-trip (normal/empty/large), corrupted ciphertext, truncated data, version-byte-only, key auto-creation, key persistence across resets, HKDF purpose separation (different ciphertexts, cross-decrypt failure, same-purpose round-trip), version byte 0x01 prefix, minimum length, legacy raw-key decryption, directory 0700 perms, key file 0600 perms (new SecurityTests/HistoryCryptoTests.swift)
-- [x] `LicenseManager.activate()/revalidateLicense()` — 15 tests: valid activation, refunded/disputed/chargebacked purchase, invalid JSON, HTTP 500, oversized response >1MB, wrong host redirect, success=false, network error, revalidation with refund revokes, network error during revalidation does NOT revoke, oversized revalidation response skips, wrong host revalidation skips, valid revalidation updates timestamp (new AppTests/LicenseManagerNetworkTests.swift)
-
-## Stream 2: P1 Test Coverage (Core Functionality)
-
-- [x] `ClipboardManager` — 13 tests: copyImage (TIFF+PNG on pasteboard), copyMultiFormat (4 types), pasteboard clearing, copyOCRText, copyAsMarkdown, edge cases
-- [x] `ScreenCaptureManager` — 11 tests: resetSCKState, initial state, degenerate rect rejection, CaptureError descriptions
-- [x] `CapturePipeline` — SKIPPED: blocked by singleton coupling (ScreenCaptureManager.shared, AppState.shared, AppSettings.shared, PresetManager.shared, ContextDetector, QuickAccessOverlay.shared) — needs protocol-based injection refactoring first
-
-## Stream 3: LOW/INFO Code Cleanup
-
-- [x] Remove 11 redundant `import Foundation` statements (files that already import AppKit/SwiftUI)
-- [x] Remove `import AppKit` from OCREngine.swift (only uses Vision/CoreGraphics)
-- [x] Remove unused Codable conformances: PermissionIdentity, AppCategory
-- [x] Remove unused CaseIterable: CopyMode
-- [x] Remove unused error case: HistoryCryptoError.unknownKeyVersion
-
-## Stream 4: Architecture — Window Controller Extraction
-
-- [x] Create `SingleWindowPresenter<Content: View>` generic with WindowConfig (title, size, styleMask, minSize, autosaveName)
-- [x] Refactor OnboardingWindowController to use it
-- [x] Refactor NagWindowController to use it
-- [x] Refactor PreferencesWindowController to use it
-- [x] Refactor HistoryWindowController to use it
-- [x] Refactor AnnotationWindowController to use it
-- [x] Verify all 5 windows still open/close/bring-to-front correctly (`swift build` clean, `swiftlint lint --quiet` clean)
-
-## Stream 5: Remaining Security Hardening
-
-- [x] Temp file startup cleanup: on app launch, delete stale `caloura-*.png` from NSTemporaryDirectory
-- [x] Clipboard auto-clear: optional 60-second timer after copy, using NSPasteboard.changeCount to avoid clearing user's own copies
-- [x] Preset subfolder sanitization: reject `../` at PresetManager deserialization time (defense-in-depth)
-- [x] Document crypto threat model in code comments (HistoryCrypto.swift header)
-
-## Stream 6: Release 1.0.8 Prep
-
-- [x] Bump MARKETING_VERSION to 1.0.8 and CURRENT_PROJECT_VERSION to 8 in project.yml
-- [x] Bump version in Package.swift if present — no version number in Package.swift (only swift-tools-version), nothing to bump
-- [x] Verify `swift build` passes with new version
-- [x] Verify `swift test` passes (all tests)
-- [x] Verify `swiftlint lint --quiet` clean
-- [x] Update Package.swift swiftLanguageVersions to `[.v5, .v6]` — NOT POSSIBLE: `.v6` requires swift-tools-version 6.0, but package is at 5.9. Left as `[.v5]`.
+- [x] Fix 6 (P1): Surface file save errors to user (`CapturePipeline.swift:141`)
+  - Added `appState.statusMessage = "Save failed: \(desc)"` in catch block
+- [x] Fix 7 (P1): Add `totalCostLimit` to thumbnail cache (`HistoryView.swift:7-8,387`)
+  - Set `cache.totalCostLimit = 50 * 1024 * 1024` (50 MB)
+  - Pass `cost: cgThumb.width * cgThumb.height * 4` to `setObject`
+- [x] Fix 8 (P2): Cap undo/redo stacks at 30 levels (`AnnotationOverlay.swift:139`)
+  - Added `if undoStack.count >= 30 { undoStack.removeFirst() }` before append
+- [x] Fix 9 (ADV): Clear `lastScreenshot` after 5 min idle (`AppState.swift`)
+  - Added `lastScreenshotTimer: Timer?` stored property
+  - Added `didSet` on `lastScreenshot` that schedules 5-min timer to nil it
+  - Timer uses `[weak self]` to avoid retain cycles
+- [x] Fix 10 (ADV): Downscale pinned image to window size (`PinnedScreenshotWindow.swift`)
+  - When `scale < 1.0`, draws full image into new `NSImage` at `windowSize`
+  - Uses `lockFocus`/`draw`/`unlockFocus` pattern
+  - Downscaled image passed to both `PinnedScreenshotView` and `onCopy` closure
 
 ## Verification
 
-- [x] `swift test` passes — 209 tests, 0 failures (exceeds 170+ target)
-- [x] `swiftlint lint --quiet` clean — 0 warnings, 0 errors
-- [x] `swift build` passes — Build complete (0.23s)
-- [x] Fixed lint violations in test files written by parallel agents:
-  - LicenseManagerNetworkTests.swift: replaced `try!` with `try` (3 occurrences), `class func` with `static func` (2 occurrences), removed per-test MARK comments to bring file from 417 to 391 lines (under 400 limit)
-  - HistoryCryptoTests.swift: renamed `testLegacyFormat_rawMasterKey_decrypts` to `testLegacyFormat_rawRootKey_decrypts` (inclusive_language violation)
-
-### Evidence (2026-02-05)
+- [x] `swift build` — clean (2.70s)
+- [x] `swift test` — 209 tests, 0 failures (4.23s)
+- [x] `swiftlint lint --quiet` — zero warnings
 
 ```
 $ swift build
-Build complete! (0.23s)
+Build complete! (2.70s)
 
 $ swift test
-Executed 209 tests, with 0 failures (0 unexpected) in 4.231 seconds
+Executed 209 tests, with 0 failures (0 unexpected) in 4.208 (4.228) seconds
 
 $ swiftlint lint --quiet
 (no output — clean)
 ```
+
+## Remaining Deferred Items
+
+| # | Sev | Finding | Reason |
+|---|-----|---------|--------|
+| 5 | P1 | Commit `publish.sh` and `release.sh` changes | Script commit, not code fix |
+| 11 | ADV | CapturePipeline zero test coverage | Requires protocol injection refactor |
+
+---
+
+# Task 15 — Comprehensive Stability & Optimization Audit
+
+Date: 2026-02-06
+Owner: Caloura Engineering
+Status: Complete
+
+## Phase 1: Parallel Audit (7 streams)
+
+- [x] Stream 1: Concurrency Safety audit
+- [x] Stream 2: Memory & Performance audit
+- [x] Stream 3: Error Handling & Resilience audit
+- [x] Stream 4: Security Hardening audit
+- [x] Stream 5: Test Coverage Gaps audit
+- [x] Stream 6: Build & Release Pipeline audit
+- [x] Stream 7: Dead Code & Hygiene audit
+
+## Phase 2: Triage & Consolidate
+
+- [x] Merge all findings into prioritized list
+- [x] Deduplicate cross-stream findings
+- [x] Group into implementation tasks
+
+## Phase 3: Fix Implementation
+
+### P0 Fixes (data loss, crashes)
+- [x] Add `applicationWillTerminate` to flush pending saves (`CalouraApp.swift`)
+  - Changed `AppState.saveHistoryNow()` from private to internal
+  - Changed `AppSettings.saveAllSettings()` from private to internal
+  - Added `applicationWillTerminate` handler calling both
+- [x] Guard empty `filePath` in HistoryView open/reveal/copy actions (`HistoryView.swift`)
+
+### P1 Fixes (error handling gaps)
+- [x] Guard `pngData`/`tiffData` — don't cache `Data()` on encoding failure (`ProcessedScreenshot.swift`)
+  - Failure now returns `Data()` without caching, allowing retry on next access
+- [ ] Commit uncommitted scripts (deferred — not in scope of code fixes)
+
+### P2 Fixes (dead code, documentation)
+- [x] Fix QuickAccessOverlay docstring: "5 seconds" → "3 seconds" (`QuickAccessOverlay.swift`)
+- [x] Redundant Foundation imports — skipped (harmless, low value)
+
+### New Tests
+- [ ] ProcessedScreenshot encoding failure tests (deferred — requires mock ImageProcessor)
+- [ ] CapturePipeline tests (deferred — requires protocol injection refactor)
+
+## Phase 4: Verification
+
+- [x] `swift build` — clean (3.37s)
+- [x] `swift test` — 209 tests, 0 failures (4.29s)
+- [x] `swiftlint lint --quiet` — zero warnings
+- [x] Update evidence section
+- [x] Update `tasks/lessons.md` with discoveries
+
+## Verification / Evidence
+
+```
+$ swift build
+Build complete! (3.37s)
+
+$ swift test
+Executed 209 tests, with 0 failures (0 unexpected) in 4.291 (4.308) seconds
+
+$ swiftlint lint --quiet
+(no output — clean)
+```
+
+## Consolidated Audit Findings (for future reference)
+
+### Implemented (Task 15)
+| # | Sev | Finding | Fix |
+|---|-----|---------|-----|
+| 1 | P0 | No `applicationWillTerminate` — debounced saves lost on quit | Added handler flushing both AppState + AppSettings |
+| 2 | P0 | `openInPreview`/`openInFinder`/`copyImage` no guard on empty filePath | Added `guard !item.filePath.isEmpty` |
+| 3 | P1 | `pngData`/`tiffData` cache `Data()` on failure — 0-byte files | Don't cache on failure, allow retry |
+| 4 | P2 | QuickAccessOverlay comment says "5 seconds", timer is 3.0 | Fixed comment |
+
+### Implemented (Task 16)
+| # | Sev | Finding | Fix |
+|---|-----|---------|-----|
+| 6 | P1 | File save errors silent to user | `appState.statusMessage = "Save failed: ..."` |
+| 7 | P1 | Thumbnail cache no memory limit | `totalCostLimit = 50 MB`, pass cost per entry |
+| 8 | P2 | Undo/redo stacks unbounded | Cap at 30, `removeFirst()` on overflow |
+| 9 | ADV | `lastScreenshot` holds CGImage forever | 5-min timer clears to nil |
+| 10 | ADV | Pinned window holds full-res image | Downscale to window size on pin |
+
+### Remaining Deferred
+| # | Sev | Finding | Reason |
+|---|-----|---------|--------|
+| 5 | P1 | Commit `publish.sh` and `release.sh` changes | Script commit, not code fix |
+| 11 | ADV | CapturePipeline zero test coverage | Requires protocol injection refactor |

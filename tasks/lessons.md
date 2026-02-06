@@ -111,3 +111,17 @@
 - **Root cause**: The `.v6` enum case in `SwiftLanguageMode` is gated behind `@available(_PackageDescription 6)`. It only exists when the manifest declares `swift-tools-version:6.0` or later.
 - **Rule**: Do not add `.v6` to `swiftLanguageVersions` unless the package manifest is upgraded to `swift-tools-version:6.0`. This is a larger migration (new default concurrency semantics, sendability requirements) and should be its own task.
 - **Example**: `swiftLanguageVersions: [.v5, .v6]` with `swift-tools-version:5.9` fails. Must first bump to `swift-tools-version:6.0`.
+
+## 2026-02-06: Debounced saves need synchronous flush on app termination
+
+- **Mistake**: Both `AppState` (500ms) and `AppSettings` (300ms) use debounced persistence — `Task.sleep` before writing. If the app quits during that window, the last change is lost silently.
+- **Root cause**: `applicationWillTerminate` was never implemented. The debounce pattern assumed the app would always stay running long enough for the sleep to complete.
+- **Rule**: Any class with debounced persistence must expose a synchronous `saveNow()` / `saveAllSettings()` method, and `applicationWillTerminate` must call it for every such class.
+- **Example**: Added `applicationWillTerminate` calling `AppState.shared.saveHistoryNow()` and `AppSettings.shared.saveAllSettings()`.
+
+## 2026-02-06: Don't cache failure results in lazy-computed properties
+
+- **Mistake**: `ProcessedScreenshot.pngData` and `tiffData` cached `Data()` (empty) on encoding failure. This meant subsequent accesses returned empty data without retrying — leading to 0-byte files written to disk.
+- **Root cause**: The fallback `?? Data()` was inside the caching block, so the empty result was stored in `_pngData`/`_tiffData` permanently.
+- **Rule**: When using lazy-cache patterns (check cache → compute → store → return), only cache successful results. Return the failure value without caching to allow retry.
+- **Example**: `guard let data = try? ... else { return Data() }` without `_pngData = data` on the failure path.

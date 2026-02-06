@@ -29,6 +29,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let nagController = NagWindowController()
     private var isInitialLaunch = true
 
+    func applicationWillTerminate(_ notification: Notification) {
+        // Flush any pending debounced saves before the app exits.
+        AppState.shared.saveHistoryNow()
+        AppSettings.shared.saveAllSettings()
+    }
+
     func applicationDidBecomeActive(_ notification: Notification) {
         // Skip the first activation — applicationDidFinishLaunching already checks.
         if isInitialLaunch {

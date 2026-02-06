@@ -71,7 +71,9 @@ final class ProcessedScreenshot: @unchecked Sendable {
         }
         dataLock.unlock()
 
-        let data = (try? ImageProcessor.pngRepresentation(of: cgImage)) ?? Data()
+        guard let data = try? ImageProcessor.pngRepresentation(of: cgImage) else {
+            return Data()
+        }
 
         dataLock.lock()
         _pngData = data
@@ -95,7 +97,9 @@ final class ProcessedScreenshot: @unchecked Sendable {
         }
         dataLock.unlock()
 
-        let data = (try? ImageProcessor.tiffRepresentation(of: cgImage)) ?? Data()
+        guard let data = try? ImageProcessor.tiffRepresentation(of: cgImage) else {
+            return Data()
+        }
 
         dataLock.lock()
         _tiffData = data

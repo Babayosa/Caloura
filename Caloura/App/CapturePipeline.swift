@@ -138,6 +138,7 @@ final class CapturePipeline: ObservableObject {
             } catch {
                 let desc = error.localizedDescription
                 logger.error("File save failed: \(desc, privacy: .public)")
+                appState.statusMessage = "Save failed: \(desc)"
             }
         }
 

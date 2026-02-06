@@ -5,6 +5,7 @@ private enum HistoryThumbnailCache {
     static let shared: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
         cache.countLimit = 200
+        cache.totalCostLimit = 50 * 1024 * 1024
         return cache
     }()
 }
@@ -177,15 +178,18 @@ struct HistoryView: View {
     }
 
     private func openInPreview(_ item: ScreenshotItem) {
+        guard !item.filePath.isEmpty else { return }
         NSWorkspace.shared.open(URL(fileURLWithPath: item.filePath))
     }
 
     private func openInFinder(_ item: ScreenshotItem) {
+        guard !item.filePath.isEmpty else { return }
         let url = URL(fileURLWithPath: item.filePath)
         NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: url.deletingLastPathComponent().path)
     }
 
     private func copyImage(_ item: ScreenshotItem) {
+        guard !item.filePath.isEmpty else { return }
         let url = URL(fileURLWithPath: item.filePath)
         guard let image = NSImage(contentsOf: url) else { return }
         let pasteboard = NSPasteboard.general
@@ -381,7 +385,8 @@ struct HistoryGridItem: View {
                 return nil as NSImage?
             }
             let thumbnail = NSImage(cgImage: cgThumb, size: NSSize(width: cgThumb.width, height: cgThumb.height))
-            HistoryThumbnailCache.shared.setObject(thumbnail, forKey: cacheKey as NSString)
+            let cost = cgThumb.width * cgThumb.height * 4
+            HistoryThumbnailCache.shared.setObject(thumbnail, forKey: cacheKey as NSString, cost: cost)
             return thumbnail
         }.value
     }

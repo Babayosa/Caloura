@@ -25,8 +25,8 @@ final class PinnedScreenshotManager {
             return
         }
 
-        let image = screenshot.image
-        let imageSize = image.size
+        let fullImage = screenshot.image
+        let imageSize = fullImage.size
 
         // Scale down if image is larger than half the screen
         let maxSize: CGFloat = 600
@@ -36,15 +36,29 @@ final class PinnedScreenshotManager {
             height: imageSize.height * scale
         )
 
+        // Downscale to window size to avoid holding the full-res bitmap in memory
+        let displayImage: NSImage
+        if scale < 1.0 {
+            let scaled = NSImage(size: windowSize)
+            scaled.lockFocus()
+            fullImage.draw(in: NSRect(origin: .zero, size: windowSize),
+                           from: NSRect(origin: .zero, size: imageSize),
+                           operation: .copy, fraction: 1.0)
+            scaled.unlockFocus()
+            displayImage = scaled
+        } else {
+            displayImage = fullImage
+        }
+
         let title = "Pinned — \(screenshot.fileName.isEmpty ? "Screenshot" : screenshot.fileName)"
         let panel = configurePanel(size: windowSize, title: title)
 
         let pinnedView = PinnedScreenshotView(
-            image: image,
+            image: displayImage,
             onCopy: {
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
-                pasteboard.writeObjects([image])
+                pasteboard.writeObjects([displayImage])
             },
             onClose: { [weak panel] in
                 panel?.close()
