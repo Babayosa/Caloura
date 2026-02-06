@@ -3,21 +3,23 @@ import SwiftUI
 
 /// A floating post-capture toolbar that appears after a screenshot is taken.
 /// Shows action buttons: Copy, Markdown, Citation, Annotate, Pin, Dismiss.
-/// Auto-dismisses after 3 seconds.
+/// Auto-dismisses after 6 seconds; pauses while hovered.
 @MainActor
 final class QuickAccessOverlay {
     static let shared = QuickAccessOverlay()
 
     private var panel: NSPanel?
     private var dismissTimer: Timer?
+    private var currentScreenshot: ProcessedScreenshot?
 
     private init() {}
 
     func show(for screenshot: ProcessedScreenshot) {
         dismiss()
+        currentScreenshot = screenshot
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 52),
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 40),
             styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
@@ -35,10 +37,15 @@ final class QuickAccessOverlay {
         let hostView = NSHostingView(rootView: QuickAccessOverlayView(
             onAction: { [weak self] action in
                 self?.handleAction(action, screenshot: screenshot)
+            },
+            onHoverChanged: { [weak self] hovering in
+                self?.handleHover(hovering, screenshot: screenshot)
             }
         ))
-        hostView.frame = panel.contentRect(forFrameRect: panel.frame)
         panel.contentView = hostView
+
+        let fittingSize = hostView.fittingSize
+        panel.setContentSize(fittingSize)
 
         // Position near bottom-right of the screen where the capture occurred,
         // falling back to the main screen. Validate the stored screen is still
@@ -53,8 +60,7 @@ final class QuickAccessOverlay {
         let targetScreen = validatedScreen ?? NSScreen.main ?? NSScreen.screens.first
         if let screen = targetScreen {
             let screenFrame = screen.visibleFrame
-            let panelSize = hostView.fittingSize
-            let x = screenFrame.maxX - panelSize.width - 20
+            let x = screenFrame.maxX - fittingSize.width - 20
             let y = screenFrame.minY + 20
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
@@ -62,8 +68,8 @@ final class QuickAccessOverlay {
         self.panel = panel
         panel.orderFrontRegardless()
 
-        // Auto-dismiss after 3 seconds
-        dismissTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
+        // Auto-dismiss after 6 seconds
+        dismissTimer = Timer.scheduledTimer(withTimeInterval: 6.0, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 self?.dismiss()
             }
@@ -73,8 +79,22 @@ final class QuickAccessOverlay {
     func dismiss() {
         dismissTimer?.invalidate()
         dismissTimer = nil
+        currentScreenshot = nil
         panel?.close()
         panel = nil
+    }
+
+    private func handleHover(_ hovering: Bool, screenshot: ProcessedScreenshot) {
+        if hovering {
+            dismissTimer?.invalidate()
+            dismissTimer = nil
+        } else {
+            dismissTimer = Timer.scheduledTimer(withTimeInterval: 6.0, repeats: false) { [weak self] _ in
+                Task { @MainActor in
+                    self?.dismiss()
+                }
+            }
+        }
     }
 
     private func handleAction(_ action: QuickAction, screenshot: ProcessedScreenshot) {
@@ -128,6 +148,7 @@ enum QuickAction {
 
 struct QuickAccessOverlayView: View {
     let onAction: (QuickAction) -> Void
+    var onHoverChanged: ((Bool) -> Void)?
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -142,6 +163,9 @@ struct QuickAccessOverlayView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .onHover { hovering in
+            onHoverChanged?(hovering)
+        }
     }
 
     private func overlayButton(title: String, icon: String, action: QuickAction) -> some View {

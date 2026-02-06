@@ -114,6 +114,26 @@ final class CaptureOverlayWindow: NSWindow {
             windows.first { $0.screen == mouseScreen }?.makeKey()
         }
 
+        // Re-assert crosshair after activation completes.
+        // NSApp.activate() is async — when activation finishes, AppKit
+        // recalculates cursor rects and may briefly reset to arrow.
+        // This one-shot observer fires at that exact moment to fix it.
+        let nc = NotificationCenter.default
+        let token = UnsafeMutablePointer<NSObjectProtocol?>.allocate(capacity: 1)
+        token.initialize(to: nil)
+        token.pointee = nc.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            NSCursor.crosshair.set()
+            if let obs = token.pointee {
+                nc.removeObserver(obs)
+            }
+            token.deinitialize(count: 1)
+            token.deallocate()
+        }
+
         return windows
     }
 }

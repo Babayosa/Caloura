@@ -59,6 +59,14 @@ final class RegionSelectionView: NSView {
         addCursorRect(bounds, cursor: .crosshair)
     }
 
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.crosshair.set()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        NSCursor.crosshair.set()
+    }
+
     // MARK: - Drawing
 
     override func draw(_ dirtyRect: NSRect) {

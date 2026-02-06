@@ -139,3 +139,15 @@
 - **Impact**: Minor — the save error is logged. But the user sees "Captured!" even when the file wasn't saved.
 - **Rule**: When testing intermediate statusMessage values in a multi-stage pipeline, either (a) assert on a different signal (e.g., filePath is nil), or (b) collect all messages via a sink closure. Don't assert on the final statusMessage for intermediate errors.
 - **Follow-up**: Consider whether `distributeCapture` should preserve error messages from prior stages.
+
+## 2026-02-06: NSApp.activate() cursor race requires layered defense, not disableCursorRects
+
+- **Mistake**: Used `disableCursorRects()` on the overlay window to prevent AppKit from resetting the cursor during async activation. This completely broke the crosshair — it never appeared at all.
+- **Root cause**: `disableCursorRects()` disables ALL cursor rect processing for the window. The cursor rect system is what normally applies the crosshair via `addCursorRect`. Without it, `push()` alone isn't enough — AppKit doesn't know what cursor to show for that window.
+- **Rule**: Never use `disableCursorRects()` if you depend on `resetCursorRects`/`addCursorRect` to set your cursor. Instead, use a layered defense:
+  1. `NSCursor.crosshair.push()` in `viewDidMoveToWindow` (immediate)
+  2. `resetCursorRects` with `addCursorRect` (declarative)
+  3. `cursorUpdate(with:)` override calling `.set()` (rect recalculation events)
+  4. `didBecomeActiveNotification` one-shot observer calling `.set()` (catches activation race)
+  5. `mouseMoved(with:)` override calling `.set()` (ultimate safety net, Firefox/Mozilla pattern)
+- **Example**: `CaptureOverlayWindow.showOnAllScreens()` adds a one-shot `didBecomeActiveNotification` observer that calls `NSCursor.crosshair.set()` when activation completes. `RegionSelectionView` overrides both `cursorUpdate` and `mouseMoved` to force crosshair.
