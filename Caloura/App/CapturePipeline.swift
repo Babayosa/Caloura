@@ -9,10 +9,39 @@ private let performanceLogger = Logger(subsystem: "com.caloura.app", category: "
 final class CapturePipeline: ObservableObject {
     static let shared = CapturePipeline()
 
+    // MARK: - Closure Type Aliases
+
+    typealias DetectContextFn = () -> DetectedContext
+    typealias ProcessImageFn = (CGImage, CaptureContext, Bool) async -> ProcessedScreenshot
+    typealias SaveFileFn = (ProcessedScreenshot, String, String?, String) async throws -> URL
+    typealias CopyToClipboardFn = (ProcessedScreenshot, CopyMode) async -> Void
+    typealias RecognizeTextFn = (CGImage) async throws -> String
+    typealias HandlePermissionFailureFn = () -> Void
+    typealias ShowQuickAccessFn = (ProcessedScreenshot) -> Void
+    typealias PlaySoundFn = () -> Void
+    typealias PostNotificationFn = (Notification.Name) -> Void
+    typealias PresetForCategoryFn = (AppCategory) -> CapturePreset?
+    typealias PresetByNameFn = (String) -> CapturePreset?
+
+    // MARK: - Dependencies
+
     let captureManager = ScreenCaptureManager.shared
-    let settings = AppSettings.shared
-    let appState = AppState.shared
-    let presetManager = PresetManager.shared
+    let settings: AppSettings
+    let appState: AppState
+    private let detectContext: DetectContextFn
+    private let processImage: ProcessImageFn
+    private let saveFile: SaveFileFn
+    private let copyToClipboard: CopyToClipboardFn
+    private let recognizeText: RecognizeTextFn
+    private let handlePermissionFailure: HandlePermissionFailureFn
+    private let showQuickAccess: ShowQuickAccessFn
+    private let playSoundAction: PlaySoundFn
+    private let postNotification: PostNotificationFn
+    private let presetForCategory: PresetForCategoryFn
+    private let presetByName: PresetByNameFn
+
+    // MARK: - Mutable State
+
     var overlayWindows: [CaptureOverlayWindow] = []
     var screenOverlays: [ScreenSelectionOverlayWindow] = []
     var delayedCaptureTask: Task<Void, Never>?
@@ -26,7 +55,90 @@ final class CapturePipeline: ObservableObject {
         reportInterval: 20
     )
 
-    private init() {}
+    // MARK: - Init (Production)
+
+    private init() {
+        self.settings = AppSettings.shared
+        self.appState = AppState.shared
+        let presetMgr = PresetManager.shared
+        self.detectContext = { ContextDetector.detectContext() }
+        self.processImage = { cgImage, context, smartCrop in
+            await ImageProcessor.process(
+                cgImage: cgImage, context: context, smartCropEnabled: smartCrop
+            )
+        }
+        self.saveFile = { processed, baseDir, subfolder, format in
+            try await FileOrganizer.save(
+                processed, baseDirectory: baseDir,
+                subfolder: subfolder, imageFormat: format
+            )
+        }
+        self.copyToClipboard = { processed, copyMode in
+            switch copyMode {
+            case .image:
+                await ClipboardManager.copyImage(processed)
+            case .markdown:
+                ClipboardManager.copyAsMarkdown(processed)
+            case .citation:
+                ClipboardManager.copyWithCitation(processed)
+            case .multiFormat:
+                await ClipboardManager.copyMultiFormat(processed)
+            }
+        }
+        self.recognizeText = { cgImage in
+            try await OCREngine.recognizeText(in: cgImage)
+        }
+        self.handlePermissionFailure = {
+            PermissionCoordinator.shared.handleCapturePermissionFailure()
+        }
+        self.showQuickAccess = { processed in
+            QuickAccessOverlay.shared.show(for: processed)
+        }
+        self.playSoundAction = {
+            NSSound(named: "Tink")?.play()
+        }
+        self.postNotification = { name in
+            NotificationCenter.default.post(name: name, object: nil)
+        }
+        self.presetForCategory = { category in
+            presetMgr.presetForCategory(category)
+        }
+        self.presetByName = { name in
+            presetMgr.preset(named: name)
+        }
+    }
+
+    // MARK: - Init (Testing)
+
+    init(
+        settings: AppSettings,
+        appState: AppState,
+        detectContext: @escaping DetectContextFn,
+        processImage: @escaping ProcessImageFn,
+        saveFile: @escaping SaveFileFn,
+        copyToClipboard: @escaping CopyToClipboardFn,
+        recognizeText: @escaping RecognizeTextFn,
+        handlePermissionFailure: @escaping HandlePermissionFailureFn,
+        showQuickAccess: @escaping ShowQuickAccessFn,
+        playSoundAction: @escaping PlaySoundFn,
+        postNotification: @escaping PostNotificationFn,
+        presetForCategory: @escaping PresetForCategoryFn,
+        presetByName: @escaping PresetByNameFn
+    ) {
+        self.settings = settings
+        self.appState = appState
+        self.detectContext = detectContext
+        self.processImage = processImage
+        self.saveFile = saveFile
+        self.copyToClipboard = copyToClipboard
+        self.recognizeText = recognizeText
+        self.handlePermissionFailure = handlePermissionFailure
+        self.showQuickAccess = showQuickAccess
+        self.playSoundAction = playSoundAction
+        self.postNotification = postNotification
+        self.presetForCategory = presetForCategory
+        self.presetByName = presetByName
+    }
 
     func elapsedMilliseconds(since start: CFAbsoluteTime) -> Double {
         (CFAbsoluteTimeGetCurrent() - start) * 1000.0
@@ -41,7 +153,7 @@ final class CapturePipeline: ObservableObject {
         let pipelineStart = CFAbsoluteTimeGetCurrent()
         logger.info("Starting capture: mode=\(mode.rawValue)")
         do {
-            let detectedContext = ContextDetector.detectContext()
+            let detectedContext = detectContext()
             let appName = detectedContext.appName
             let windowTitle = detectedContext.windowTitle
             let category = detectedContext.category
@@ -64,8 +176,8 @@ final class CapturePipeline: ObservableObject {
                 addToHistoryWithOCR(processed)
             }
 
-            QuickAccessOverlay.shared.show(for: processed)
-            NotificationCenter.default.post(name: .captureCompleted, object: nil)
+            showQuickAccess(processed)
+            postNotification(.captureCompleted)
             let totalDuration = self.elapsedMilliseconds(since: pipelineStart)
             logger.info(
                 "Capture pipeline finished in \(totalDuration, privacy: .public) ms"
@@ -74,7 +186,7 @@ final class CapturePipeline: ObservableObject {
 
         } catch CaptureError.noPermission {
             logger.warning("Capture failed: no permission")
-            PermissionCoordinator.shared.handleCapturePermissionFailure()
+            handlePermissionFailure()
         } catch {
             logger.error("Capture failed: \(error.localizedDescription)")
             appState.statusMessage = "Capture failed: \(error.localizedDescription)"
@@ -97,21 +209,17 @@ final class CapturePipeline: ObservableObject {
 
         let preset: CapturePreset
         if settings.autoContextDetection {
-            preset = presetManager.presetForCategory(category)
-                ?? presetManager.preset(named: settings.activePreset)
+            preset = presetForCategory(category)
+                ?? presetByName(settings.activePreset)
                 ?? CapturePreset(name: "Quick Capture")
         } else {
-            preset = presetManager.preset(named: settings.activePreset)
+            preset = presetByName(settings.activePreset)
                 ?? CapturePreset(name: "Quick Capture")
         }
 
         let shouldCrop = settings.smartCropEnabled && preset.smartCropEnabled
         let processStart = CFAbsoluteTimeGetCurrent()
-        let processed = await ImageProcessor.process(
-            cgImage: cgImage,
-            context: context,
-            smartCropEnabled: shouldCrop
-        )
+        let processed = await processImage(cgImage, context, shouldCrop)
         let processDuration = elapsedMilliseconds(since: processStart)
         logger.debug(
             "Image processing completed in \(processDuration, privacy: .public) ms"
@@ -122,11 +230,11 @@ final class CapturePipeline: ObservableObject {
         if settings.autoSaveToDisk {
             let saveStart = CFAbsoluteTimeGetCurrent()
             do {
-                let fileURL = try await FileOrganizer.save(
+                let fileURL = try await saveFile(
                     processed,
-                    baseDirectory: settings.saveDirectory,
-                    subfolder: preset.subfolder,
-                    imageFormat: settings.imageFormat
+                    settings.saveDirectory,
+                    preset.subfolder,
+                    settings.imageFormat
                 )
                 let saveDuration = elapsedMilliseconds(since: saveStart)
                 logger.debug(
@@ -153,16 +261,7 @@ final class CapturePipeline: ObservableObject {
     ) async {
         if settings.autoCopyToClipboard {
             let clipboardStart = CFAbsoluteTimeGetCurrent()
-            switch preset.copyMode {
-            case .image:
-                await ClipboardManager.copyImage(processed)
-            case .markdown:
-                ClipboardManager.copyAsMarkdown(processed)
-            case .citation:
-                ClipboardManager.copyWithCitation(processed)
-            case .multiFormat:
-                await ClipboardManager.copyMultiFormat(processed)
-            }
+            await copyToClipboard(processed, preset.copyMode)
             let clipDuration = elapsedMilliseconds(since: clipboardStart)
             logger.debug(
                 "Clipboard stage completed in \(clipDuration, privacy: .public) ms"
@@ -171,7 +270,7 @@ final class CapturePipeline: ObservableObject {
         }
 
         if settings.playCaptureSound {
-            NSSound(named: "Tink")?.play()
+            playSoundAction()
         }
 
         appState.lastScreenshot = processed
@@ -190,18 +289,19 @@ final class CapturePipeline: ObservableObject {
         ocrTask?.cancel()
 
         let cgImageForOCR = processed.cgImage
+        let recognizeTextFn = self.recognizeText
+        let capturedAppState = self.appState
         ocrTask = Task.detached {
             do {
                 guard !Task.isCancelled else { return }
-                let text = try await OCREngine.recognizeText(in: cgImageForOCR)
+                let text = try await recognizeTextFn(cgImageForOCR)
                 guard !Task.isCancelled else { return }
                 guard !text.isEmpty else { return }
                 await MainActor.run {
-                    let state = AppState.shared
-                    guard let index = state.recentScreenshots.firstIndex(
+                    guard let index = capturedAppState.recentScreenshots.firstIndex(
                         where: { $0.id == screenshotID }
                     ) else { return }
-                    let item = state.recentScreenshots[index]
+                    let item = capturedAppState.recentScreenshots[index]
                     let updated = ScreenshotItem(
                         id: item.id,
                         timestamp: item.timestamp,
@@ -217,8 +317,8 @@ final class CapturePipeline: ObservableObject {
                         title: item.title,
                         tags: item.tags
                     )
-                    state.recentScreenshots[index] = updated
-                    state.saveHistory()
+                    capturedAppState.recentScreenshots[index] = updated
+                    capturedAppState.saveHistory()
                 }
             } catch {
                 guard !Task.isCancelled else { return }

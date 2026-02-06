@@ -125,3 +125,17 @@
 - **Root cause**: The fallback `?? Data()` was inside the caching block, so the empty result was stored in `_pngData`/`_tiffData` permanently.
 - **Rule**: When using lazy-cache patterns (check cache → compute → store → return), only cache successful results. Return the failure value without caching to allow retry.
 - **Example**: `guard let data = try? ... else { return Data() }` without `_pngData = data` on the failure path.
+
+## 2026-02-06: Test temp file paths must be unique per invocation
+
+- **Mistake**: Used `FileManager.default.temporaryDirectory.appendingPathComponent("pipeline-test-\(testName).json")` for `AppState`'s `historyStoreURL` in tests. The file persisted between test runs, so `AppState.init` loaded stale history and the test assertion `count == 0` failed.
+- **Root cause**: `AppState.init(historyStoreURL:)` loads history from disk if the file exists. Temp files survive test runs.
+- **Rule**: Always include `UUID().uuidString` in temp file paths used for test isolation. This guarantees a fresh file on every test invocation.
+- **Example**: `appendingPathComponent("pipeline-test-\(testName)-\(UUID().uuidString).json")`
+
+## 2026-02-06: Pipeline statusMessage gets overwritten by later stages
+
+- **Discovery**: `processCapture` sets `statusMessage = "Save failed: ..."` on disk error, but `distributeCapture` immediately overwrites it with `"Captured!"`. The save failure message is never visible to the user.
+- **Impact**: Minor — the save error is logged. But the user sees "Captured!" even when the file wasn't saved.
+- **Rule**: When testing intermediate statusMessage values in a multi-stage pipeline, either (a) assert on a different signal (e.g., filePath is nil), or (b) collect all messages via a sink closure. Don't assert on the final statusMessage for intermediate errors.
+- **Follow-up**: Consider whether `distributeCapture` should preserve error messages from prior stages.

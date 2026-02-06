@@ -1,3 +1,56 @@
+# Task 17 — Make CapturePipeline Testable via Closure-Based DI
+
+Date: 2026-02-06
+Owner: Caloura Engineering
+Status: Complete
+
+## Plan Checklist
+
+### Worker A: Refactor CapturePipeline.swift
+- [x] A1. Add 11 typealiases for closure signatures
+- [x] A2. Replace hardcoded singleton properties with injectable closures
+- [x] A3. Add dual init (private production + internal testing)
+- [x] A4. Update `performCapture` body to use injected closures
+- [x] A5. Update `processCapture` body to use injected closures
+- [x] A6. Update `distributeCapture` body to use injected closures
+- [x] A7. Update `addToHistoryWithOCR` body — fix `AppState.shared` bug on line 200
+
+### Worker B: Write Tests
+- [x] B1. Create `CapturePipelineTestHelpers.swift` with `makePipeline()` factory
+- [x] B2. Create `CapturePipelineTests.swift` with 15 test cases
+
+### Manager: Verification Gate
+- [x] C1. `swift build` — clean
+- [x] C2. `swift test` — 224 tests, 0 failures
+- [x] C3. `swiftlint lint --quiet` — zero warnings
+- [x] C4. Verify EntryPoints + Distribution files untouched
+- [x] C5. Update tasks/lessons.md
+
+## Verification / Evidence
+
+```
+$ swift build
+Build complete! (0.20s)
+
+$ swift test
+Executed 224 tests, with 0 failures (0 unexpected) in 4.212 (4.231) seconds
+
+$ swiftlint lint --quiet
+(no output — clean)
+
+$ git status --short
+ M Caloura/App/CapturePipeline.swift
+ M tasks/todo.md
+?? CalouraTests/AppTests/CapturePipelineTests.swift
+?? CalouraTests/Helpers/CapturePipelineTestHelpers.swift
+```
+
+**Files changed:** Only `CapturePipeline.swift` modified (refactored). EntryPoints and Distribution untouched.
+**New files:** `CapturePipelineTests.swift` (15 tests), `CapturePipelineTestHelpers.swift` (test factory).
+**Bug fixed:** `addToHistoryWithOCR` no longer hardcodes `AppState.shared` — uses captured `self.appState` for testability and correctness.
+
+---
+
 # Task 16 — Implement Deferred Audit Fixes
 
 Date: 2026-02-06
