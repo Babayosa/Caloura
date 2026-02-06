@@ -28,7 +28,7 @@ struct MenuBarView: View {
         } label: {
             Label("Capture Area", systemImage: "rectangle.dashed")
         }
-        .keyboardShortcut("4", modifiers: [.control, .shift])
+        .keyboardShortcut("4", modifiers: [.command, .shift])
         .disabled(appState.isCapturing)
 
         Button {
@@ -36,7 +36,7 @@ struct MenuBarView: View {
         } label: {
             Label("Capture Window", systemImage: "macwindow")
         }
-        .keyboardShortcut("5", modifiers: [.control, .shift])
+        .keyboardShortcut("5", modifiers: [.command, .shift])
         .disabled(appState.isCapturing)
 
         Button {
@@ -44,7 +44,7 @@ struct MenuBarView: View {
         } label: {
             Label("Capture Full Screen", systemImage: "rectangle.inset.filled")
         }
-        .keyboardShortcut("3", modifiers: [.control, .shift])
+        .keyboardShortcut("3", modifiers: [.command, .shift])
         .disabled(appState.isCapturing)
 
         Button {

@@ -294,10 +294,10 @@ struct GeneralPreferencesView: View {
 // MARK: - Shortcuts Preferences
 
 extension KeyboardShortcuts.Name {
-    static let captureArea = Self("captureArea", default: .init(.four, modifiers: [.control, .shift]))
-    static let captureWindow = Self("captureWindow", default: .init(.five, modifiers: [.control, .shift]))
-    static let captureFullscreen = Self("captureFullscreen", default: .init(.three, modifiers: [.control, .shift]))
-    static let captureRepeat = Self("captureRepeat", default: .init(.r, modifiers: [.control, .shift]))
+    static let captureArea = Self("captureArea", default: .init(.four, modifiers: [.command, .shift]))
+    static let captureWindow = Self("captureWindow", default: .init(.five, modifiers: [.command, .shift]))
+    static let captureFullscreen = Self("captureFullscreen", default: .init(.three, modifiers: [.command, .shift]))
+    static let captureRepeat = Self("captureRepeat", default: .init(.r, modifiers: [.command, .shift]))
     static let copyAsMarkdown = Self("copyAsMarkdown")
     static let copyWithCitation = Self("copyWithCitation")
     static let copyOCRText = Self("copyOCRText")
