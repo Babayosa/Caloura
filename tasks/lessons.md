@@ -88,6 +88,27 @@
 - **Rule**: `SPUStandardUpdaterController` takes its delegate only at init. Use a separate `NSObject` delegate proxy, pass at init, wire closures back.
 - **Example**: `UpdateDelegateHandler` created first, passed to init, then closures connect to `UpdateManager`.
 
+## Swift Concurrency
+
+### Package.swift swift-tools-version for macOS 26
+- **Rule**: macOS 26 requires `swift-tools-version:6.2` in Package.swift. Use `.swiftLanguageMode(.v5)` on targets to avoid Swift 6 strict concurrency errors while still targeting the new SDK.
+- **Context**: `.macOS(.v26)` was introduced in PackageDescription 6.2. Earlier tool versions don't recognize it.
+
+### withThrowingTaskGroup nil return types
+- **Rule**: When a `withThrowingTaskGroup` closure returns an optional type (e.g., `String?`), annotate the outer variable with explicit type (e.g., `let response: String? = ...`) and use `nil as String?` for typed nil returns. Swift cannot infer optionality from bare `nil`.
+
+### CGWindowListCreateImage removed in macOS 26
+- **Rule**: `CGWindowListCreateImage` is unavailable on macOS 26+. Use ScreenCaptureKit (`SCShareableContent` + `SCScreenshotManager`) instead for screen/window capture.
+
+## AI Features Architecture
+
+### Detached task AI processing
+- **Rule**: Extract AI post-processing (PII detection, embeddings, metadata) into file-scope helper functions, not class methods on @MainActor types. Avoids Sendable issues when called from `Task.detached`.
+- **Example**: `detectPIIIfEnabled()`, `generateEmbeddingIfEnabled()`, `generateSmartMetadataIfEnabled()` as private file-scope functions in CapturePipeline.swift.
+
+### SwiftLint function complexity
+- **Rule**: When a pipeline function exceeds complexity limits after adding features, extract logical stages into helper functions. Each stage (PII, embedding, metadata) gets its own function. Use `// swiftlint:disable file_length` and `type_body_length` at file level for naturally large files.
+
 ## Process
 
 ### Documentation drift

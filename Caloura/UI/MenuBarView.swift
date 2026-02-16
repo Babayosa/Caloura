@@ -122,6 +122,20 @@ struct MenuBarView: View {
             }
             .disabled(appState.lastScreenshot == nil)
 
+            Button {
+                NotificationCenter.default.post(name: .beautifyLastCapture, object: nil)
+            } label: {
+                Label("Beautify Last", systemImage: "sparkles")
+            }
+            .disabled(appState.lastScreenshot == nil)
+
+            Button {
+                NotificationCenter.default.post(name: .redactLastCapture, object: nil)
+            } label: {
+                Label("Redact PII", systemImage: "eye.slash")
+            }
+            .disabled(appState.lastScreenshot == nil)
+
             Divider()
 
             Menu("Preset: \(settings.activePreset)") {
@@ -184,4 +198,6 @@ extension Notification.Name {
     static let captureCompleted = Notification.Name("captureCompleted")
     static let showSettings = Notification.Name("showSettings")
     static let cancelDelayedCapture = Notification.Name("cancelDelayedCapture")
+    static let beautifyLastCapture = Notification.Name("beautifyLastCapture")
+    static let redactLastCapture = Notification.Name("redactLastCapture")
 }

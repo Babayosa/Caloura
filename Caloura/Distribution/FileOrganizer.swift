@@ -68,11 +68,12 @@ struct FileOrganizer {
         return savedURL
     }
 
-    /// Generate filename: Caloura_HH-mm-ss_AppName.{ext}
-    static func generateFileName(for screenshot: ProcessedScreenshot, imageFormat: String = "png") -> String {
-        let timeStr = timeFormatter.string(from: screenshot.context.timestamp)
-        let appName = sanitizeFileName(screenshot.context.sourceAppName ?? "Unknown")
-
+    /// Generate filename: uses smartFileName if available, otherwise Caloura_HH-mm-ss_AppName.{ext}
+    static func generateFileName(
+        for screenshot: ProcessedScreenshot,
+        imageFormat: String = "png",
+        smartFileName: String? = nil
+    ) -> String {
         let ext: String
         switch imageFormat {
         case "jpeg": ext = "jpeg"
@@ -80,6 +81,15 @@ struct FileOrganizer {
         default: ext = "png"
         }
 
+        if let smart = smartFileName {
+            let sanitized = sanitizeFileName(smart)
+            if sanitized != "Unknown" {
+                return "\(sanitized).\(ext)"
+            }
+        }
+
+        let timeStr = timeFormatter.string(from: screenshot.context.timestamp)
+        let appName = sanitizeFileName(screenshot.context.sourceAppName ?? "Unknown")
         return "Caloura_\(timeStr)_\(appName).\(ext)"
     }
 

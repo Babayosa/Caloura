@@ -2,7 +2,7 @@ name: Caloura
 options:
   bundleIdPrefix: com.caloura
   deploymentTarget:
-    macOS: "14.0"
+    macOS: "26.0"
   xcodeVersion: "15.0"
   createIntermediateGroups: true
   defaultConfig: Debug
@@ -18,7 +18,7 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "5.9"
-    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
     MARKETING_VERSION: "1.1.0"
     CURRENT_PROJECT_VERSION: "13"
     SWIFT_STRICT_CONCURRENCY: complete
@@ -59,7 +59,7 @@ targets:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundlePackageType: APPL
         CFBundleExecutable: Caloura
-        LSMinimumSystemVersion: "14.0"
+        LSMinimumSystemVersion: "26.0"
         LSUIElement: true
         NSScreenCaptureUsageDescription: "Caloura needs screen recording access to capture screenshots."
         SUPublicEDKey: "jvH62SR8OsHYcY9lPGDneNLbOWijs5GGempwmXnEUL8="

@@ -1,10 +1,10 @@
-// swift-tools-version:5.9
+// swift-tools-version:6.2
 import PackageDescription
 
 let package = Package(
     name: "Caloura",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v26)
     ],
     products: [
         .library(name: "Caloura", targets: ["Caloura"])
@@ -24,13 +24,18 @@ let package = Package(
             exclude: [
                 "Resources",
                 "App/CalouraApp.swift"
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
             ]
         ),
         .testTarget(
             name: "CalouraTests",
             dependencies: ["Caloura"],
-            path: "CalouraTests"
+            path: "CalouraTests",
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
+            ]
         )
-    ],
-    swiftLanguageVersions: [.v5]
+    ]
 )

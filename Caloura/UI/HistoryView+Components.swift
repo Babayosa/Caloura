@@ -25,6 +25,26 @@ struct TagChip: View {
     }
 }
 
+// MARK: - Auto Tag Chip (AI-generated, no remove button)
+
+struct AutoTagChip: View {
+    let tag: String
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Image(systemName: "sparkle")
+                .font(.system(size: 6))
+            Text(tag)
+                .font(.system(size: 10))
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(Color.purple.opacity(0.12))
+        .foregroundStyle(.purple)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+    }
+}
+
 // MARK: - Flow Layout
 
 struct FlowLayout: Layout {

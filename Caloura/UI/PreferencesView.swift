@@ -275,6 +275,33 @@ struct GeneralPreferencesView: View {
                     .pickerStyle(.segmented)
                 }
             }
+
+            Section("Appearance") {
+                Picker("Beautify Theme", selection: $settings.beautifyThemeName) {
+                    ForEach(BeautifyTheme.builtInThemes) { theme in
+                        Text(theme.name).tag(theme.name)
+                    }
+                }
+            }
+
+            Section("AI Features") {
+                Toggle("Smart names, summaries & tags", isOn: $settings.smartMetadataEnabled)
+                Toggle("Semantic search", isOn: $settings.semanticSearchEnabled)
+                Text("Uses on-device AI to generate descriptive filenames, "
+                    + "one-line summaries, topic tags, and meaning-based search. "
+                    + "No data leaves your Mac.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Privacy") {
+                Toggle("Auto-detect sensitive info (PII)", isOn: $settings.autoDetectPII)
+                Text("Scans screenshots for emails, phone numbers, credit cards, "
+                    + "API keys, and other sensitive data. Detected items appear "
+                    + "in the Quick Access overlay for review before redaction.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
     }

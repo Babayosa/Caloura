@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 import AppKit
 import os.log
 import ScreenCaptureKit
@@ -6,6 +7,7 @@ private let logger = Logger(subsystem: "com.caloura.app", category: "CapturePipe
 private let performanceLogger = Logger(subsystem: "com.caloura.app", category: "CapturePerformance")
 
 @MainActor
+// swiftlint:disable:next type_body_length
 final class CapturePipeline: ObservableObject {
     static let shared = CapturePipeline()
 
@@ -320,6 +322,23 @@ final class CapturePipeline: ObservableObject {
                     capturedAppState.recentScreenshots[index] = updated
                     capturedAppState.saveHistory()
                 }
+
+                // AI post-processing
+                await detectPIIIfEnabled(
+                    cgImage: cgImageForOCR,
+                    screenshotID: screenshotID,
+                    appState: capturedAppState
+                )
+                await generateEmbeddingIfEnabled(
+                    text: text,
+                    screenshotID: screenshotID,
+                    appState: capturedAppState
+                )
+                await generateSmartMetadataIfEnabled(
+                    text: text,
+                    screenshotID: screenshotID,
+                    appState: capturedAppState
+                )
             } catch {
                 guard !Task.isCancelled else { return }
                 let desc = error.localizedDescription
@@ -349,5 +368,79 @@ final class CapturePipeline: ObservableObject {
         performanceLogger.info(
             "metric_percentiles \(name, privacy: .public) p50=\(p50, privacy: .public) p95=\(p95, privacy: .public)"
         )
+    }
+}
+
+// MARK: - AI Post-Processing Helpers
+
+private func detectPIIIfEnabled(
+    cgImage: CGImage,
+    screenshotID: UUID,
+    appState: AppState
+) async {
+    let enabled = await MainActor.run { AppSettings.shared.autoDetectPII }
+    guard enabled else { return }
+    do {
+        let detections = try await PIIDetector.detect(in: cgImage)
+        guard !detections.isEmpty else { return }
+        await MainActor.run {
+            appState.lastPIIResult = PIIDetectionResult(
+                detections: detections,
+                screenshotID: screenshotID
+            )
+        }
+    } catch {
+        // PII detection failure is non-fatal
+    }
+}
+
+private func generateEmbeddingIfEnabled(
+    text: String,
+    screenshotID: UUID,
+    appState: AppState
+) async {
+    let enabled = await MainActor.run {
+        AppSettings.shared.semanticSearchEnabled
+    }
+    guard enabled, !text.isEmpty else { return }
+    guard let vector = EmbeddingEngine.embed(text) else { return }
+    let textHash = String(text.hashValue)
+    let store = await MainActor.run { appState.embeddingStore }
+    store.add(
+        screenshotID: screenshotID,
+        vector: vector,
+        textHash: textHash
+    )
+    store.save()
+}
+
+private func generateSmartMetadataIfEnabled(
+    text: String,
+    screenshotID: UUID,
+    appState: AppState
+) async {
+    let enabled = await MainActor.run {
+        AppSettings.shared.smartMetadataEnabled
+    }
+    guard enabled, !text.isEmpty else { return }
+    let sourceApp = await MainActor.run {
+        appState.recentScreenshots
+            .first { $0.id == screenshotID }?.sourceAppName
+    }
+    let windowTitle = await MainActor.run {
+        appState.recentScreenshots
+            .first { $0.id == screenshotID }?.sourceWindowTitle
+    }
+    guard let metadata = await SmartMetadataGenerator.shared.generate(
+        ocrText: text, sourceApp: sourceApp, windowTitle: windowTitle
+    ) else { return }
+    await MainActor.run {
+        guard let idx = appState.recentScreenshots.firstIndex(
+            where: { $0.id == screenshotID }
+        ) else { return }
+        appState.recentScreenshots[idx].smartFileName = metadata.smartFileName
+        appState.recentScreenshots[idx].summary = metadata.summary
+        appState.recentScreenshots[idx].autoTags = metadata.tags
+        appState.saveHistory()
     }
 }

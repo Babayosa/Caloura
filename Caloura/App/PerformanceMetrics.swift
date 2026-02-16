@@ -10,6 +10,10 @@ enum PerformanceMetricStage: String {
     case clipboard
     case total
     case historyWindowOpen = "history_window_open"
+    case piiDetection = "pii_detection"
+    case beautification
+    case embeddingGeneration = "embedding_generation"
+    case metadataGeneration = "metadata_generation"
 }
 
 struct PerformanceMetricSummary {

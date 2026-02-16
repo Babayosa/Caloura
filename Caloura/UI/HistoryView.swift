@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 import SwiftUI
 import os.log
 
@@ -44,20 +45,32 @@ struct HistoryView: View {
     @State private var searchText = ""
     @State private var selectedItem: ScreenshotItem?
     @State private var itemToDelete: ScreenshotItem?
+    @State private var semanticResults: Set<UUID> = []
+    @State private var semanticSearchTask: Task<Void, Never>?
 
     private var filteredScreenshots: [ScreenshotItem] {
         if searchText.isEmpty {
             return appState.recentScreenshots
         }
         let query = searchText.lowercased()
-        return appState.recentScreenshots.filter { item in
+
+        // Substring match (instant, exact) — includes new fields
+        let substringMatches = appState.recentScreenshots.filter { item in
             (item.title?.lowercased().contains(query) ?? false) ||
             (item.sourceAppName?.lowercased().contains(query) ?? false) ||
             (item.sourceWindowTitle?.lowercased().contains(query) ?? false) ||
             (item.ocrText?.lowercased().contains(query) ?? false) ||
+            (item.summary?.lowercased().contains(query) ?? false) ||
             item.fileName.lowercased().contains(query) ||
-            item.tags.contains { $0.lowercased().contains(query) }
+            item.tags.contains { $0.lowercased().contains(query) } ||
+            item.autoTags.contains { $0.lowercased().contains(query) }
         }
+        if !substringMatches.isEmpty { return substringMatches }
+
+        // Semantic fallback uses pre-computed debounced results
+        guard AppSettings.shared.semanticSearchEnabled,
+              !semanticResults.isEmpty else { return [] }
+        return appState.recentScreenshots.filter { semanticResults.contains($0.id) }
     }
 
     private let columns = [
@@ -164,6 +177,8 @@ struct HistoryView: View {
             Button("Delete", role: .destructive) {
                 if let item = itemToDelete {
                     appState.recentScreenshots.removeAll { $0.id == item.id }
+                    appState.embeddingStore.remove(screenshotID: item.id)
+                    appState.embeddingStore.save()
                     appState.saveHistory()
                 }
                 itemToDelete = nil
@@ -173,6 +188,21 @@ struct HistoryView: View {
             }
         } message: {
             Text("Are you sure you want to remove this screenshot from history?")
+        }
+        .onChange(of: searchText) { _, newValue in
+            semanticSearchTask?.cancel()
+            semanticResults = []
+            guard !newValue.isEmpty,
+                  AppSettings.shared.semanticSearchEnabled else { return }
+            semanticSearchTask = Task {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                let results = EmbeddingEngine.search(
+                    query: newValue,
+                    in: appState.embeddingStore
+                )
+                semanticResults = Set(results.map(\.id))
+            }
         }
         .frame(minWidth: 400, minHeight: 300)
     }
@@ -267,17 +297,29 @@ struct HistoryGridItem: View {
                     }
                 }
 
+                // Summary
+                if let summary = item.summary {
+                    Text(summary)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
                 Text(item.timestamp, style: .time)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
 
-                // Tags
-                if !item.tags.isEmpty || isSelected {
+                // Tags (manual + auto)
+                if !item.tags.isEmpty || !item.autoTags.isEmpty || isSelected {
                     FlowLayout(spacing: 3) {
                         ForEach(item.tags, id: \.self) { tag in
                             TagChip(tag: tag) {
                                 removeTag(tag)
                             }
+                        }
+
+                        ForEach(item.autoTags, id: \.self) { tag in
+                            AutoTagChip(tag: tag)
                         }
 
                         if isSelected {

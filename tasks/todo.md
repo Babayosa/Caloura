@@ -1,53 +1,102 @@
-# Task 19 — Onboarding UI Redesign (Warmer, Friendlier)
+# Task 20 — AI Features Implementation
 
-Date: 2026-02-06
+Date: 2026-02-16
 Owner: Caloura Engineering
 Status: Complete
 
-## Plan Checklist
+## Phase 1: Foundation
 
-### Implementation
-- [x] 1. Window size: 500x400 → 540x460 (both `.frame()` and `WindowConfig`)
-- [x] 2. Warm background gradient (ZStack, 4% orange tint at bottom)
-- [x] 3. Progress indicator: bar → animated dot stepper
-- [x] 4. Permission step: hero app icon (80x80, shadow, scale-in) + material card
-- [x] 5. Permission step: status icons per state (contextual SF Symbols)
-- [x] 6. First capture step: green checkmark with glow + `.symbolEffect(.bounce)`
-- [x] 7. First capture step: shortcuts in material card with descriptions
-- [x] 8. First capture step: "Take Your First Screenshot" as `.borderedProminent .controlSize(.large)`
-- [x] 9. Navigation footer: chevron icons, Finish as `.bordered`, animation 0.3s
-- [x] 10. Copy changes per plan spec
+- [x] 1a. Bump deployment target to macOS 26 in project.yml
+- [x] 1b. ScreenshotItem schema v2 (smartFileName, summary, autoTags, embeddingVersion)
+- [x] 1c. AppSettings: 5 new settings (autoDetectPII, redactedPIITypes, beautifyThemeName, smartMetadataEnabled, semanticSearchEnabled)
+- [x] 1d. OCREngine: add recognizeTextWithBoundingBoxes method
+- [x] 1e. PerformanceMetrics: add new stages
+- [x] 1f. Build + test Phase 1
 
-### Verification
-- [x] V1. `swift build` — clean
-- [x] V2. `swift test` — 224 tests, 0 failures
-- [x] V3. `swiftlint lint --quiet` — zero warnings
+## Phase 2: Screenshot Beautification
 
-## Verification / Evidence
+- [x] 2a. BeautifyTheme.swift + CodableColor
+- [x] 2b. Beautifier.swift (CoreGraphics rendering)
+- [x] 2c. BeautifyPreviewOverlay.swift (live preview window)
+- [x] 2d. QuickAccessOverlay: add .beautify action
+- [x] 2e. MenuBarView: add "Beautify Last" to More submenu
+- [x] 2f. CalouraApp: register .beautifyLastCapture notification
+- [x] 2g. PreferencesView+Tabs: add theme picker
+- [x] 2h. Tests: BeautifierTests + BeautifierEdgeCaseTests
+- [x] 2i. Build + test Phase 2
 
-```
-$ swift build
-Build complete! (0.19s)
+## Phase 3: Smart Redaction
 
-$ swift test
-Executed 224 tests, with 0 failures (0 unexpected) in 4.206 (4.225) seconds
+- [x] 3a. PIIDetector.swift (regex patterns + validation)
+- [x] 3b. RedactionEngine.swift (CIFilter blur)
+- [x] 3c. PIIDetectionResult.swift (in-memory model)
+- [x] 3d. RedactionReviewOverlay.swift
+- [x] 3e. AppState: add lastPIIResult
+- [x] 3f. CapturePipeline: integrate PII detection in OCR task
+- [x] 3g. QuickAccessOverlay: add .redact action with badge
+- [x] 3h. MenuBarView: add "Redact PII" to More submenu
+- [x] 3i. CalouraApp: register .redactLastCapture notification
+- [x] 3j. PreferencesView+Tabs: Privacy section
+- [x] 3k. Tests: PIIDetectorTests + PIIDetectorEdgeCaseTests + RedactionEngineTests
+- [x] 3l. Build + test Phase 3
 
-$ swiftlint lint --quiet
-(no output — clean)
-```
+## Phase 4: Semantic Search
 
-## Files Changed
+- [x] 4a. EmbeddingEngine.swift (NLEmbedding)
+- [x] 4b. EmbeddingStore.swift (encrypted persistence)
+- [x] 4c. AppState: add embeddingStore, sync lifecycle
+- [x] 4d. CapturePipeline: integrate embedding generation
+- [x] 4e. HistoryView: upgrade filteredScreenshots with semantic fallback
+- [x] 4f. PreferencesView+Tabs: semantic search toggle
+- [x] 4g. Tests: EmbeddingEngineTests + EmbeddingStoreTests + EmbeddingEngineEdgeCaseTests
+- [x] 4h. Build + test Phase 4
 
-- `Caloura/UI/OnboardingView.swift` — Main view: warm gradient background, dot stepper, app icon hero, navigation footer with chevron icons, window 540x460
-- `Caloura/UI/OnboardingView+Steps.swift` — NEW: extension with step content views (permission step with material card, first capture step with glow checkmark + shortcuts card)
-- `Caloura.xcodeproj/project.pbxproj` — Added OnboardingView+Steps.swift to project
+## Phase 5: Foundation Models (Smart Names, Summaries, Tags)
 
-## Summary of Visual Changes
+- [x] 5a. SmartMetadataGenerator.swift (FoundationModels)
+- [x] 5b. CapturePipeline: integrate metadata generation
+- [x] 5c. FileOrganizer: use smartFileName
+- [x] 5d. HistoryView: display summary + autoTags
+- [x] 5e. HistoryView+Components: update grid item (AutoTagChip)
+- [x] 5f. PreferencesView+Tabs: AI Features toggle
+- [x] 5g. Tests: SmartMetadataGeneratorTests
+- [x] 5h. Build + test Phase 5
 
-1. **Window:** 500x400 → 540x460 for more breathing room
-2. **Background:** Warm gradient (windowBackground → 4% orange tint at bottom)
-3. **Progress:** Bar → dot stepper with labels ("Setup"/"Ready"), spring animation
-4. **Permission step:** App icon (80x80, shadow, scale-in animation) + "Welcome to Caloura" + `.ultraThinMaterial` permission card with contextual status icons
-5. **First capture step:** Green checkmark with radial glow + `.symbolEffect(.bounce)` + material shortcuts card with descriptions + "Take Your First Screenshot" as `.borderedProminent .controlSize(.large)`
-6. **Footer:** Back/Continue/Finish buttons with chevron icons, Finish as `.bordered` (secondary), animation 0.3s
-7. **Copy:** Updated per plan spec
+## Phase 6: Integration & Polish
+
+- [x] 6a. Preferences audit (Appearance, AI Features, Privacy sections)
+- [x] 6b. History cleanup (delete/clear → embeddings + PII results)
+- [x] 6c. SwiftLint pass (0 warnings)
+- [x] 6d. Full build + test (268 tests, 0 failures)
+- [x] 6e. Update lessons.md
+
+## Review / Evidence
+
+- **Build**: `xcodebuild build` — BUILD SUCCEEDED
+- **Tests**: `swift test` — 268 tests, 0 failures (9.4s)
+- **Lint**: `swiftlint lint --quiet` — 0 warnings/errors
+- **Package.swift**: Updated to swift-tools-version:6.2, .macOS(.v26), .swiftLanguageMode(.v5)
+
+### New files (10 source + 9 test)
+
+| File | Feature |
+|------|---------|
+| `Models/BeautifyTheme.swift` | Beautification themes (5 built-in) |
+| `Models/PIIDetectionResult.swift` | In-memory PII detection result |
+| `Models/EmbeddingStore.swift` | Encrypted embedding vector persistence |
+| `Processing/Beautifier.swift` | CoreGraphics gradient+shadow renderer |
+| `Processing/PIIDetector.swift` | Regex PII detection with validation |
+| `Processing/RedactionEngine.swift` | CIFilter blur redaction |
+| `Processing/EmbeddingEngine.swift` | NLEmbedding sentence vectors |
+| `Processing/SmartMetadataGenerator.swift` | FoundationModels metadata |
+| `UI/BeautifyPreviewOverlay.swift` | Live theme preview window |
+| `UI/RedactionReviewOverlay.swift` | PII review + redact window |
+
+### Key architectural decisions
+
+- All AI processing runs in existing detached OCR task (zero p95 pipeline impact)
+- CapturePipeline AI helpers extracted to file-scope functions for testability
+- CalouraApp AI handlers extracted to `setupAIHandlers()` method
+- Embeddings encrypted at rest via HistoryCrypto (separate file from history)
+- PII detections are in-memory only (never persisted to disk)
+- Foundation Models uses 2s timeout via TaskGroup race pattern

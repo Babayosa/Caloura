@@ -24,6 +24,10 @@ final class AppState: ObservableObject {
     /// Not @Published — NSScreen is not Equatable and no SwiftUI view reads this directly.
     var lastCaptureScreen: NSScreen?
 
+    @Published var lastPIIResult: PIIDetectionResult?
+
+    let embeddingStore = EmbeddingStore()
+
     private let maxRecentItems = 50
     private let historyDefaultsKey = "screenshotHistoryEncrypted"
     private let legacyHistoryDefaultsKey = "screenshotHistory"
@@ -39,6 +43,7 @@ final class AppState: ObservableObject {
         self.defaults = defaults
         self.historyFileURL = historyStoreURL ?? Self.defaultHistoryFileURL()
         loadHistory()
+        embeddingStore.load()
         auditStoragePermissions()
     }
 
@@ -52,6 +57,7 @@ final class AppState: ObservableObject {
 
     func clearHistory() {
         recentScreenshots.removeAll()
+        embeddingStore.clear()
         saveHistoryNow()
     }
 

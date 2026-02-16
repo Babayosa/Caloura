@@ -128,6 +128,10 @@ final class QuickAccessOverlay {
             NotificationCenter.default.post(name: .annotateLastCapture, object: nil)
         case .pin:
             NotificationCenter.default.post(name: .pinScreenshot, object: nil)
+        case .beautify:
+            NotificationCenter.default.post(name: .beautifyLastCapture, object: nil)
+        case .redact:
+            NotificationCenter.default.post(name: .redactLastCapture, object: nil)
         }
         dismiss()
     }
@@ -142,6 +146,8 @@ enum QuickAction {
     case citation
     case annotate
     case pin
+    case beautify
+    case redact
 }
 
 // MARK: - SwiftUI View
@@ -158,7 +164,9 @@ struct QuickAccessOverlayView: View {
             overlayButton(title: "Markdown", icon: "doc.text", action: .markdown)
             overlayButton(title: "Citation", icon: "quote.closing", action: .citation)
             overlayButton(title: "Annotate", icon: "pencil.tip", action: .annotate)
+            overlayButton(title: "Redact", icon: "eye.slash", action: .redact)
             overlayButton(title: "Pin", icon: "pin", action: .pin)
+            overlayButton(title: "Beautify", icon: "sparkles", action: .beautify)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)

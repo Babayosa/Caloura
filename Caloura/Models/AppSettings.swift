@@ -37,6 +37,10 @@ final class AppSettings: ObservableObject {
         static let lastLicenseValidationDate = "lastLicenseValidationDate"
         static let furthestDateSeen = "furthestDateSeen"
         static let autoClearClipboard = "autoClearClipboard"
+        static let autoDetectPII = "autoDetectPII"
+        static let beautifyThemeName = "beautifyThemeName"
+        static let smartMetadataEnabled = "smartMetadataEnabled"
+        static let semanticSearchEnabled = "semanticSearchEnabled"
     }
 
     @Published var saveDirectory: String {
@@ -106,6 +110,22 @@ final class AppSettings: ObservableObject {
         didSet { debouncedSave() }
     }
 
+    @Published var autoDetectPII: Bool {
+        didSet { debouncedSave() }
+    }
+
+    @Published var beautifyThemeName: String {
+        didSet { debouncedSave() }
+    }
+
+    @Published var smartMetadataEnabled: Bool {
+        didSet { debouncedSave() }
+    }
+
+    @Published var semanticSearchEnabled: Bool {
+        didSet { debouncedSave() }
+    }
+
     var lastLicenseValidationDate: Date? {
         get { defaults.object(forKey: Keys.lastLicenseValidationDate) as? Date }
         set { defaults.set(newValue, forKey: Keys.lastLicenseValidationDate) }
@@ -154,6 +174,10 @@ final class AppSettings: ObservableObject {
         defaults.set(isLicenseActivated, forKey: Keys.isLicenseActivated)
         defaults.set(hasSeenWelcome, forKey: Keys.hasSeenWelcome)
         defaults.set(autoClearClipboard, forKey: Keys.autoClearClipboard)
+        defaults.set(autoDetectPII, forKey: Keys.autoDetectPII)
+        defaults.set(beautifyThemeName, forKey: Keys.beautifyThemeName)
+        defaults.set(smartMetadataEnabled, forKey: Keys.smartMetadataEnabled)
+        defaults.set(semanticSearchEnabled, forKey: Keys.semanticSearchEnabled)
     }
 
     func persistLicenseState() {
@@ -268,6 +292,10 @@ final class AppSettings: ObservableObject {
         self.isLicenseActivated = defaults.bool(forKey: Keys.isLicenseActivated)
         self.hasSeenWelcome = defaults.bool(forKey: Keys.hasSeenWelcome)
         self.autoClearClipboard = defaults.object(forKey: Keys.autoClearClipboard) as? Bool ?? false
+        self.autoDetectPII = defaults.object(forKey: Keys.autoDetectPII) as? Bool ?? false
+        self.beautifyThemeName = defaults.string(forKey: Keys.beautifyThemeName) ?? "Clean"
+        self.smartMetadataEnabled = defaults.object(forKey: Keys.smartMetadataEnabled) as? Bool ?? true
+        self.semanticSearchEnabled = defaults.object(forKey: Keys.semanticSearchEnabled) as? Bool ?? true
 
         migrateLegacyLicenseSilentlyIfAvailable()
         persistLicenseState()

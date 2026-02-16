@@ -111,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupNotificationHandlers() {
         setupCaptureHandlers()
         setupPostCaptureHandlers()
+        setupAIHandlers()
         setupUIHandlers()
     }
 
@@ -211,6 +212,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 guard let screenshot = AppState.shared.lastScreenshot else { return }
                 PinnedScreenshotManager.shared.pin(screenshot)
+            }
+        }
+
+    }
+
+    private func setupAIHandlers() {
+        let nc = NotificationCenter.default
+
+        nc.addObserver(forName: .beautifyLastCapture, object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                guard let screenshot = AppState.shared.lastScreenshot else { return }
+                BeautifyPreviewController.shared.show(
+                    cgImage: screenshot.cgImage,
+                    filePath: screenshot.filePath
+                )
+            }
+        }
+
+        nc.addObserver(forName: .redactLastCapture, object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                guard let screenshot = AppState.shared.lastScreenshot else { return }
+                let pii = AppState.shared.lastPIIResult
+                if let pii, !pii.detections.isEmpty {
+                    RedactionReviewController.shared.show(
+                        cgImage: screenshot.cgImage,
+                        detections: pii.detections,
+                        filePath: screenshot.filePath
+                    )
+                } else {
+                    do {
+                        let detections = try await PIIDetector.detect(
+                            in: screenshot.cgImage
+                        )
+                        if detections.isEmpty {
+                            AppState.shared.statusMessage = "No PII detected"
+                        } else {
+                            RedactionReviewController.shared.show(
+                                cgImage: screenshot.cgImage,
+                                detections: detections,
+                                filePath: screenshot.filePath
+                            )
+                        }
+                    } catch {
+                        AppState.shared.statusMessage = "PII detection failed"
+                    }
+                }
             }
         }
     }
