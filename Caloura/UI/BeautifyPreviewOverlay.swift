@@ -123,9 +123,7 @@ struct BeautifyPreviewView: View {
 
     private func copyToClipboard(_ cgImage: CGImage) {
         let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.writeObjects([nsImage])
+        ClipboardManager.copyNSImage(nsImage)
         AppState.shared.statusMessage = "Beautified image copied"
     }
 

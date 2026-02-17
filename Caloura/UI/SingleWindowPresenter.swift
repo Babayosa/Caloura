@@ -39,6 +39,13 @@ final class SingleWindowPresenter<Content: View> {
             return false
         }
 
+        // Clean up stale observer from previous window
+        if let token = closeObserver {
+            NotificationCenter.default.removeObserver(token)
+            closeObserver = nil
+        }
+        window = nil
+
         let hostingView = NSHostingView(rootView: content())
         hostingView.frame = CGRect(origin: .zero, size: config.size)
 
@@ -65,20 +72,20 @@ final class SingleWindowPresenter<Content: View> {
 
         self.window = newWindow
 
-        closeObserver = NotificationCenter.default.addObserver(
+        var observerToken: NSObjectProtocol?
+        observerToken = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: newWindow,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                if let token = self.closeObserver {
-                    NotificationCenter.default.removeObserver(token)
-                    self.closeObserver = nil
-                }
-                self.window = nil
+            guard let self else { return }
+            if let token = observerToken {
+                NotificationCenter.default.removeObserver(token)
             }
+            self.closeObserver = nil
+            self.window = nil
         }
+        self.closeObserver = observerToken
 
         return true
     }

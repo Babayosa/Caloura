@@ -4,7 +4,20 @@ import XCTest
 @MainActor
 final class ClipboardManagerTests: XCTestCase {
 
-    private let pasteboard = NSPasteboard.general
+    private var testPasteboard: NSPasteboard!
+
+    override func setUp() {
+        super.setUp()
+        testPasteboard = NSPasteboard(name: NSPasteboard.Name("com.caloura.test.\(UUID().uuidString)"))
+        ClipboardManager.pasteboardOverride = testPasteboard
+    }
+
+    override func tearDown() {
+        ClipboardManager.pasteboardOverride = nil
+        testPasteboard.releaseGlobally()
+        testPasteboard = nil
+        super.tearDown()
+    }
 
     // MARK: - Helpers
 
@@ -33,7 +46,7 @@ final class ClipboardManagerTests: XCTestCase {
 
         await ClipboardManager.copyImage(screenshot)
 
-        let tiffData = pasteboard.data(forType: .tiff)
+        let tiffData = testPasteboard.data(forType: .tiff)
         XCTAssertNotNil(tiffData, "Pasteboard should contain TIFF data after copyImage")
         XCTAssertFalse(tiffData!.isEmpty, "TIFF data should not be empty")
     }
@@ -43,7 +56,7 @@ final class ClipboardManagerTests: XCTestCase {
 
         await ClipboardManager.copyImage(screenshot)
 
-        let pngData = pasteboard.data(forType: .png)
+        let pngData = testPasteboard.data(forType: .png)
         XCTAssertNotNil(pngData, "Pasteboard should contain PNG data after copyImage")
         XCTAssertFalse(pngData!.isEmpty, "PNG data should not be empty")
         // Verify PNG magic bytes
@@ -55,21 +68,21 @@ final class ClipboardManagerTests: XCTestCase {
 
     func testCopyImage_clearsPasteboardBeforeWriting() async {
         // Put some dummy data on the pasteboard first
-        pasteboard.clearContents()
-        pasteboard.setString("pre-existing data", forType: .string)
-        let changeCountBefore = pasteboard.changeCount
+        testPasteboard.clearContents()
+        testPasteboard.setString("pre-existing data", forType: .string)
+        let changeCountBefore = testPasteboard.changeCount
 
         let screenshot = makeScreenshot()
         await ClipboardManager.copyImage(screenshot)
 
         // changeCount increments on clearContents, proving the pasteboard was cleared
         XCTAssertGreaterThan(
-            pasteboard.changeCount,
+            testPasteboard.changeCount,
             changeCountBefore,
             "Pasteboard changeCount should increment after copyImage (clearContents was called)"
         )
         // The pre-existing string type should be gone (cleared before writing image types)
-        let stringData = pasteboard.string(forType: .string)
+        let stringData = testPasteboard.string(forType: .string)
         XCTAssertNil(
             stringData,
             "Pre-existing string should be cleared after copyImage"
@@ -83,7 +96,7 @@ final class ClipboardManagerTests: XCTestCase {
 
         await ClipboardManager.copyMultiFormat(screenshot)
 
-        let tiffData = pasteboard.data(forType: .tiff)
+        let tiffData = testPasteboard.data(forType: .tiff)
         XCTAssertNotNil(tiffData, "Pasteboard should contain TIFF data after copyMultiFormat")
         XCTAssertFalse(tiffData!.isEmpty)
     }
@@ -93,7 +106,7 @@ final class ClipboardManagerTests: XCTestCase {
 
         await ClipboardManager.copyMultiFormat(screenshot)
 
-        let pngData = pasteboard.data(forType: .png)
+        let pngData = testPasteboard.data(forType: .png)
         XCTAssertNotNil(pngData, "Pasteboard should contain PNG data after copyMultiFormat")
         XCTAssertFalse(pngData!.isEmpty)
     }
@@ -103,7 +116,7 @@ final class ClipboardManagerTests: XCTestCase {
 
         await ClipboardManager.copyMultiFormat(screenshot)
 
-        let stringData = pasteboard.string(forType: .string)
+        let stringData = testPasteboard.string(forType: .string)
         XCTAssertNotNil(
             stringData,
             "Pasteboard should contain string (Markdown) data after copyMultiFormat"
@@ -121,7 +134,7 @@ final class ClipboardManagerTests: XCTestCase {
 
         await ClipboardManager.copyMultiFormat(screenshot)
 
-        let htmlData = pasteboard.data(forType: .html)
+        let htmlData = testPasteboard.data(forType: .html)
         XCTAssertNotNil(htmlData, "Pasteboard should contain HTML data after copyMultiFormat")
         let html = String(data: htmlData!, encoding: .utf8)
         XCTAssertNotNil(html)
@@ -134,10 +147,10 @@ final class ClipboardManagerTests: XCTestCase {
         await ClipboardManager.copyMultiFormat(screenshot)
 
         // All four types should be present at the same time
-        XCTAssertNotNil(pasteboard.data(forType: .tiff), "TIFF should be present")
-        XCTAssertNotNil(pasteboard.data(forType: .png), "PNG should be present")
-        XCTAssertNotNil(pasteboard.string(forType: .string), "String should be present")
-        XCTAssertNotNil(pasteboard.data(forType: .html), "HTML should be present")
+        XCTAssertNotNil(testPasteboard.data(forType: .tiff), "TIFF should be present")
+        XCTAssertNotNil(testPasteboard.data(forType: .png), "PNG should be present")
+        XCTAssertNotNil(testPasteboard.string(forType: .string), "String should be present")
+        XCTAssertNotNil(testPasteboard.data(forType: .html), "HTML should be present")
     }
 
     // MARK: - copyOCRText
@@ -145,30 +158,30 @@ final class ClipboardManagerTests: XCTestCase {
     func testCopyOCRText_setsStringOnPasteboard() {
         ClipboardManager.copyOCRText("Hello, world!")
 
-        let result = pasteboard.string(forType: .string)
+        let result = testPasteboard.string(forType: .string)
         XCTAssertEqual(result, "Hello, world!")
     }
 
     func testCopyOCRText_emptyString_handlesGracefully() {
         ClipboardManager.copyOCRText("")
 
-        let result = pasteboard.string(forType: .string)
+        let result = testPasteboard.string(forType: .string)
         XCTAssertEqual(result, "")
     }
 
     func testCopyOCRText_clearsPreviousContent() {
         // Pre-fill with image data
-        pasteboard.clearContents()
-        pasteboard.setData(Data([0xFF]), forType: .tiff)
+        testPasteboard.clearContents()
+        testPasteboard.setData(Data([0xFF]), forType: .tiff)
 
         ClipboardManager.copyOCRText("Some text")
 
         // TIFF should be gone after copyOCRText clears and writes string
         XCTAssertNil(
-            pasteboard.data(forType: .tiff),
+            testPasteboard.data(forType: .tiff),
             "Previous TIFF data should be cleared"
         )
-        XCTAssertEqual(pasteboard.string(forType: .string), "Some text")
+        XCTAssertEqual(testPasteboard.string(forType: .string), "Some text")
     }
 
     // MARK: - copyAsMarkdown
@@ -178,13 +191,26 @@ final class ClipboardManagerTests: XCTestCase {
 
         ClipboardManager.copyAsMarkdown(screenshot)
 
-        let result = pasteboard.string(forType: .string)
+        let result = testPasteboard.string(forType: .string)
         XCTAssertNotNil(result)
         XCTAssertTrue(
             result!.contains("!["),
             "Should contain Markdown image syntax"
         )
         XCTAssertTrue(result!.contains("test.png"))
+    }
+
+    // MARK: - copyNSImage
+
+    func testCopyNSImage_writesImageToPasteboard() {
+        let cgImage = TestImageFactory.makeTestImage(width: 50, height: 50)
+        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: 50, height: 50))
+
+        ClipboardManager.copyNSImage(nsImage)
+
+        let objects = testPasteboard.readObjects(forClasses: [NSImage.self])
+        XCTAssertNotNil(objects)
+        XCTAssertEqual(objects?.count, 1)
     }
 
     // MARK: - Small / edge-case images
@@ -195,7 +221,7 @@ final class ClipboardManagerTests: XCTestCase {
         await ClipboardManager.copyImage(screenshot)
 
         // Should still put data on pasteboard without crashing
-        let tiffData = pasteboard.data(forType: .tiff)
+        let tiffData = testPasteboard.data(forType: .tiff)
         XCTAssertNotNil(tiffData, "Even a 1x1 image should produce TIFF data")
     }
 }

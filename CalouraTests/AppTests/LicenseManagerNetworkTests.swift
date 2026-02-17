@@ -297,8 +297,7 @@ final class LicenseManagerNetworkTests: XCTestCase {
         // refreshState triggers revalidation when isLicenseActivated=true and date is stale
         license.refreshState(settings: settings)
 
-        // Wait for the async revalidation task to complete
-        try? await Task.sleep(nanoseconds: 500_000_000)
+        await pollUntil { [self] in !self.settings.isLicenseActivated }
 
         XCTAssertFalse(settings.isLicenseActivated)
     }
@@ -314,8 +313,8 @@ final class LicenseManagerNetworkTests: XCTestCase {
 
         license.refreshState(settings: settings)
 
-        // Wait for the async revalidation task to complete
-        try? await Task.sleep(nanoseconds: 500_000_000)
+        // Network errors don't change activation — poll briefly to let async complete
+        await pollUntil { [self] in self.license.activationState == .licensed }
 
         // License should still be active — network errors are graceful
         XCTAssertTrue(settings.isLicenseActivated)
@@ -338,7 +337,7 @@ final class LicenseManagerNetworkTests: XCTestCase {
 
         license.refreshState(settings: settings)
 
-        try? await Task.sleep(nanoseconds: 500_000_000)
+        await pollUntil { [self] in self.license.activationState == .licensed }
 
         // Oversized response is ambiguous — should NOT revoke
         XCTAssertTrue(settings.isLicenseActivated)
@@ -360,7 +359,7 @@ final class LicenseManagerNetworkTests: XCTestCase {
 
         license.refreshState(settings: settings)
 
-        try? await Task.sleep(nanoseconds: 500_000_000)
+        await pollUntil { [self] in self.license.activationState == .licensed }
 
         // Wrong host is ambiguous — should NOT revoke
         XCTAssertTrue(settings.isLicenseActivated)
@@ -378,7 +377,10 @@ final class LicenseManagerNetworkTests: XCTestCase {
 
         license.refreshState(settings: settings)
 
-        try? await Task.sleep(nanoseconds: 500_000_000)
+        await pollUntil { [self] in
+            if let date = self.settings.lastLicenseValidationDate { return date > staleDate }
+            return false
+        }
 
         XCTAssertTrue(settings.isLicenseActivated)
         // Validation date should be updated to something more recent than the stale date

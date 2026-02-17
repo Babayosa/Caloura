@@ -45,6 +45,51 @@ struct URLSchemeHandler {
         "copy", "copy-markdown", "copy-citation", "copy-ocr", "save"
     ]
 
+    // MARK: - Parsed Request (testable)
+
+    enum ParsedAction: Equatable {
+        case capture(mode: String, preset: String?, delay: Int?, delayMode: String?, thenActions: [String])
+        case copy(format: String)
+        case showHistory
+        case showSettings
+    }
+
+    static func parse(_ url: URL) -> ParsedAction? {
+        guard url.scheme == "caloura" else { return nil }
+        let host = (url.host ?? "").lowercased()
+        let pathComponents = url.pathComponents.filter { $0 != "/" }
+        let params = queryParameters(from: url)
+
+        switch host {
+        case "capture":
+            let mode = (pathComponents.first ?? "area").lowercased()
+            guard allowedCaptureModes.contains(mode) else { return nil }
+            let preset: String? = {
+                guard let raw = params["preset"] else { return nil }
+                let normalized = raw.replacingOccurrences(of: "-", with: " ").capitalized
+                return PresetManager.builtInPresetNames.contains(normalized) ? normalized : nil
+            }()
+            var delay: Int?
+            var delayMode: String?
+            if mode == "delayed" {
+                delay = max(1, min(10, Int(params["seconds"] ?? "3") ?? 3))
+                let raw = (params["mode"] ?? "area").lowercased()
+                delayMode = allowedDelayModes.contains(raw) ? raw : "area"
+            }
+            let thenActions: [String] = params["then"].map { filterPostCaptureActions($0) } ?? []
+            return .capture(mode: mode, preset: preset, delay: delay, delayMode: delayMode, thenActions: thenActions)
+        case "copy":
+            let format = (pathComponents.first ?? "markdown").lowercased()
+            return .copy(format: format)
+        case "history":
+            return .showHistory
+        case "settings":
+            return .showSettings
+        default:
+            return nil
+        }
+    }
+
     /// Route an incoming URL to the appropriate action.
     static func handle(_ url: URL) {
         guard url.scheme == "caloura" else { return }

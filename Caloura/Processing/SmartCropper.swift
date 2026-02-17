@@ -16,36 +16,12 @@ struct SmartCropper {
     /// Maximum time to wait for Vision processing before falling back
     private static let visionTimeout: UInt64 = 300_000_000 // 300ms
 
-    private enum CropResult {
-        case saliency(CGImage?)
-        case timeout
-    }
-
     /// Auto-crop using Vision saliency analysis.
     /// Runs entirely off the main thread for performance.
     static func autoCrop(_ cgImage: CGImage) async -> CGImage {
         // Run Vision processing on background thread with timeout
-        let saliencyResult = await withTaskGroup(of: CropResult.self) { group in
-            group.addTask {
-                .saliency(try? await saliencyCrop(cgImage))
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: visionTimeout)
-                return .timeout
-            }
-
-            // Whichever finishes first wins; cancel the other
-            for await result in group {
-                switch result {
-                case .saliency(let image):
-                    group.cancelAll()
-                    return image
-                case .timeout:
-                    group.cancelAll()
-                    return nil
-                }
-            }
-            return nil
+        let saliencyResult = await withTimeout(seconds: Double(visionTimeout) / 1_000_000_000) {
+            try await saliencyCrop(cgImage)
         }
 
         if let cropped = saliencyResult {

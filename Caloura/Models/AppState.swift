@@ -91,18 +91,7 @@ final class AppState: ObservableObject {
         Task.detached(priority: .utility) {
             do {
                 let data = try JSONEncoder().encode(itemsCopy)
-                let encrypted = try HistoryCrypto.encrypt(data)
-                let directoryURL = historyFileURL.deletingLastPathComponent()
-                try FileManager.default.createDirectory(
-                    at: directoryURL,
-                    withIntermediateDirectories: true,
-                    attributes: [.posixPermissions: 0o700]
-                )
-                try encrypted.write(to: historyFileURL, options: .atomic)
-                try FileManager.default.setAttributes(
-                    [.posixPermissions: 0o600],
-                    ofItemAtPath: historyFileURL.path
-                )
+                try HistoryCrypto.writeEncrypted(data, to: historyFileURL)
 
                 // Migration cleanup: once file-backed persistence succeeds,
                 // remove legacy defaults blobs.
@@ -117,15 +106,22 @@ final class AppState: ObservableObject {
         }
     }
 
-    private static func defaultHistoryFileURL() -> URL {
-        let fallback = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent("Library/Application Support/Caloura/history.enc")
-        guard let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first else {
-            return fallback
+    /// Synchronous save for termination path. Blocks the calling thread.
+    func saveHistorySync() {
+        saveTask?.cancel()
+        saveTask = nil
+        let itemsCopy = Array(recentScreenshots)
+        let url = historyFileURL
+        do {
+            let data = try JSONEncoder().encode(itemsCopy)
+            try HistoryCrypto.writeEncrypted(data, to: url)
+        } catch {
+            appStateLogger.error("Failed to flush history on termination: \(error.localizedDescription)")
         }
-        return appSupport.appendingPathComponent("Caloura").appendingPathComponent("history.enc")
+    }
+
+    private static func defaultHistoryFileURL() -> URL {
+        HistoryCrypto.applicationSupportURL(filename: "history.enc")
     }
 
     private func loadHistory() {

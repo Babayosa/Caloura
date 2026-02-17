@@ -2,6 +2,7 @@ import CoreGraphics
 import CoreImage
 
 struct RedactionEngine {
+    private static let ciContext = CIContext()
     /// Redact regions by applying Gaussian blur.
     /// Regions are in normalized Vision coordinates (origin bottom-left, 0-1 range).
     static func redact(
@@ -25,7 +26,7 @@ struct RedactionEngine {
         let height = CGFloat(cgImage.height)
 
         let ciImage = CIImage(cgImage: cgImage)
-        let context = CIContext()
+        let context = ciContext
 
         // Create fully blurred version
         guard let blurFilter = CIFilter(name: "CIGaussianBlur") else {

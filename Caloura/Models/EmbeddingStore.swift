@@ -17,16 +17,7 @@ final class EmbeddingStore: @unchecked Sendable {
     }
 
     private static func defaultStoreURL() -> URL {
-        let fallback = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent("Library/Application Support/Caloura/embeddings.enc")
-        guard let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first else {
-            return fallback
-        }
-        return appSupport
-            .appendingPathComponent("Caloura")
-            .appendingPathComponent("embeddings.enc")
+        HistoryCrypto.applicationSupportURL(filename: "embeddings.enc")
     }
 
     func add(screenshotID: UUID, vector: [Double], textHash: String) {
@@ -66,19 +57,7 @@ final class EmbeddingStore: @unchecked Sendable {
 
         do {
             let data = try JSONEncoder().encode(snapshot)
-            let encrypted = try HistoryCrypto.encrypt(data, purpose: Self.encryptionPurpose)
-
-            let directory = storeURL.deletingLastPathComponent()
-            try FileManager.default.createDirectory(
-                at: directory,
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
-            try encrypted.write(to: storeURL, options: .atomic)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o600],
-                ofItemAtPath: storeURL.path
-            )
+            try HistoryCrypto.writeEncrypted(data, to: storeURL, purpose: Self.encryptionPurpose)
         } catch {
             // Non-fatal — embeddings will be regenerated on next launch
         }

@@ -16,7 +16,7 @@ struct EmbeddingEngine {
 
         // Fallback: average word embeddings
         if let wordEmbedding = NLEmbedding.wordEmbedding(for: .english) {
-            let words = trimmed.split(separator: " ").map(String.init)
+            let words = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
             var vectors: [[Double]] = []
             for word in words {
                 if let vec = wordEmbedding.vector(for: word.lowercased()) {

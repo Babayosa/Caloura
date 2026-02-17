@@ -294,8 +294,17 @@ struct AnnotationShape: View {
     var body: some View {
         switch annotation.tool {
         case .arrow:
-            ArrowShape(start: annotation.startPoint, end: annotation.endPoint)
-                .stroke(annotation.color, lineWidth: 3)
+            // Shaft (stroked line)
+            Path { path in
+                path.move(to: annotation.startPoint)
+                path.addLine(to: annotation.endPoint)
+            }
+            .stroke(annotation.color, lineWidth: 3)
+            // Arrowhead (filled triangle — matches save path rendering)
+            ArrowHeadShape(end: annotation.endPoint,
+                           angle: atan2(annotation.endPoint.y - annotation.startPoint.y,
+                                        annotation.endPoint.x - annotation.startPoint.x))
+                .fill(annotation.color)
 
         case .rectangle:
             Rectangle()
@@ -312,19 +321,13 @@ struct AnnotationShape: View {
     }
 }
 
-struct ArrowShape: Shape {
-    let start: CGPoint
+struct ArrowHeadShape: Shape {
     let end: CGPoint
+    let angle: CGFloat
+    private let length: CGFloat = 15
 
     func path(in rect: CGRect) -> Path {
         Path { path in
-            path.move(to: start)
-            path.addLine(to: end)
-
-            // Arrowhead
-            let length: CGFloat = 15
-            let angle = atan2(end.y - start.y, end.x - start.x)
-
             let p1 = CGPoint(
                 x: end.x - length * cos(angle - .pi / 6),
                 y: end.y - length * sin(angle - .pi / 6)
@@ -333,11 +336,10 @@ struct ArrowShape: Shape {
                 x: end.x - length * cos(angle + .pi / 6),
                 y: end.y - length * sin(angle + .pi / 6)
             )
-
             path.move(to: end)
             path.addLine(to: p1)
-            path.move(to: end)
             path.addLine(to: p2)
+            path.closeSubpath()
         }
     }
 }

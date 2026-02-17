@@ -115,25 +115,36 @@ enum HistoryCrypto {
             let key = SymmetricKey(size: .bits256)
             let keyData = key.withUnsafeBytes { Data($0) }
 
-            do {
-                let securityDir = keyFile.deletingLastPathComponent()
-                try fileManager.createDirectory(
-                    at: securityDir,
-                    withIntermediateDirectories: true,
-                    attributes: [.posixPermissions: 0o700]
-                )
-                guard fileManager.createFile(
-                    atPath: keyFile.path,
-                    contents: keyData,
-                    attributes: [.posixPermissions: 0o600]
-                ) else {
-                    throw HistoryCryptoError.keyFileCreationFailed
+            let securityDir = keyFile.deletingLastPathComponent()
+            try fileManager.createDirectory(
+                at: securityDir,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+
+            // Atomic create-if-not-exists to prevent TOCTOU race
+            let fd = open(keyFile.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+            guard fd >= 0 else {
+                if errno == EEXIST {
+                    // Another process created the file between our exists-check and here
+                    let stored = try Data(contentsOf: keyFile)
+                    guard stored.count == 32 else { throw HistoryCryptoError.invalidKeyMaterial }
+                    let existingKey = SymmetricKey(data: stored)
+                    cachedKey = existingKey
+                    return existingKey
                 }
-                cachedKey = key
-                return key
-            } catch {
-                throw HistoryCryptoError.keyWriteFailed(error.localizedDescription)
+                throw HistoryCryptoError.keyFileCreationFailed
             }
+            let written = keyData.withUnsafeBytes { buf in
+                Darwin.write(fd, buf.baseAddress!, buf.count)
+            }
+            close(fd)
+            guard written == keyData.count else {
+                try? fileManager.removeItem(at: keyFile)
+                throw HistoryCryptoError.keyWriteFailed("Partial write: \(written)/\(keyData.count)")
+            }
+            cachedKey = key
+            return key
         }
     }
 
@@ -154,6 +165,41 @@ enum HistoryCrypto {
             throw HistoryCryptoError.keyStorageUnavailable("Could not resolve Application Support directory.")
         }
         return appSupport.appendingPathComponent("Caloura").appendingPathComponent("security")
+    }
+
+    // MARK: - Secure File I/O
+
+    static func applicationSupportURL(filename: String) -> URL {
+        let fallback = URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support/Caloura/\(filename)")
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first else { return fallback }
+        return appSupport.appendingPathComponent("Caloura").appendingPathComponent(filename)
+    }
+
+    static func writeEncrypted(
+        _ data: Data,
+        to url: URL,
+        purpose: String = "history-encryption"
+    ) throws {
+        let encrypted = try encrypt(data, purpose: purpose)
+        let directory = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try encrypted.write(to: url, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: url.path
+        )
+    }
+
+    static func readEncrypted(from url: URL, purpose: String = "history-encryption") throws -> Data {
+        let encrypted = try Data(contentsOf: url)
+        return try decrypt(encrypted, purpose: purpose)
     }
 
     static func auditStoragePermissions(historyFileURL: URL) -> [String] {

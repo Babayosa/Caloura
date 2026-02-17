@@ -1,102 +1,90 @@
-# Task 20 — AI Features Implementation
+# Task 21 — Code Review Fixes (18 Issues)
 
-Date: 2026-02-16
+Date: 2026-02-17
 Owner: Caloura Engineering
 Status: Complete
 
-## Phase 1: Foundation
+## Phase 1: Critical Fixes (Issues 2, 9)
 
-- [x] 1a. Bump deployment target to macOS 26 in project.yml
-- [x] 1b. ScreenshotItem schema v2 (smartFileName, summary, autoTags, embeddingVersion)
-- [x] 1c. AppSettings: 5 new settings (autoDetectPII, redactedPIITypes, beautifyThemeName, smartMetadataEnabled, semanticSearchEnabled)
-- [x] 1d. OCREngine: add recognizeTextWithBoundingBoxes method
-- [x] 1e. PerformanceMetrics: add new stages
-- [x] 1f. Build + test Phase 1
+- [x] Issue 2: Create `Timeout.swift` shared `withTimeout` utility
+- [x] Issue 2: Refactor `SmartMetadataGenerator` to use `withTimeout` (was broken `withThrowingTaskGroup` race)
+- [x] Issue 2: Refactor `SmartCropper` to use `withTimeout` (DRY with shared utility)
+- [x] Issue 9: `saveRedactedImage` returns `Bool` for error propagation
+- [x] Issue 9: `commitAndClose` checks save result, shows error, stays open on failure
+- [x] Build + test gate ✓
 
-## Phase 2: Screenshot Beautification
+## Phase 2: Core Bugs (Issues 5, 6, 7)
 
-- [x] 2a. BeautifyTheme.swift + CodableColor
-- [x] 2b. Beautifier.swift (CoreGraphics rendering)
-- [x] 2c. BeautifyPreviewOverlay.swift (live preview window)
-- [x] 2d. QuickAccessOverlay: add .beautify action
-- [x] 2e. MenuBarView: add "Beautify Last" to More submenu
-- [x] 2f. CalouraApp: register .beautifyLastCapture notification
-- [x] 2g. PreferencesView+Tabs: add theme picker
-- [x] 2h. Tests: BeautifierTests + BeautifierEdgeCaseTests
-- [x] 2i. Build + test Phase 2
+- [x] Issue 5: `EmbeddingEngine` splits on `\.isWhitespace` instead of just `" "`
+- [x] Issue 6: Annotation handler updates `AppState.shared.lastScreenshot` after disk save
+- [x] Issue 7: `SingleWindowPresenter` cleans up stale observer before creating new window
+- [x] Issue 7: Observer uses local `observerToken` capture, runs synchronously on `.main` queue
+- [x] Build + test gate ✓
 
-## Phase 3: Smart Redaction
+## Phase 3: Persistence & Security (Issues 1, 4, 10, 11, 12)
 
-- [x] 3a. PIIDetector.swift (regex patterns + validation)
-- [x] 3b. RedactionEngine.swift (CIFilter blur)
-- [x] 3c. PIIDetectionResult.swift (in-memory model)
-- [x] 3d. RedactionReviewOverlay.swift
-- [x] 3e. AppState: add lastPIIResult
-- [x] 3f. CapturePipeline: integrate PII detection in OCR task
-- [x] 3g. QuickAccessOverlay: add .redact action with badge
-- [x] 3h. MenuBarView: add "Redact PII" to More submenu
-- [x] 3i. CalouraApp: register .redactLastCapture notification
-- [x] 3j. PreferencesView+Tabs: Privacy section
-- [x] 3k. Tests: PIIDetectorTests + PIIDetectorEdgeCaseTests + RedactionEngineTests
-- [x] 3l. Build + test Phase 3
+- [x] Issue 1: Add `writeEncrypted`/`readEncrypted`/`applicationSupportURL` to `HistoryCrypto`
+- [x] Issue 1: Refactor `AppState.saveHistoryNow()` to use `HistoryCrypto.writeEncrypted`
+- [x] Issue 1: Refactor `EmbeddingStore.save()` to use `HistoryCrypto.writeEncrypted`
+- [x] Issue 1: Refactor `EmbeddingStore.defaultStoreURL()` / `AppState.defaultHistoryFileURL()` to use `applicationSupportURL`
+- [x] Issue 4: Add `saveHistorySync()` — synchronous flush for termination path
+- [x] Issue 4: `applicationWillTerminate` calls `saveHistorySync()` instead of `saveHistoryNow()`
+- [x] Issue 10: `FileOrganizer.save()` writes atomically + sets 0o600 permissions
+- [x] Issue 11: Atomic key creation with POSIX `O_CREAT | O_EXCL` (prevents TOCTOU race)
+- [x] Issue 12: `htmlImageTag` percent-encodes filename in `src` attribute
+- [x] Build + test gate ✓
 
-## Phase 4: Semantic Search
+## Phase 4: DRY & Polish (Issues 3, 8, 17, 18)
 
-- [x] 4a. EmbeddingEngine.swift (NLEmbedding)
-- [x] 4b. EmbeddingStore.swift (encrypted persistence)
-- [x] 4c. AppState: add embeddingStore, sync lifecycle
-- [x] 4d. CapturePipeline: integrate embedding generation
-- [x] 4e. HistoryView: upgrade filteredScreenshots with semantic fallback
-- [x] 4f. PreferencesView+Tabs: semantic search toggle
-- [x] 4g. Tests: EmbeddingEngineTests + EmbeddingStoreTests + EmbeddingEngineEdgeCaseTests
-- [x] 4h. Build + test Phase 4
+- [x] Issue 3: Arrow shape split into stroked shaft + filled `ArrowHeadShape` triangle
+- [x] Issue 8: Add `ClipboardManager.copyNSImage()` method
+- [x] Issue 8: Route `PinnedScreenshotWindow`, `BeautifyPreviewOverlay`, `RedactionReviewOverlay`, `HistoryView` through `ClipboardManager.copyNSImage`
+- [x] Issue 17: Static `CIContext` in `RedactionEngine` (avoids per-call allocation)
+- [x] Issue 18: Combine two `MainActor.run` blocks in `CapturePipeline.generateSmartMetadata`
+- [x] Build + test gate ✓
 
-## Phase 5: Foundation Models (Smart Names, Summaries, Tags)
+## Phase 5: Test Improvements (Issues 13, 14, 15, 16)
 
-- [x] 5a. SmartMetadataGenerator.swift (FoundationModels)
-- [x] 5b. CapturePipeline: integrate metadata generation
-- [x] 5c. FileOrganizer: use smartFileName
-- [x] 5d. HistoryView: display summary + autoTags
-- [x] 5e. HistoryView+Components: update grid item (AutoTagChip)
-- [x] 5f. PreferencesView+Tabs: AI Features toggle
-- [x] 5g. Tests: SmartMetadataGeneratorTests
-- [x] 5h. Build + test Phase 5
-
-## Phase 6: Integration & Polish
-
-- [x] 6a. Preferences audit (Appearance, AI Features, Privacy sections)
-- [x] 6b. History cleanup (delete/clear → embeddings + PII results)
-- [x] 6c. SwiftLint pass (0 warnings)
-- [x] 6d. Full build + test (268 tests, 0 failures)
-- [x] 6e. Update lessons.md
+- [x] Issue 13: Add `URLSchemeHandler.parse()` returning `ParsedAction` enum, rewrite tests with assertions
+- [x] Issue 14: Create shared `pollUntil` async helper, replace 5 `Task.sleep` waits in license tests
+- [x] Issue 15: Add `ClipboardManager.pasteboardOverride` (`#if DEBUG`), tests use named pasteboard
+- [x] Issue 16: Add `ProcessedScreenshotTests` (title fallback, PNG/TIFF data, caching, dimensions)
+- [x] Issue 16: Add `RedactionEngine` edge cases (overlapping, out-of-bounds, tiny, full-image, many regions)
+- [x] Build + test gate ✓
 
 ## Review / Evidence
 
 - **Build**: `xcodebuild build` — BUILD SUCCEEDED
-- **Tests**: `swift test` — 268 tests, 0 failures (9.4s)
-- **Lint**: `swiftlint lint --quiet` — 0 warnings/errors
-- **Package.swift**: Updated to swift-tools-version:6.2, .macOS(.v26), .swiftLanguageMode(.v5)
+- **Tests**: `swift test` — 313 tests, 0 failures
+- **Lint**: `swiftlint lint --quiet` — 0 new warnings (pre-existing only)
 
-### New files (10 source + 9 test)
+### Files Modified (25 total, 3 new)
 
-| File | Feature |
-|------|---------|
-| `Models/BeautifyTheme.swift` | Beautification themes (5 built-in) |
-| `Models/PIIDetectionResult.swift` | In-memory PII detection result |
-| `Models/EmbeddingStore.swift` | Encrypted embedding vector persistence |
-| `Processing/Beautifier.swift` | CoreGraphics gradient+shadow renderer |
-| `Processing/PIIDetector.swift` | Regex PII detection with validation |
-| `Processing/RedactionEngine.swift` | CIFilter blur redaction |
-| `Processing/EmbeddingEngine.swift` | NLEmbedding sentence vectors |
-| `Processing/SmartMetadataGenerator.swift` | FoundationModels metadata |
-| `UI/BeautifyPreviewOverlay.swift` | Live theme preview window |
-| `UI/RedactionReviewOverlay.swift` | PII review + redact window |
-
-### Key architectural decisions
-
-- All AI processing runs in existing detached OCR task (zero p95 pipeline impact)
-- CapturePipeline AI helpers extracted to file-scope functions for testability
-- CalouraApp AI handlers extracted to `setupAIHandlers()` method
-- Embeddings encrypted at rest via HistoryCrypto (separate file from history)
-- PII detections are in-memory only (never persisted to disk)
-- Foundation Models uses 2s timeout via TaskGroup race pattern
+| File | Issues |
+|------|--------|
+| **NEW** `Caloura/Processing/Timeout.swift` | 2 |
+| `Caloura/Processing/SmartMetadataGenerator.swift` | 2 |
+| `Caloura/Processing/SmartCropper.swift` | 2 |
+| `Caloura/UI/RedactionReviewOverlay.swift` | 9, 8 |
+| `Caloura/Processing/EmbeddingEngine.swift` | 5 |
+| `Caloura/App/CalouraApp.swift` | 6, 4 |
+| `Caloura/UI/SingleWindowPresenter.swift` | 7 |
+| `Caloura/Security/HistoryCrypto.swift` | 1, 11 |
+| `Caloura/Models/AppState.swift` | 1, 4 |
+| `Caloura/Models/EmbeddingStore.swift` | 1 |
+| `Caloura/Distribution/FileOrganizer.swift` | 10 |
+| `Caloura/Distribution/MarkdownExporter.swift` | 12 |
+| `Caloura/Distribution/ClipboardManager.swift` | 8, 15 |
+| `Caloura/UI/AnnotationOverlay.swift` | 3 |
+| `Caloura/UI/PinnedScreenshotWindow.swift` | 8 |
+| `Caloura/UI/BeautifyPreviewOverlay.swift` | 8 |
+| `Caloura/UI/HistoryView.swift` | 8 |
+| `Caloura/Processing/RedactionEngine.swift` | 17 |
+| `Caloura/App/CapturePipeline.swift` | 18 |
+| `Caloura/App/URLSchemeHandler.swift` | 13 |
+| `CalouraTests/AppTests/URLSchemeHandlerTests.swift` | 13 |
+| `CalouraTests/AppTests/LicenseManagerNetworkTests.swift` | 14 |
+| `CalouraTests/DistributionTests/ClipboardManagerTests.swift` | 15 |
+| **NEW** `CalouraTests/ProcessingTests/ProcessedScreenshotTests.swift` | 16 |
+| `CalouraTests/ProcessingTests/RedactionEngineTests.swift` | 16 |
+| **NEW** `CalouraTests/Helpers/AsyncTestHelpers.swift` | 14 |

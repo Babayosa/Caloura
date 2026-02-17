@@ -56,9 +56,7 @@ final class PinnedScreenshotManager {
         let pinnedView = PinnedScreenshotView(
             image: displayImage,
             onCopy: {
-                let pasteboard = NSPasteboard.general
-                pasteboard.clearContents()
-                pasteboard.writeObjects([displayImage])
+                ClipboardManager.copyNSImage(displayImage)
             },
             onClose: { [weak panel] in
                 panel?.close()

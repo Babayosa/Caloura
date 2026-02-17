@@ -30,8 +30,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isInitialLaunch = true
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Flush any pending debounced saves before the app exits.
-        AppState.shared.saveHistoryNow()
+        // Synchronous flush — blocks until written, ensuring data survives process exit.
+        AppState.shared.saveHistorySync()
         AppSettings.shared.saveAllSettings()
     }
 
@@ -194,6 +194,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                             do {
                                 let pngData = try ImageProcessor.pngRepresentation(of: cgImage)
                                 try pngData.write(to: filePath)
+                                let updated = ProcessedScreenshot(
+                                    id: screenshot.id,
+                                    image: annotatedImage,
+                                    cgImage: cgImage,
+                                    pngData: pngData,
+                                    context: screenshot.context,
+                                    ocrText: screenshot.ocrText,
+                                    filePath: screenshot.filePath,
+                                    fileName: screenshot.fileName,
+                                    presetName: screenshot.presetName
+                                )
+                                AppState.shared.lastScreenshot = updated
                             } catch {
                                 Logger(
                                     subsystem: "com.caloura.app",

@@ -1,7 +1,14 @@
 import AppKit
 
 struct ClipboardManager {
-    private static let pasteboard = NSPasteboard.general
+    #if DEBUG
+    @MainActor static var pasteboardOverride: NSPasteboard?
+    @MainActor private static var activePasteboard: NSPasteboard {
+        pasteboardOverride ?? .general
+    }
+    #else
+    @MainActor private static var activePasteboard: NSPasteboard { .general }
+    #endif
 
     // MARK: - Auto-Clear
 
@@ -14,23 +21,30 @@ struct ClipboardManager {
     private static func scheduleAutoClearIfEnabled() {
         autoClearTask?.cancel()
         guard AppSettings.shared.autoClearClipboard else { return }
-        let changeCount = pasteboard.changeCount
+        let changeCount = activePasteboard.changeCount
         autoClearTask = Task {
             try? await Task.sleep(nanoseconds: 60_000_000_000) // 60 seconds
             guard !Task.isCancelled else { return }
-            if pasteboard.changeCount == changeCount {
-                pasteboard.clearContents()
+            if activePasteboard.changeCount == changeCount {
+                activePasteboard.clearContents()
             }
         }
+    }
+
+    @MainActor
+    static func copyNSImage(_ image: NSImage) {
+        activePasteboard.clearContents()
+        activePasteboard.writeObjects([image])
+        scheduleAutoClearIfEnabled()
     }
 
     /// Copy image to clipboard as TIFF + PNG
     static func copyImage(_ screenshot: ProcessedScreenshot) async {
         let imageData = await imageData(for: screenshot)
         await MainActor.run {
-            pasteboard.clearContents()
-            pasteboard.setData(imageData.tiff, forType: .tiff)
-            pasteboard.setData(imageData.png, forType: .png)
+            activePasteboard.clearContents()
+            activePasteboard.setData(imageData.tiff, forType: .tiff)
+            activePasteboard.setData(imageData.png, forType: .png)
             scheduleAutoClearIfEnabled()
         }
     }
@@ -39,8 +53,8 @@ struct ClipboardManager {
     @MainActor
     static func copyAsMarkdown(_ screenshot: ProcessedScreenshot) {
         let markdown = MarkdownExporter.markdownImageTag(for: screenshot)
-        pasteboard.clearContents()
-        pasteboard.setString(markdown, forType: .string)
+        activePasteboard.clearContents()
+        activePasteboard.setString(markdown, forType: .string)
         scheduleAutoClearIfEnabled()
     }
 
@@ -48,16 +62,16 @@ struct ClipboardManager {
     @MainActor
     static func copyWithCitation(_ screenshot: ProcessedScreenshot) {
         let citation = MarkdownExporter.markdownWithCitation(for: screenshot)
-        pasteboard.clearContents()
-        pasteboard.setString(citation, forType: .string)
+        activePasteboard.clearContents()
+        activePasteboard.setString(citation, forType: .string)
         scheduleAutoClearIfEnabled()
     }
 
     /// Copy OCR text
     @MainActor
     static func copyOCRText(_ text: String) {
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        activePasteboard.clearContents()
+        activePasteboard.setString(text, forType: .string)
         scheduleAutoClearIfEnabled()
     }
 
@@ -68,17 +82,17 @@ struct ClipboardManager {
         let markdown = MarkdownExporter.markdownImageTag(for: screenshot)
         let html = MarkdownExporter.htmlImageTag(for: screenshot)
         await MainActor.run {
-            pasteboard.clearContents()
+            activePasteboard.clearContents()
 
             // Image formats (use cached data)
-            pasteboard.setData(imageData.tiff, forType: .tiff)
-            pasteboard.setData(imageData.png, forType: .png)
+            activePasteboard.setData(imageData.tiff, forType: .tiff)
+            activePasteboard.setData(imageData.png, forType: .png)
 
             // Plain text (Markdown)
-            pasteboard.setString(markdown, forType: .string)
+            activePasteboard.setString(markdown, forType: .string)
 
             // HTML
-            pasteboard.setData(
+            activePasteboard.setData(
                 html.data(using: .utf8) ?? Data(),
                 forType: .html
             )

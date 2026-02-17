@@ -38,33 +38,13 @@ struct SmartMetadataGenerator: MetadataGenerating {
         TAGS: <tag1>, <tag2>, <tag3>
         """
 
-        do {
-            let session = LanguageModelSession()
-            let response: String? = try await withThrowingTaskGroup(of: String?.self) { group in
-                group.addTask {
-                    let text: String? = try await session.respond(to: prompt).content
-                    return text
-                }
-                group.addTask {
-                    try await Task.sleep(for: .seconds(2))
-                    return nil as String?
-                }
-
-                for try await result in group {
-                    if let text = result {
-                        group.cancelAll()
-                        return text
-                    }
-                }
-                group.cancelAll()
-                return nil as String?
-            }
-
-            guard let response else { return nil }
-            return parseResponse(response)
-        } catch {
-            return nil
+        let session = LanguageModelSession()
+        let response: String? = await withTimeout(seconds: 2) {
+            try await session.respond(to: prompt).content
         }
+
+        guard let response else { return nil }
+        return parseResponse(response)
     }
 
     func parseResponse(_ text: String) -> ScreenshotMetadata? {

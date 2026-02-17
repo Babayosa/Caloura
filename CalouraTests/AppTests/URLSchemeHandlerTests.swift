@@ -11,48 +11,71 @@ final class URLSchemeHandlerTests: XCTestCase {
         URLSchemeHandler.lastHandledDate = nil
     }
 
-    // MARK: - URL Parsing
+    // MARK: - Parse: Capture Modes
 
-    func testHandle_captureAreaURL() {
+    func testParse_captureArea() {
         let url = URL(string: "caloura://capture/area")!
-        // Should not crash; verifies parsing works
-        URLSchemeHandler.handle(url)
+        let result = URLSchemeHandler.parse(url)
+        XCTAssertEqual(result, .capture(mode: "area", preset: nil, delay: nil, delayMode: nil, thenActions: []))
     }
 
-    func testHandle_captureFullscreenURL() {
+    func testParse_captureFullscreen() {
         let url = URL(string: "caloura://capture/fullscreen")!
-        URLSchemeHandler.handle(url)
+        let result = URLSchemeHandler.parse(url)
+        XCTAssertEqual(result, .capture(mode: "fullscreen", preset: nil, delay: nil, delayMode: nil, thenActions: []))
     }
 
-    func testHandle_captureWindowURL() {
+    func testParse_captureWindow() {
         let url = URL(string: "caloura://capture/window")!
-        URLSchemeHandler.handle(url)
+        let result = URLSchemeHandler.parse(url)
+        XCTAssertEqual(result, .capture(mode: "window", preset: nil, delay: nil, delayMode: nil, thenActions: []))
     }
 
-    func testHandle_captureRepeatURL() {
+    func testParse_captureRepeat() {
         let url = URL(string: "caloura://capture/repeat")!
-        URLSchemeHandler.handle(url)
+        let result = URLSchemeHandler.parse(url)
+        XCTAssertEqual(result, .capture(mode: "repeat", preset: nil, delay: nil, delayMode: nil, thenActions: []))
     }
 
-    func testHandle_captureDelayedURL() {
+    func testParse_captureDelayed() {
         let url = URL(string: "caloura://capture/delayed?seconds=3&mode=fullscreen")!
-        URLSchemeHandler.handle(url)
+        let result = URLSchemeHandler.parse(url)
+        let expected = URLSchemeHandler.ParsedAction.capture(
+            mode: "delayed", preset: nil, delay: 3, delayMode: "fullscreen", thenActions: []
+        )
+        XCTAssertEqual(result, expected)
     }
 
-    func testHandle_copyMarkdownURL() {
+    // MARK: - Parse: Copy Routes
+
+    func testParse_copyMarkdown() {
         let url = URL(string: "caloura://copy/markdown")!
-        URLSchemeHandler.handle(url)
+        XCTAssertEqual(URLSchemeHandler.parse(url), .copy(format: "markdown"))
     }
 
-    func testHandle_copyCitationURL() {
+    func testParse_copyCitation() {
         let url = URL(string: "caloura://copy/citation")!
-        URLSchemeHandler.handle(url)
+        XCTAssertEqual(URLSchemeHandler.parse(url), .copy(format: "citation"))
     }
 
-    func testHandle_copyOCRURL() {
+    func testParse_copyOCR() {
         let url = URL(string: "caloura://copy/ocr")!
-        URLSchemeHandler.handle(url)
+        XCTAssertEqual(URLSchemeHandler.parse(url), .copy(format: "ocr"))
     }
+
+    // MARK: - Parse: UI Routes
+
+    func testParse_history() {
+        let url = URL(string: "caloura://history")!
+        XCTAssertEqual(URLSchemeHandler.parse(url), .showHistory)
+    }
+
+    func testParse_settings() {
+        let url = URL(string: "caloura://settings")!
+        XCTAssertEqual(URLSchemeHandler.parse(url), .showSettings)
+    }
+
+    // MARK: - Handle: Notification posting
 
     func testHandle_historyURL_postsNotification() {
         let expectation = XCTNSNotificationExpectation(name: .showHistory)
@@ -68,91 +91,120 @@ final class URLSchemeHandlerTests: XCTestCase {
         wait(for: [expectation], timeout: 1.0)
     }
 
-    func testHandle_invalidSchemeIgnored() {
+    // MARK: - Rejection / Invalid Input
+
+    func testParse_invalidSchemeReturnsNil() {
         let url = URL(string: "https://example.com")!
-        // Should silently return without action
-        URLSchemeHandler.handle(url)
+        XCTAssertNil(URLSchemeHandler.parse(url))
     }
 
-    func testHandle_unknownHostIgnored() {
+    func testParse_unknownHostReturnsNil() {
         let url = URL(string: "caloura://nonexistent/path")!
-        URLSchemeHandler.handle(url)
+        XCTAssertNil(URLSchemeHandler.parse(url))
     }
+
+    func testParse_unknownCaptureMode_returnsNil() {
+        let url = URL(string: "caloura://capture/exploit")!
+        XCTAssertNil(URLSchemeHandler.parse(url))
+    }
+
+    func testParse_xssAttemptInMode_returnsNil() {
+        let url = URL(string: "caloura://capture/%3Cscript%3Ealert(1)%3C/script%3E")!
+        XCTAssertNil(URLSchemeHandler.parse(url))
+    }
+
+    // MARK: - Preset Handling
 
     func testHandle_presetNormalization() {
-        // "lecture-notes" should normalize to "Lecture Notes"
         let url = URL(string: "caloura://capture/area?preset=lecture-notes")!
         URLSchemeHandler.handle(url)
-        // Verify preset was set (if it matches a built-in name)
         XCTAssertEqual(AppSettings.shared.activePreset, "Lecture Notes")
     }
 
-    func testHandle_unknownPresetIgnored() {
-        let originalPreset = AppSettings.shared.activePreset
+    func testParse_unknownPresetReturnsNilPreset() {
         let url = URL(string: "caloura://capture/area?preset=nonexistent-preset")!
-        URLSchemeHandler.handle(url)
-        // Should not change the active preset
-        XCTAssertEqual(AppSettings.shared.activePreset, originalPreset)
+        if case .capture(_, let preset, _, _, _) = URLSchemeHandler.parse(url) {
+            XCTAssertNil(preset)
+        } else {
+            XCTFail("Expected capture action")
+        }
     }
 
     // MARK: - Delayed Capture Bounds
 
-    func testHandle_delayedSecondsZero_clampedToOne() {
-        // seconds=0 should be clamped to 1 (minimum)
+    func testParse_delayedSecondsZero_clampedToOne() {
         let url = URL(string: "caloura://capture/delayed?seconds=0")!
-        // Should not crash; seconds is clamped internally
-        URLSchemeHandler.handle(url)
+        if case .capture(_, _, let delay, _, _) = URLSchemeHandler.parse(url) {
+            XCTAssertEqual(delay, 1)
+        } else {
+            XCTFail("Expected capture action")
+        }
     }
 
-    func testHandle_delayedSecondsNegative_clampedToOne() {
+    func testParse_delayedSecondsNegative_clampedToOne() {
         let url = URL(string: "caloura://capture/delayed?seconds=-1")!
-        URLSchemeHandler.handle(url)
+        if case .capture(_, _, let delay, _, _) = URLSchemeHandler.parse(url) {
+            XCTAssertEqual(delay, 1)
+        } else {
+            XCTFail("Expected capture action")
+        }
     }
 
-    func testHandle_delayedSecondsHuge_clampedToTen() {
+    func testParse_delayedSecondsHuge_clampedToTen() {
         let url = URL(string: "caloura://capture/delayed?seconds=99999")!
-        URLSchemeHandler.handle(url)
+        if case .capture(_, _, let delay, _, _) = URLSchemeHandler.parse(url) {
+            XCTAssertEqual(delay, 10)
+        } else {
+            XCTFail("Expected capture action")
+        }
     }
 
-    func testHandle_delayedSecondsNonNumeric_defaultsToThree() {
+    func testParse_delayedSecondsNonNumeric_defaultsToThree() {
         let url = URL(string: "caloura://capture/delayed?seconds=abc")!
-        URLSchemeHandler.handle(url)
+        if case .capture(_, _, let delay, _, _) = URLSchemeHandler.parse(url) {
+            XCTAssertEqual(delay, 3)
+        } else {
+            XCTFail("Expected capture action")
+        }
     }
 
-    // MARK: - Unknown Mode Rejection
+    // MARK: - Then Actions
 
-    func testHandle_unknownCaptureMode_ignored() {
-        // An unknown mode like "exploit" should be rejected
-        let url = URL(string: "caloura://capture/exploit")!
-        URLSchemeHandler.handle(url)
-    }
-
-    func testHandle_xssAttemptInMode_ignored() {
-        let url = URL(string: "caloura://capture/%3Cscript%3Ealert(1)%3C/script%3E")!
-        URLSchemeHandler.handle(url)
-    }
-
-    // MARK: - Empty & Malformed Parameters
-
-    func testHandle_emptySecondsParam_defaultsToThree() {
-        let url = URL(string: "caloura://capture/delayed?seconds=")!
-        URLSchemeHandler.handle(url)
-    }
-
-    func testHandle_emptyModeParam_defaultsToArea() {
-        let url = URL(string: "caloura://capture/delayed?mode=")!
-        URLSchemeHandler.handle(url)
-    }
-
-    func testHandle_unknownThenAction_ignored() {
-        // An unknown then action like "rm -rf" should be filtered out
-        let url = URL(string: "caloura://capture/area?then=rm%20-rf")!
-        URLSchemeHandler.handle(url)
-    }
-
-    func testHandle_mixedValidInvalidActions() {
-        // Only "copy" should be kept; "evil" should be filtered
+    func testParse_thenActions_validFiltered() {
         let url = URL(string: "caloura://capture/area?then=copy,evil")!
-        URLSchemeHandler.handle(url)
+        if case .capture(_, _, _, _, let actions) = URLSchemeHandler.parse(url) {
+            XCTAssertEqual(actions, ["copy"])
+        } else {
+            XCTFail("Expected capture action")
+        }
+    }
+
+    func testParse_thenActions_unknownRejected() {
+        let url = URL(string: "caloura://capture/area?then=rm%20-rf")!
+        if case .capture(_, _, _, _, let actions) = URLSchemeHandler.parse(url) {
+            XCTAssertTrue(actions.isEmpty)
+        } else {
+            XCTFail("Expected capture action")
+        }
+    }
+
+    // MARK: - Empty/Malformed Parameters
+
+    func testParse_emptySecondsParam_defaultsToThree() {
+        let url = URL(string: "caloura://capture/delayed?seconds=")!
+        if case .capture(_, _, let delay, _, _) = URLSchemeHandler.parse(url) {
+            XCTAssertEqual(delay, 3)
+        } else {
+            XCTFail("Expected capture action")
+        }
+    }
+
+    func testParse_emptyModeParam_defaultsToArea() {
+        let url = URL(string: "caloura://capture/delayed?mode=")!
+        if case .capture(_, _, _, let delayMode, _) = URLSchemeHandler.parse(url) {
+            XCTAssertEqual(delayMode, "area")
+        } else {
+            XCTFail("Expected capture action")
+        }
     }
 }

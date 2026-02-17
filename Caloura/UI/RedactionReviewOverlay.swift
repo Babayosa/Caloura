@@ -137,35 +137,39 @@ struct RedactionReviewView: View {
         guard let redactedImage else { return }
 
         if let filePath {
-            await saveRedactedImage(redactedImage, to: filePath)
+            let saved = await saveRedactedImage(redactedImage, to: filePath)
+            if !saved {
+                AppState.shared.statusMessage = "Failed to save redacted image"
+                return
+            }
         }
 
         let size = NSSize(width: redactedImage.width, height: redactedImage.height)
         let nsImage = NSImage(cgImage: redactedImage, size: size)
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.writeObjects([nsImage])
+        ClipboardManager.copyNSImage(nsImage)
 
         AppState.shared.statusMessage = "Redacted \(selectedIndices.count) item(s)"
         RedactionReviewController.shared.close()
     }
 
-    private func saveRedactedImage(_ cgImage: CGImage, to url: URL) async {
+    private func saveRedactedImage(_ cgImage: CGImage, to url: URL) async -> Bool {
         await Task.detached {
             let tempURL = url.deletingLastPathComponent()
                 .appendingPathComponent(UUID().uuidString + ".tmp.png")
             guard let dest = CGImageDestinationCreateWithURL(
                 tempURL as CFURL, "public.png" as CFString, 1, nil
-            ) else { return }
+            ) else { return false }
             CGImageDestinationAddImage(dest, cgImage, nil)
             guard CGImageDestinationFinalize(dest) else {
                 try? FileManager.default.removeItem(at: tempURL)
-                return
+                return false
             }
             do {
                 _ = try FileManager.default.replaceItemAt(url, withItemAt: tempURL)
+                return true
             } catch {
                 try? FileManager.default.removeItem(at: tempURL)
+                return false
             }
         }.value
     }

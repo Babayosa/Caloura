@@ -424,13 +424,9 @@ private func generateSmartMetadataIfEnabled(
         AppSettings.shared.smartMetadataEnabled
     }
     guard enabled, !text.isEmpty else { return }
-    let sourceApp = await MainActor.run {
-        appState.recentScreenshots
-            .first { $0.id == screenshotID }?.sourceAppName
-    }
-    let windowTitle = await MainActor.run {
-        appState.recentScreenshots
-            .first { $0.id == screenshotID }?.sourceWindowTitle
+    let (sourceApp, windowTitle) = await MainActor.run {
+        let item = appState.recentScreenshots.first { $0.id == screenshotID }
+        return (item?.sourceAppName, item?.sourceWindowTitle)
     }
     guard let metadata = await SmartMetadataGenerator.shared.generate(
         ocrText: text, sourceApp: sourceApp, windowTitle: windowTitle
