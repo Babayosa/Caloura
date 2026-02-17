@@ -1,5 +1,6 @@
 // swiftlint:disable file_length
 import AppKit
+import CryptoKit
 import os.log
 import ScreenCaptureKit
 
@@ -404,7 +405,7 @@ private func generateEmbeddingIfEnabled(
     }
     guard enabled, !text.isEmpty else { return }
     guard let vector = EmbeddingEngine.embed(text) else { return }
-    let textHash = String(text.hashValue)
+    let textHash = stableHash(text)
     let store = await MainActor.run { appState.embeddingStore }
     store.add(
         screenshotID: screenshotID,
@@ -443,4 +444,9 @@ private func generateSmartMetadataIfEnabled(
         appState.recentScreenshots[idx].autoTags = metadata.tags
         appState.saveHistory()
     }
+}
+
+private func stableHash(_ text: String) -> String {
+    let data = Data(text.utf8)
+    return SHA256.hash(data: data).prefix(16).map { String(format: "%02x", $0) }.joined()
 }

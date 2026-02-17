@@ -152,11 +152,21 @@ struct RedactionReviewView: View {
 
     private func saveRedactedImage(_ cgImage: CGImage, to url: URL) async {
         await Task.detached {
+            let tempURL = url.deletingLastPathComponent()
+                .appendingPathComponent(UUID().uuidString + ".tmp.png")
             guard let dest = CGImageDestinationCreateWithURL(
-                url as CFURL, "public.png" as CFString, 1, nil
+                tempURL as CFURL, "public.png" as CFString, 1, nil
             ) else { return }
             CGImageDestinationAddImage(dest, cgImage, nil)
-            CGImageDestinationFinalize(dest)
+            guard CGImageDestinationFinalize(dest) else {
+                try? FileManager.default.removeItem(at: tempURL)
+                return
+            }
+            do {
+                _ = try FileManager.default.replaceItemAt(url, withItemAt: tempURL)
+            } catch {
+                try? FileManager.default.removeItem(at: tempURL)
+            }
         }.value
     }
 

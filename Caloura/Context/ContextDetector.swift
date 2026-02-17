@@ -48,10 +48,7 @@ struct ContextDetector {
         return map
     }()
 
-    private static let lectureKeywords = ["lecture", "class", "lesson", "course", "seminar", "tutorial"]
-    private static let lmsKeywords = ["canvas", "blackboard", "moodle", "coursera", "edx", "brightspace", "schoology"]
-
-    /// Detect the current context based on the frontmost application.
+/// Detect the current context based on the frontmost application.
     /// This is a fast, non-blocking call that uses cached app info.
     static func detectContext() -> DetectedContext {
         let workspace = NSWorkspace.shared
@@ -64,13 +61,13 @@ struct ContextDetector {
 
         // Skip window title lookup for speed - category is determined by bundle ID
         // Window title is only needed for lecture detection in browsers/video apps
-        let category = fastCategorize(bundleID: bundleID)
+        let category = categorize(bundleID: bundleID)
 
         return DetectedContext(appName: appName, windowTitle: nil, category: category)
     }
 
-    /// Fast O(1) categorization using precomputed map
-    private static func fastCategorize(bundleID: String) -> AppCategory {
+    /// Categorize an app by bundle ID using precomputed map.
+    static func categorize(bundleID: String) -> AppCategory {
         let bundleLower = bundleID.lowercased()
 
         // Direct lookup first
@@ -86,32 +83,4 @@ struct ContextDetector {
         return .other
     }
 
-    /// Full categorization with window title (call async if needed)
-    static func categorize(
-        bundleID: String,
-        appName: String?,
-        windowTitle: String?
-    ) -> AppCategory {
-        let bundleLower = bundleID.lowercased()
-        let titleLower = windowTitle?.lowercased() ?? ""
-
-        // Fast path: direct lookup
-        if let category = categoryMap[bundleLower] {
-            // Special case: browsers might be showing lecture content
-            if category == .web {
-                if lmsKeywords.contains(where: { titleLower.contains($0) }) ||
-                   lectureKeywords.contains(where: { titleLower.contains($0) }) {
-                    return .lecture
-                }
-            }
-            return category
-        }
-
-        // Prefix matching
-        for (key, cat) in categoryMap where bundleLower.hasPrefix(key) {
-            return cat
-        }
-
-        return .other
-    }
 }

@@ -1,6 +1,47 @@
 import SwiftUI
 import AppKit
 
+// MARK: - Coordinate Transform (view-space → image-space)
+
+struct AnnotationCoordTransform {
+    let imageSize: CGSize
+    let canvasSize: CGSize
+
+    var imageFrame: CGRect {
+        guard canvasSize.width > 0, canvasSize.height > 0,
+              imageSize.width > 0, imageSize.height > 0 else {
+            return CGRect(origin: .zero, size: imageSize)
+        }
+        let imageAspect = imageSize.width / imageSize.height
+        let canvasAspect = canvasSize.width / canvasSize.height
+
+        if imageAspect > canvasAspect {
+            let w = canvasSize.width
+            let h = w / imageAspect
+            return CGRect(x: 0, y: (canvasSize.height - h) / 2, width: w, height: h)
+        } else {
+            let h = canvasSize.height
+            let w = h * imageAspect
+            return CGRect(x: (canvasSize.width - w) / 2, y: 0, width: w, height: h)
+        }
+    }
+
+    var scale: CGFloat {
+        let frame = imageFrame
+        guard frame.width > 0 else { return 1 }
+        return imageSize.width / frame.width
+    }
+
+    func viewToImage(_ point: CGPoint) -> CGPoint {
+        let frame = imageFrame
+        guard frame.width > 0, frame.height > 0 else { return point }
+        return CGPoint(
+            x: (point.x - frame.origin.x) * (imageSize.width / frame.width),
+            y: (point.y - frame.origin.y) * (imageSize.height / frame.height)
+        )
+    }
+}
+
 // MARK: - Annotation Types
 
 enum AnnotationTool: String, CaseIterable {
@@ -47,6 +88,7 @@ struct AnnotationOverlayView: View {
     @State private var currentAnnotation: Annotation?
     @State private var undoStack: [[Annotation]] = []
     @State private var redoStack: [[Annotation]] = []
+    @State private var canvasSize: CGSize = .zero
 
     var body: some View {
         VStack(spacing: 0) {
@@ -120,6 +162,9 @@ struct AnnotationOverlayView: View {
                         AnnotationShape(annotation: current)
                     }
                 }
+                .background(
+                    Color.clear.preference(key: CanvasSizeKey.self, value: geometry.size)
+                )
                 .gesture(
                     DragGesture(minimumDistance: 1)
                         .onChanged { value in
@@ -145,6 +190,7 @@ struct AnnotationOverlayView: View {
                         }
                 )
             }
+            .onPreferenceChange(CanvasSizeKey.self) { canvasSize = $0 }
         }
     }
 
@@ -161,14 +207,19 @@ struct AnnotationOverlayView: View {
     }
 
     private func saveAnnotatedImage() {
-        // Render annotations onto image
         let size = image.size
-        let annotatedImage = NSImage(size: size, flipped: false) { rect in
-            self.image.draw(in: rect)
+        let transform = AnnotationCoordTransform(imageSize: size, canvasSize: canvasSize)
+        let lineScale = transform.scale
 
-            // Draw annotations
+        // flipped: true matches SwiftUI's top-left origin coordinate system
+        let annotatedImage = NSImage(size: size, flipped: true) { rect in
+            self.image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
+
             for annotation in self.annotations {
-                self.drawAnnotation(annotation, in: rect, imageSize: size)
+                let start = transform.viewToImage(annotation.startPoint)
+                let end = transform.viewToImage(annotation.endPoint)
+                self.drawAnnotation(annotation.tool, start: start, end: end,
+                                    color: NSColor(annotation.color), lineScale: lineScale)
             }
             return true
         }
@@ -176,55 +227,63 @@ struct AnnotationOverlayView: View {
         onSave(annotatedImage)
     }
 
-    private func drawAnnotation(_ annotation: Annotation, in canvasRect: CGRect, imageSize: NSSize) {
-        let nsColor = NSColor(annotation.color)
+    private func drawAnnotation(_ tool: AnnotationTool, start: CGPoint, end: CGPoint,
+                                color: NSColor, lineScale: CGFloat) {
+        let lineWidth = 3 * lineScale
 
-        switch annotation.tool {
+        switch tool {
         case .arrow:
-            nsColor.setStroke()
+            color.setStroke()
             let path = NSBezierPath()
-            path.lineWidth = 3
-            path.move(to: annotation.startPoint)
-            path.line(to: annotation.endPoint)
+            path.lineWidth = lineWidth
+            path.move(to: start)
+            path.line(to: end)
             path.stroke()
 
-            // Arrowhead
-            drawArrowhead(from: annotation.startPoint, to: annotation.endPoint, color: nsColor)
+            let arrowLength = 15 * lineScale
+            let angle = atan2(end.y - start.y, end.x - start.x)
+            let p1 = CGPoint(
+                x: end.x - arrowLength * cos(angle - .pi / 6),
+                y: end.y - arrowLength * sin(angle - .pi / 6)
+            )
+            let p2 = CGPoint(
+                x: end.x - arrowLength * cos(angle + .pi / 6),
+                y: end.y - arrowLength * sin(angle + .pi / 6)
+            )
+            color.setFill()
+            let arrowPath = NSBezierPath()
+            arrowPath.move(to: end)
+            arrowPath.line(to: p1)
+            arrowPath.line(to: p2)
+            arrowPath.close()
+            arrowPath.fill()
 
         case .rectangle:
-            nsColor.setStroke()
-            let path = NSBezierPath(rect: annotation.rect)
-            path.lineWidth = 3
+            color.setStroke()
+            let rect = CGRect(
+                x: min(start.x, end.x), y: min(start.y, end.y),
+                width: abs(end.x - start.x), height: abs(end.y - start.y)
+            )
+            let path = NSBezierPath(rect: rect)
+            path.lineWidth = lineWidth
             path.stroke()
 
         case .highlight:
-            nsColor.withAlphaComponent(0.3).setFill()
-            let path = NSBezierPath(rect: annotation.rect)
-            path.fill()
+            color.withAlphaComponent(0.3).setFill()
+            let rect = CGRect(
+                x: min(start.x, end.x), y: min(start.y, end.y),
+                width: abs(end.x - start.x), height: abs(end.y - start.y)
+            )
+            NSBezierPath(rect: rect).fill()
         }
     }
+}
 
-    private func drawArrowhead(from start: CGPoint, to end: CGPoint, color: NSColor) {
-        let length: CGFloat = 15
-        let angle = atan2(end.y - start.y, end.x - start.x)
+// MARK: - Preference Key
 
-        let p1 = CGPoint(
-            x: end.x - length * cos(angle - .pi / 6),
-            y: end.y - length * sin(angle - .pi / 6)
-        )
-        let p2 = CGPoint(
-            x: end.x - length * cos(angle + .pi / 6),
-            y: end.y - length * sin(angle + .pi / 6)
-        )
-
-        color.setFill()
-        let path = NSBezierPath()
-        path.move(to: end)
-        path.line(to: p1)
-        path.line(to: p2)
-        path.close()
-        path.fill()
-    }
+private struct CanvasSizeKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
 }
 
 // MARK: - Annotation Shape

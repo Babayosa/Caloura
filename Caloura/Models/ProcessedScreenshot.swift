@@ -1,6 +1,7 @@
 import AppKit
 
 final class ProcessedScreenshot: @unchecked Sendable {
+    let id: UUID
     let image: NSImage
     let cgImage: CGImage
     let context: CaptureContext
@@ -108,6 +109,7 @@ final class ProcessedScreenshot: @unchecked Sendable {
     }
 
     init(
+        id: UUID = UUID(),
         image: NSImage,
         cgImage: CGImage,
         pngData: Data? = nil,
@@ -117,6 +119,7 @@ final class ProcessedScreenshot: @unchecked Sendable {
         fileName: String = "",
         presetName: String? = nil
     ) {
+        self.id = id
         self.image = image
         self.cgImage = cgImage
         self._pngData = pngData
@@ -129,6 +132,7 @@ final class ProcessedScreenshot: @unchecked Sendable {
 
     func toScreenshotItem() -> ScreenshotItem {
         ScreenshotItem(
+            id: id,
             filePath: filePath?.path ?? "",
             fileName: fileName,
             sourceAppName: context.sourceAppName,

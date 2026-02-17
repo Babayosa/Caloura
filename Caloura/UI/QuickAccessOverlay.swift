@@ -106,16 +106,31 @@ final class QuickAccessOverlay {
             AppState.shared.statusMessage = "Copied image"
         case .save:
             Task {
+                let appState = AppState.shared
+                // Skip if already saved to disk by the pipeline
+                if let idx = appState.recentScreenshots.firstIndex(where: {
+                    $0.id == screenshot.id
+                }), !appState.recentScreenshots[idx].filePath.isEmpty {
+                    AppState.shared.statusMessage = "Already saved to disk"
+                    return
+                }
                 do {
                     let settings = AppSettings.shared
-                    try await FileOrganizer.save(
+                    let url = try await FileOrganizer.save(
                         screenshot,
                         baseDirectory: settings.saveDirectory,
                         imageFormat: settings.imageFormat
                     )
-                    AppState.shared.statusMessage = "Saved to disk"
+                    // Update history item with the saved file path
+                    if let idx = appState.recentScreenshots.firstIndex(where: {
+                        $0.id == screenshot.id
+                    }) {
+                        appState.recentScreenshots[idx].filePath = url.path
+                        appState.saveHistory()
+                    }
+                    appState.statusMessage = "Saved to disk"
                 } catch {
-                    AppState.shared.statusMessage = "Save failed"
+                    appState.statusMessage = "Save failed"
                 }
             }
         case .markdown:

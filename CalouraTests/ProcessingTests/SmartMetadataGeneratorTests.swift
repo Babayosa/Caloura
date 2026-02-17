@@ -42,4 +42,70 @@ final class SmartMetadataGeneratorTests: XCTestCase {
             windowTitle: nil
         )
     }
+
+    // MARK: - parseResponse (deterministic)
+
+    private let generator = SmartMetadataGenerator()
+
+    func testParseResponse_validFormat() {
+        let input = """
+        FILENAME: cs101-lecture-notes
+        SUMMARY: A lecture about data structures from CS 101
+        TAGS: computer-science, lecture, data-structures
+        """
+        let result = generator.parseResponse(input)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.smartFileName, "cs101-lecture-notes")
+        XCTAssertEqual(result?.summary, "A lecture about data structures from CS 101")
+        XCTAssertEqual(result?.tags, ["computer-science", "lecture", "data-structures"])
+    }
+
+    func testParseResponse_emptyResponse_returnsNil() {
+        XCTAssertNil(generator.parseResponse(""))
+    }
+
+    func testParseResponse_noMatchingFields_returnsNil() {
+        XCTAssertNil(generator.parseResponse("This is just random text with no labels."))
+    }
+
+    func testParseResponse_partialFields() {
+        let input = "SUMMARY: Just a summary, no filename or tags"
+        let result = generator.parseResponse(input)
+        XCTAssertNotNil(result)
+        XCTAssertNil(result?.smartFileName)
+        XCTAssertEqual(result?.summary, "Just a summary, no filename or tags")
+        XCTAssertTrue(result?.tags.isEmpty ?? true)
+    }
+
+    func testParseResponse_tagsLimitedToFive() {
+        let input = "TAGS: a, b, c, d, e, f, g"
+        let result = generator.parseResponse(input)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.tags.count, 5)
+    }
+
+    func testParseResponse_summaryTruncatedAt200() {
+        let longSummary = String(repeating: "x", count: 300)
+        let input = "SUMMARY: \(longSummary)"
+        let result = generator.parseResponse(input)
+        XCTAssertEqual(result?.summary?.count, 200)
+    }
+
+    func testParseResponse_tagsLowercased() {
+        let input = "TAGS: Swift, MacOS, XCode"
+        let result = generator.parseResponse(input)
+        XCTAssertEqual(result?.tags, ["swift", "macos", "xcode"])
+    }
+
+    func testParseResponse_extraWhitespace() {
+        let input = """
+          FILENAME:   some-file-name
+          SUMMARY:   Some summary here
+          TAGS:  tag1 ,  tag2 , tag3
+        """
+        let result = generator.parseResponse(input)
+        XCTAssertEqual(result?.smartFileName, "some-file-name")
+        XCTAssertEqual(result?.summary, "Some summary here")
+        XCTAssertEqual(result?.tags, ["tag1", "tag2", "tag3"])
+    }
 }

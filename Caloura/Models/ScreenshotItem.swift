@@ -3,7 +3,7 @@ import Foundation
 struct ScreenshotItem: Identifiable, Codable, Hashable {
     let id: UUID
     let timestamp: Date
-    let filePath: String
+    var filePath: String
     let fileName: String
     let sourceAppName: String?
     let sourceWindowTitle: String?

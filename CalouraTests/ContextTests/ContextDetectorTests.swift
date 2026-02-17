@@ -4,83 +4,47 @@ import XCTest
 final class ContextDetectorTests: XCTestCase {
 
     func testCategorize_vsCode() {
-        let category = ContextDetector.categorize(
-            bundleID: "com.microsoft.VSCode",
-            appName: "Visual Studio Code",
-            windowTitle: "main.swift - Caloura"
-        )
+        let category = ContextDetector.categorize(bundleID: "com.microsoft.VSCode")
         XCTAssertEqual(category, .code)
     }
 
     func testCategorize_xcode() {
-        let category = ContextDetector.categorize(
-            bundleID: "com.apple.dt.Xcode",
-            appName: "Xcode",
-            windowTitle: "Caloura.xcodeproj"
-        )
+        let category = ContextDetector.categorize(bundleID: "com.apple.dt.Xcode")
         XCTAssertEqual(category, .code)
     }
 
-    func testCategorize_zoomLecture() {
-        let category = ContextDetector.categorize(
-            bundleID: "us.zoom.xos",
-            appName: "zoom.us",
-            windowTitle: "CS 101 Lecture"
-        )
+    func testCategorize_zoom() {
+        let category = ContextDetector.categorize(bundleID: "us.zoom.xos")
         XCTAssertEqual(category, .lecture)
     }
 
-    func testCategorize_browserWithCanvas() {
-        let category = ContextDetector.categorize(
-            bundleID: "com.google.Chrome",
-            appName: "Google Chrome",
-            windowTitle: "Dashboard - Canvas"
-        )
-        XCTAssertEqual(category, .lecture)
+    func testCategorize_chrome() {
+        let category = ContextDetector.categorize(bundleID: "com.google.Chrome")
+        XCTAssertEqual(category, .web)
     }
 
-    func testCategorize_browserGeneric() {
-        let category = ContextDetector.categorize(
-            bundleID: "com.apple.Safari",
-            appName: "Safari",
-            windowTitle: "Apple"
-        )
+    func testCategorize_safari() {
+        let category = ContextDetector.categorize(bundleID: "com.apple.Safari")
         XCTAssertEqual(category, .web)
     }
 
     func testCategorize_slack() {
-        let category = ContextDetector.categorize(
-            bundleID: "com.tinyspeck.slackmacgap",
-            appName: "Slack",
-            windowTitle: "#general"
-        )
+        let category = ContextDetector.categorize(bundleID: "com.tinyspeck.slackmacgap")
         XCTAssertEqual(category, .chat)
     }
 
     func testCategorize_unknown() {
-        let category = ContextDetector.categorize(
-            bundleID: "com.unknown.app",
-            appName: "SomeApp",
-            windowTitle: "Window"
-        )
+        let category = ContextDetector.categorize(bundleID: "com.unknown.app")
         XCTAssertEqual(category, .other)
     }
 
-    func testCategorize_terminalAsCode() {
-        let category = ContextDetector.categorize(
-            bundleID: "com.apple.Terminal",
-            appName: "Terminal",
-            windowTitle: "bash"
-        )
+    func testCategorize_terminal() {
+        let category = ContextDetector.categorize(bundleID: "com.apple.Terminal")
         XCTAssertEqual(category, .code)
     }
 
-    func testCategorize_browserWithMoodle() {
-        let category = ContextDetector.categorize(
-            bundleID: "org.mozilla.firefox",
-            appName: "Firefox",
-            windowTitle: "Moodle: CS 301 - Homework 5"
-        )
-        XCTAssertEqual(category, .lecture)
+    func testCategorize_firefox() {
+        let category = ContextDetector.categorize(bundleID: "org.mozilla.firefox")
+        XCTAssertEqual(category, .web)
     }
 }

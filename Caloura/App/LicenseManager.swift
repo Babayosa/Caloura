@@ -113,6 +113,56 @@ final class LicenseManager: ObservableObject {
     }
 
     private func revalidateLicense(key: String, settings: AppSettings) async {
+        switch await verifyLicense(key: key) {
+        case .valid:
+            settings.lastLicenseValidationDate = Date()
+            logger.info("License re-validation succeeded.")
+        case .invalid:
+            logger.info("License re-validation failed. Revoking activation.")
+            settings.isLicenseActivated = false
+            refreshState(settings: settings)
+        case .ambiguousResponse, .networkError:
+            logger.info("License re-validation skipped — ambiguous or network error.")
+        }
+    }
+
+    // MARK: - Gumroad Activation
+
+    func activate(licenseKey: String) async {
+        await activate(licenseKey: licenseKey, settings: AppSettings.shared)
+    }
+
+    func activate(licenseKey: String, settings: AppSettings) async {
+        activationState = .checking
+
+        switch await verifyLicense(key: licenseKey) {
+        case .valid:
+            settings.licenseKey = licenseKey
+            settings.isLicenseActivated = true
+            settings.lastLicenseValidationDate = Date()
+            activationState = .licensed
+            logger.info("License activated successfully.")
+        case .invalid(let reason):
+            activationState = .activationFailed(reason)
+        case .ambiguousResponse:
+            activationState = .activationFailed("Unexpected response from server.")
+        case .networkError(let error):
+            let desc = error.localizedDescription
+            logger.error("Activation failed: \(desc)")
+            activationState = .activationFailed("Network error. Please check your connection and try again.")
+        }
+    }
+
+    // MARK: - Shared Verification
+
+    private enum VerifyResult {
+        case valid
+        case invalid(reason: String)
+        case ambiguousResponse
+        case networkError(Error)
+    }
+
+    private func verifyLicense(key: String) async -> VerifyResult {
         var request = URLRequest(url: Self.gumroadVerifyURL)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -130,107 +180,26 @@ final class LicenseManager: ObservableObject {
             guard let httpResponse = response as? HTTPURLResponse,
                   httpResponse.url?.host == Self.gumroadVerifyURL.host,
                   data.count < 1_000_000 else {
-                return // Ambiguous response — skip, don't revoke
+                return .ambiguousResponse
             }
 
             guard httpResponse.statusCode == 200,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let success = json["success"] as? Bool, success else {
-                // Definitive invalid response — revoke
-                logger.info("License re-validation failed. Revoking activation.")
-                settings.isLicenseActivated = false
-                refreshState(settings: settings)
-                return
+                return .invalid(reason: "Invalid license key.")
             }
 
-            // Check for refund/dispute/chargeback
             if let purchase = json["purchase"] as? [String: Any] {
                 if purchase["refunded"] as? Bool == true ||
                    purchase["disputed"] as? Bool == true ||
                    purchase["chargebacked"] as? Bool == true {
-                    logger.info("License revoked: refunded or disputed.")
-                    settings.isLicenseActivated = false
-                    refreshState(settings: settings)
-                    return
+                    return .invalid(reason: "This license has been refunded or disputed.")
                 }
             }
 
-            // Still valid — update timestamp
-            settings.lastLicenseValidationDate = Date()
-            logger.info("License re-validation succeeded.")
-
+            return .valid
         } catch {
-            // Network error — skip re-validation, don't revoke
-            logger.info("License re-validation skipped due to network error.")
-        }
-    }
-
-    // MARK: - Gumroad Activation
-
-    func activate(licenseKey: String) async {
-        await activate(licenseKey: licenseKey, settings: AppSettings.shared)
-    }
-
-    func activate(licenseKey: String, settings: AppSettings) async {
-        activationState = .checking
-
-        var request = URLRequest(url: Self.gumroadVerifyURL)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-
-        var components = URLComponents()
-        components.queryItems = [
-            URLQueryItem(name: "product_id", value: Self.gumroadProductID),
-            URLQueryItem(name: "license_key", value: licenseKey)
-        ]
-        request.httpBody = components.percentEncodedQuery?.data(using: .utf8)
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-
-            guard data.count < 1_000_000 else {
-                activationState = .activationFailed("Unexpected response from server.")
-                return
-            }
-
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.url?.host == Self.gumroadVerifyURL.host else {
-                activationState = .activationFailed("Unexpected response from server.")
-                return
-            }
-
-            guard httpResponse.statusCode == 200 else {
-                activationState = .activationFailed("Invalid license key.")
-                return
-            }
-
-            // Parse Gumroad JSON response
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let success = json["success"] as? Bool, success else {
-                activationState = .activationFailed("Invalid license key.")
-                return
-            }
-
-            // Check for refund/dispute/chargeback
-            if let purchase = json["purchase"] as? [String: Any] {
-                if purchase["refunded"] as? Bool == true ||
-                   purchase["disputed"] as? Bool == true ||
-                   purchase["chargebacked"] as? Bool == true {
-                    activationState = .activationFailed("This license has been refunded or disputed.")
-                    return
-                }
-            }
-
-            // Activation successful
-            settings.licenseKey = licenseKey
-            settings.isLicenseActivated = true
-            settings.lastLicenseValidationDate = Date()
-            activationState = .licensed
-            logger.info("License activated successfully.")
-
-        } catch {
-            logger.error("Activation failed: \(error.localizedDescription)")
-            activationState = .activationFailed("Network error. Please check your connection and try again.")
+            return .networkError(error)
         }
     }
 }

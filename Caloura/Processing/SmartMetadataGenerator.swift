@@ -67,7 +67,7 @@ struct SmartMetadataGenerator: MetadataGenerating {
         }
     }
 
-    private func parseResponse(_ text: String) -> ScreenshotMetadata? {
+    func parseResponse(_ text: String) -> ScreenshotMetadata? {
         let lines = text.components(separatedBy: "\n")
 
         var fileName: String?
