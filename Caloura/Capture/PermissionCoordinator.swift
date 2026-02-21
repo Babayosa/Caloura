@@ -150,7 +150,7 @@ final class PermissionCoordinator: ObservableObject {
 
     typealias PassiveCheck = () -> Bool
     typealias InteractiveCheck = () async -> Bool
-    typealias AlertPresenter = (ScreenCaptureManager.PermissionState) -> Void
+    typealias AlertPresenter = (ScreenCaptureManager.PermissionState) async -> Void
     typealias PermissionRequester = () -> Bool
     typealias IdentityProvider = () -> PermissionIdentity
     typealias StatusMessageSink = (String) -> Void
@@ -181,7 +181,7 @@ final class PermissionCoordinator: ObservableObject {
         self.defaults = defaults
         self.passiveCheck = { ScreenCaptureManager.shared.passivePermissionGranted() }
         self.interactiveCheck = { await ScreenCaptureManager.shared.validateSCKAccessUserInitiated() }
-        self.alertPresenter = { ScreenCaptureManager.shared.showPermissionAlert(for: $0) }
+        self.alertPresenter = { state in ScreenCaptureManager.shared.showPermissionAlert(for: state) }
         self.permissionRequester = { ScreenCaptureManager.shared.requestPermission() }
         self.identityProvider = { PermissionIdentity.current() }
         self.statusMessageSink = { AppState.shared.statusMessage = $0 }
@@ -267,7 +267,7 @@ final class PermissionCoordinator: ObservableObject {
     }
 
     /// Handle a capture failure due to missing permission, showing an alert if not rate-limited.
-    func handleCapturePermissionFailure() {
+    func handleCapturePermissionFailure() async {
         let identity = identityProvider()
         let status = refreshPassiveStatus()
         let now = now()
@@ -294,9 +294,7 @@ final class PermissionCoordinator: ObservableObject {
             + " state=\(alertDesc) path=\(alertPath)"
         logger.info("\(alertMsg, privacy: .public)")
         isShowingAlert = true
-        // IMPORTANT: alertPresenter MUST be synchronous/blocking (e.g., NSAlert.runModal()).
-        // isShowingAlert is set to false immediately after, which is only correct if the presenter blocks.
-        alertPresenter(alertState)
+        await alertPresenter(alertState)
         isShowingAlert = false
         lastBlockingAlertAt = now
         updateCooldownInModel(cooldownActive: true)

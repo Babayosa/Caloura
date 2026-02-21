@@ -14,17 +14,11 @@ extension ScreenCaptureManager {
     func sckCaptureFullScreen(
         screen: NSScreen?
     ) async throws -> CGImage {
+        let resolved = try resolveScreen(screen)
         let content = try await SCShareableContent.current
-        guard let targetScreen = screen
-            ?? NSScreen.main
-            ?? NSScreen.screens.first else {
-            throw CaptureError.noDisplay
-        }
 
-        let screenKey = NSDeviceDescriptionKey("NSScreenNumber")
         guard let scDisplay = content.displays.first(where: { display in
-            display.displayID == targetScreen
-                .deviceDescription[screenKey] as? CGDirectDisplayID
+            display.displayID == resolved.displayID
         }) ?? content.displays.first else {
             throw CaptureError.noDisplay
         }
@@ -34,7 +28,7 @@ extension ScreenCaptureManager {
             excludingWindows: []
         )
         let config = SCStreamConfiguration()
-        let scale = targetScreen.backingScaleFactor
+        let scale = resolved.screen.backingScaleFactor
         config.width = Int(CGFloat(scDisplay.width) * scale)
         config.height = Int(CGFloat(scDisplay.height) * scale)
         config.showsCursor = false
@@ -51,17 +45,11 @@ extension ScreenCaptureManager {
         rect: CGRect,
         screen: NSScreen?
     ) async throws -> CGImage {
+        let resolved = try resolveScreen(screen)
         let content = try await SCShareableContent.current
-        guard let targetScreen = screen
-            ?? NSScreen.main
-            ?? NSScreen.screens.first else {
-            throw CaptureError.noDisplay
-        }
 
-        let screenKey = NSDeviceDescriptionKey("NSScreenNumber")
         guard let scDisplay = content.displays.first(where: { display in
-            display.displayID == targetScreen
-                .deviceDescription[screenKey] as? CGDirectDisplayID
+            display.displayID == resolved.displayID
         }) ?? content.displays.first else {
             throw CaptureError.noDisplay
         }
@@ -74,10 +62,10 @@ extension ScreenCaptureManager {
 
         // Convert from AppKit coordinates (bottom-left)
         // to ScreenCaptureKit (top-left)
-        let screenFrame = targetScreen.frame
+        let screenFrame = resolved.screen.frame
         let flippedY = screenFrame.height - rect.origin.y - rect.height
 
-        let scale = targetScreen.backingScaleFactor
+        let scale = resolved.screen.backingScaleFactor
         config.sourceRect = CGRect(
             x: rect.origin.x,
             y: flippedY,

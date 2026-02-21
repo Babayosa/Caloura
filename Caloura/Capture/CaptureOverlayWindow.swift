@@ -72,22 +72,20 @@ final class CaptureOverlayWindow: NSWindow {
                 overlay.frozenImage = image
             }
 
-            overlay.onRegionSelected = { rect, screen in
+            let closeAll = {
                 for item in windows {
                     item.onRegionSelected = nil
                     item.onCancelled = nil
                     item.onFirstMouseDown = nil
                     item.close()
                 }
+            }
+            overlay.onRegionSelected = { rect, screen in
+                closeAll()
                 onRegionSelected(rect, screen)
             }
             overlay.onCancelled = {
-                for item in windows {
-                    item.onRegionSelected = nil
-                    item.onCancelled = nil
-                    item.onFirstMouseDown = nil
-                    item.close()
-                }
+                closeAll()
                 onCancelled()
             }
             overlay.onFirstMouseDown = onFirstMouseDown
@@ -118,20 +116,17 @@ final class CaptureOverlayWindow: NSWindow {
         // NSApp.activate() is async — when activation finishes, AppKit
         // recalculates cursor rects and may briefly reset to arrow.
         // This one-shot observer fires at that exact moment to fix it.
-        let nc = NotificationCenter.default
-        let token = UnsafeMutablePointer<NSObjectProtocol?>.allocate(capacity: 1)
-        token.initialize(to: nil)
-        token.pointee = nc.addObserver(
+        var activationObserver: NSObjectProtocol?
+        activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
         ) { _ in
             NSCursor.crosshair.set()
-            if let obs = token.pointee {
-                nc.removeObserver(obs)
+            if let obs = activationObserver {
+                NotificationCenter.default.removeObserver(obs)
+                activationObserver = nil
             }
-            token.deinitialize(count: 1)
-            token.deallocate()
         }
 
         return windows

@@ -94,17 +94,8 @@ extension ScreenCaptureManager {
     func screencaptureFullScreen(
         screen: NSScreen?
     ) async throws -> CGImage {
-        guard let targetScreen = screen
-            ?? NSScreen.main
-            ?? NSScreen.screens.first else {
-            throw CaptureError.noDisplay
-        }
-        let screenKey = NSDeviceDescriptionKey("NSScreenNumber")
-        guard let displayID = targetScreen
-            .deviceDescription[screenKey] as? CGDirectDisplayID else {
-            throw CaptureError.noDisplay
-        }
-        let bounds = CGDisplayBounds(displayID)
+        let resolved = try resolveScreen(screen)
+        let bounds = CGDisplayBounds(resolved.displayID)
         return try await runScreencapture(args: [
             "-R\(Int(floor(bounds.origin.x))),"
             + "\(Int(floor(bounds.origin.y))),"
@@ -117,18 +108,9 @@ extension ScreenCaptureManager {
         rect: CGRect,
         screen: NSScreen?
     ) async throws -> CGImage {
-        guard let targetScreen = screen
-            ?? NSScreen.main
-            ?? NSScreen.screens.first else {
-            throw CaptureError.noDisplay
-        }
-        let screenKey = NSDeviceDescriptionKey("NSScreenNumber")
-        guard let displayID = targetScreen
-            .deviceDescription[screenKey] as? CGDirectDisplayID else {
-            throw CaptureError.noDisplay
-        }
-        let screenFrame = targetScreen.frame
-        let displayBounds = CGDisplayBounds(displayID)
+        let resolved = try resolveScreen(screen)
+        let screenFrame = resolved.screen.frame
+        let displayBounds = CGDisplayBounds(resolved.displayID)
 
         // Convert AppKit local coords (bottom-left origin)
         // to global CG coords (top-left origin)

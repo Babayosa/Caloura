@@ -46,21 +46,19 @@ final class ScreenSelectionOverlayWindow: NSWindow {
 
         for screen in NSScreen.screens {
             let overlay = ScreenSelectionOverlayWindow(for: screen)
-            overlay.onScreenSelected = { selectedScreen in
-                // Close all overlays and break retain cycles
+            let closeAll = {
                 for item in overlays {
                     item.onScreenSelected = nil
                     item.onCancelled = nil
                     item.close()
                 }
+            }
+            overlay.onScreenSelected = { selectedScreen in
+                closeAll()
                 onScreenSelected(selectedScreen)
             }
             overlay.onCancelled = {
-                for item in overlays {
-                    item.onScreenSelected = nil
-                    item.onCancelled = nil
-                    item.close()
-                }
+                closeAll()
                 onCancelled()
             }
             overlay.makeKeyAndOrderFront(nil)

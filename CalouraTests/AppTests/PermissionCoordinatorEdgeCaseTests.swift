@@ -13,7 +13,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             defaults: defaults,
             passiveCheck: { true },
             interactiveCheck: { true },
-            alertPresenter: { _ in },
+            alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { PermissionTestHelpers.makeIdentity("stable") },
             statusMessageSink: { _ in },
@@ -43,7 +43,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             defaults: defaults,
             passiveCheck: { false },
             interactiveCheck: { false },
-            alertPresenter: { _ in },
+            alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { PermissionTestHelpers.makeIdentity("denied") },
             statusMessageSink: { _ in },
@@ -69,7 +69,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             defaults: defaults,
             passiveCheck: { true },
             interactiveCheck: { true },
-            alertPresenter: { _ in },
+            alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { PermissionTestHelpers.makeIdentity("granted") },
             statusMessageSink: { _ in },
@@ -90,7 +90,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             defaults: defaults,
             passiveCheck: { true },
             interactiveCheck: { true },
-            alertPresenter: { _ in },
+            alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { PermissionTestHelpers.makeIdentity("uimodel") },
             statusMessageSink: { _ in callCount += 1 },
@@ -126,7 +126,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             defaults: defaults,
             passiveCheck: { true },
             interactiveCheck: { false },
-            alertPresenter: { _ in },
+            alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { identity },
             statusMessageSink: { _ in },
@@ -154,7 +154,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
 
     // MARK: - handleCapturePermissionFailure repeated rapid calls
 
-    func testHandleCapturePermissionFailure_rapidCalls_dedupe() {
+    func testHandleCapturePermissionFailure_rapidCalls_dedupe() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         var alertCount = 0
         let coordinator = PermissionCoordinator(
@@ -171,7 +171,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         // Rapid calls within cooldown window should only trigger
         // one alert
         for _ in 0..<10 {
-            coordinator.handleCapturePermissionFailure()
+            await coordinator.handleCapturePermissionFailure()
         }
 
         XCTAssertEqual(

@@ -68,7 +68,7 @@ enum CapturePipelineTestHelpers {
             },
             copyToClipboard: copyToClipboard ?? { _, _ in },
             recognizeText: recognizeText ?? { _ in "" },
-            handlePermissionFailure: handlePermissionFailure ?? { },
+            handlePermissionFailure: handlePermissionFailure ?? { @MainActor in },
             showQuickAccess: showQuickAccess ?? { _ in },
             playSoundAction: playSoundAction ?? { },
             postNotification: postNotification ?? { _ in },

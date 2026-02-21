@@ -19,7 +19,7 @@ final class CapturePipeline: ObservableObject {
     typealias SaveFileFn = (ProcessedScreenshot, String, String?, String) async throws -> URL
     typealias CopyToClipboardFn = (ProcessedScreenshot, CopyMode) async -> Void
     typealias RecognizeTextFn = (CGImage) async throws -> String
-    typealias HandlePermissionFailureFn = () -> Void
+    typealias HandlePermissionFailureFn = @MainActor () async -> Void
     typealias ShowQuickAccessFn = (ProcessedScreenshot) -> Void
     typealias PlaySoundFn = () -> Void
     typealias PostNotificationFn = (Notification.Name) -> Void
@@ -92,7 +92,7 @@ final class CapturePipeline: ObservableObject {
             try await OCREngine.recognizeText(in: cgImage)
         }
         self.handlePermissionFailure = {
-            PermissionCoordinator.shared.handleCapturePermissionFailure()
+            await PermissionCoordinator.shared.handleCapturePermissionFailure()
         }
         self.showQuickAccess = { processed in
             QuickAccessOverlay.shared.show(for: processed)
@@ -189,7 +189,7 @@ final class CapturePipeline: ObservableObject {
 
         } catch CaptureError.noPermission {
             logger.warning("Capture failed: no permission")
-            handlePermissionFailure()
+            await handlePermissionFailure()
         } catch {
             logger.error("Capture failed: \(error.localizedDescription)")
             appState.statusMessage = "Capture failed: \(error.localizedDescription)"

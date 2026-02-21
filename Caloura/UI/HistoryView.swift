@@ -49,28 +49,12 @@ struct HistoryView: View {
     @State private var semanticSearchTask: Task<Void, Never>?
 
     private var filteredScreenshots: [ScreenshotItem] {
-        if searchText.isEmpty {
-            return appState.recentScreenshots
-        }
-        let query = searchText.lowercased()
-
-        // Substring match (instant, exact) — includes new fields
-        let substringMatches = appState.recentScreenshots.filter { item in
-            (item.title?.lowercased().contains(query) ?? false) ||
-            (item.sourceAppName?.lowercased().contains(query) ?? false) ||
-            (item.sourceWindowTitle?.lowercased().contains(query) ?? false) ||
-            (item.ocrText?.lowercased().contains(query) ?? false) ||
-            (item.summary?.lowercased().contains(query) ?? false) ||
-            item.fileName.lowercased().contains(query) ||
-            item.tags.contains { $0.lowercased().contains(query) } ||
-            item.autoTags.contains { $0.lowercased().contains(query) }
-        }
-        if !substringMatches.isEmpty { return substringMatches }
-
-        // Semantic fallback uses pre-computed debounced results
-        guard AppSettings.shared.semanticSearchEnabled,
-              !semanticResults.isEmpty else { return [] }
-        return appState.recentScreenshots.filter { semanticResults.contains($0.id) }
+        HistorySearchModel.filteredScreenshots(
+            from: appState.recentScreenshots,
+            searchText: searchText,
+            semanticResults: semanticResults,
+            semanticSearchEnabled: AppSettings.shared.semanticSearchEnabled
+        )
     }
 
     private let columns = [

@@ -49,6 +49,23 @@ final class ScreenCaptureManager {
         }
     }
 
+    // MARK: - Screen Resolution
+
+    struct ResolvedScreen {
+        let screen: NSScreen
+        let displayID: CGDirectDisplayID
+    }
+
+    func resolveScreen(_ preferred: NSScreen?) throws -> ResolvedScreen {
+        guard let screen = preferred ?? NSScreen.main ?? NSScreen.screens.first else {
+            throw CaptureError.noDisplay
+        }
+        let displayID = screen.deviceDescription[
+            NSDeviceDescriptionKey("NSScreenNumber")
+        ] as? CGDirectDisplayID ?? CGMainDisplayID()
+        return ResolvedScreen(screen: screen, displayID: displayID)
+    }
+
     // MARK: - SCK Error Classification
 
     /// Returns `true` for errors that indicate a permanent SCK failure
@@ -91,7 +108,7 @@ final class ScreenCaptureManager {
 
     // MARK: - Full Screen Capture
 
-    /// Capture the full screen, falling back through SCK, CLI, and CG backends.
+    /// Capture the full screen, falling back from SCK to CLI.
     func captureFullScreen(screen: NSScreen? = nil) async throws -> CGImage {
         if !sckFailed {
             do {
@@ -103,23 +120,20 @@ final class ScreenCaptureManager {
                 handleSCKFailure(error)
             }
         }
-        // Try screencapture CLI (has its own entitlements, no permission gate needed)
         do {
             logger.info("Trying screencapture CLI for fullscreen")
             return try await screencaptureFullScreen(screen: screen)
         } catch {
-            logger.warning(
-                "screencapture CLI failed: \(error.localizedDescription), falling back to CG"
-            )
+            if !checkPermission() {
+                throw CaptureError.noPermission
+            }
+            throw error
         }
-        // CG fallback requires confirmed permission — CGPreflight is authoritative
-        guard checkPermission() else { throw CaptureError.noPermission }
-        return try cgCaptureFullScreen(screen: screen)
     }
 
     // MARK: - Area Capture
 
-    /// Capture a rectangular region of the screen, falling back through SCK, CLI, and CG backends.
+    /// Capture a rectangular region of the screen, falling back from SCK to CLI.
     func captureArea(
         rect: CGRect,
         screen: NSScreen? = nil
@@ -145,12 +159,11 @@ final class ScreenCaptureManager {
             logger.info("Trying screencapture CLI for area")
             return try await screencaptureArea(rect: rect, screen: screen)
         } catch {
-            logger.warning(
-                "screencapture CLI failed: \(error.localizedDescription), falling back to CG"
-            )
+            if !checkPermission() {
+                throw CaptureError.noPermission
+            }
+            throw error
         }
-        guard checkPermission() else { throw CaptureError.noPermission }
-        return try cgCaptureArea(rect: rect, screen: screen)
     }
 
     // MARK: - Window Capture

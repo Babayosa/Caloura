@@ -131,11 +131,36 @@ struct FileOrganizer {
     }
 
     /// Verify that a resolved path stays within the expected base directory.
+    /// Checks both the standardized full path (catches `..` traversal) and
+    /// the deepest existing ancestor with symlinks resolved (catches symlink
+    /// escapes even when child directories haven't been created yet).
     private static func validatePathSafety(url: URL, baseDirectory: String) throws {
-        let resolvedPath = url.resolvingSymlinksInPath().standardizedFileURL.path
         let resolvedBase = URL(fileURLWithPath: baseDirectory)
             .resolvingSymlinksInPath().standardizedFileURL.path
+
+        // Check 1: standardized full path catches `..` traversal
+        let resolvedPath = url.resolvingSymlinksInPath().standardizedFileURL.path
         guard resolvedPath.hasPrefix(resolvedBase + "/") || resolvedPath == resolvedBase else {
+            throw FileOrganizerError.pathTraversal
+        }
+
+        // Check 2: walk up to deepest existing ancestor, resolve symlinks there.
+        // resolvingSymlinksInPath can't follow symlinks in non-existent paths,
+        // so we find the first existing parent and verify it's within base
+        // (or is itself an ancestor of the base, which is safe).
+        var ancestor = url.standardizedFileURL
+        while !FileManager.default.fileExists(atPath: ancestor.path) {
+            let parent = ancestor.deletingLastPathComponent()
+            if parent.path == ancestor.path { break }
+            ancestor = parent
+        }
+        let resolvedAncestor = ancestor.resolvingSymlinksInPath()
+            .standardizedFileURL.path
+        let ancestorInBase = resolvedAncestor.hasPrefix(resolvedBase + "/")
+            || resolvedAncestor == resolvedBase
+        let ancestorIsParentOfBase = resolvedAncestor == "/"
+            || (resolvedBase + "/").hasPrefix(resolvedAncestor + "/")
+        guard ancestorInBase || ancestorIsParentOfBase else {
             throw FileOrganizerError.pathTraversal
         }
     }

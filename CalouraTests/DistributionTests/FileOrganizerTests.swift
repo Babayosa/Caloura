@@ -1,6 +1,8 @@
+// swiftlint:disable file_length
 import XCTest
 @testable import Caloura
 
+// swiftlint:disable:next type_body_length
 final class FileOrganizerTests: XCTestCase {
 
     func testGenerateFileName_withAppName() {
@@ -245,6 +247,174 @@ final class FileOrganizerTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error type: \(error)")
         }
+    }
+
+    // MARK: - File Permissions
+
+    func testSave_fileHasRestrictedPermissions() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let context = CaptureContext(
+            mode: .area,
+            sourceAppName: "TestApp",
+            timestamp: makeDate(hour: 10, minute: 0, second: 0)
+        )
+        let screenshot = makeProcessedScreenshot(context: context)
+
+        let fileURL = try await FileOrganizer.save(
+            screenshot,
+            baseDirectory: tempDir.path,
+            subfolder: nil
+        )
+
+        let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let perms = attrs[.posixPermissions] as? Int
+        XCTAssertEqual(perms, 0o600, "Saved file should have 0600 permissions")
+    }
+
+    func testSave_directoryHasRestrictedPermissions() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let context = CaptureContext(
+            mode: .area,
+            sourceAppName: "TestApp",
+            timestamp: makeDate(hour: 10, minute: 0, second: 0)
+        )
+        let screenshot = makeProcessedScreenshot(context: context)
+
+        let fileURL = try await FileOrganizer.save(
+            screenshot,
+            baseDirectory: tempDir.path,
+            subfolder: nil
+        )
+
+        let dirPath = fileURL.deletingLastPathComponent().path
+        let attrs = try FileManager.default.attributesOfItem(atPath: dirPath)
+        let perms = attrs[.posixPermissions] as? Int
+        XCTAssertEqual(perms, 0o700, "Created directory should have 0700 permissions")
+    }
+
+    // MARK: - JPEG Format
+
+    func testSave_jpegFormat_createsFile() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let context = CaptureContext(
+            mode: .area,
+            sourceAppName: "TestApp",
+            timestamp: makeDate(hour: 11, minute: 0, second: 0)
+        )
+        let screenshot = makeProcessedScreenshot(context: context)
+
+        let fileURL = try await FileOrganizer.save(
+            screenshot,
+            baseDirectory: tempDir.path,
+            subfolder: nil,
+            imageFormat: "jpeg"
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        XCTAssertTrue(fileURL.lastPathComponent.hasSuffix(".jpeg"))
+    }
+
+    // MARK: - Symlink Escape
+
+    func testSave_symlinkEscape_throws() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
+        let escapeTarget = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CalouraEscape_\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: tempDir)
+            try? FileManager.default.removeItem(at: escapeTarget)
+        }
+
+        // Create the base directory and a symlink subfolder pointing outside
+        try FileManager.default.createDirectory(
+            at: tempDir, withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: escapeTarget, withIntermediateDirectories: true
+        )
+        let symlinkPath = tempDir.appendingPathComponent("evil-link")
+        try FileManager.default.createSymbolicLink(
+            at: symlinkPath, withDestinationURL: escapeTarget
+        )
+
+        let context = CaptureContext(
+            mode: .area,
+            sourceAppName: "TestApp",
+            timestamp: makeDate(hour: 10, minute: 0, second: 0)
+        )
+        let screenshot = makeProcessedScreenshot(context: context)
+
+        do {
+            _ = try await FileOrganizer.save(
+                screenshot,
+                baseDirectory: tempDir.path,
+                subfolder: "evil-link"
+            )
+            XCTFail("Expected pathTraversal error for symlink escape")
+        } catch let error as FileOrganizer.FileOrganizerError {
+            XCTAssertEqual(error, .pathTraversal)
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
+
+    // MARK: - File Name Generation Details
+
+    func testGenerateFileName_containsTimestamp() {
+        let context = CaptureContext(
+            mode: .area,
+            sourceAppName: "TestApp",
+            timestamp: makeDate(hour: 23, minute: 59, second: 59)
+        )
+        let screenshot = makeProcessedScreenshot(context: context)
+        let fileName = FileOrganizer.generateFileName(for: screenshot)
+
+        XCTAssertTrue(
+            fileName.contains("23-59-59"),
+            "Filename should contain HH-mm-ss timestamp"
+        )
+    }
+
+    // MARK: - Sanitization
+
+    func testSanitizeFileName_removesUnsafeCharacters() {
+        XCTAssertEqual(
+            FileOrganizer.sanitizeFileName("Hello World!"),
+            "HelloWorld"
+        )
+        XCTAssertEqual(
+            FileOrganizer.sanitizeFileName("file/with/slashes"),
+            "filewithslashes"
+        )
+        XCTAssertEqual(
+            FileOrganizer.sanitizeFileName("special@#$chars"),
+            "specialchars"
+        )
+        XCTAssertEqual(
+            FileOrganizer.sanitizeFileName("keep-hyphens"),
+            "keep-hyphens"
+        )
+    }
+
+    func testSanitizeFileName_emptyInput_returnsUnknown() {
+        XCTAssertEqual(FileOrganizer.sanitizeFileName(""), "Unknown")
+        XCTAssertEqual(FileOrganizer.sanitizeFileName("!!!"), "Unknown")
+    }
+
+    func testSanitizeFileName_truncatesLongNames() {
+        let longName = String(repeating: "a", count: 100)
+        let sanitized = FileOrganizer.sanitizeFileName(longName)
+        XCTAssertEqual(sanitized.count, 50)
     }
 
     // MARK: - Helpers

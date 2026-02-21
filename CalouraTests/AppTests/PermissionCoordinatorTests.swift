@@ -11,7 +11,7 @@ final class PermissionCoordinatorTests: XCTestCase {
             defaults: defaults,
             passiveCheck: { false },
             interactiveCheck: { true },
-            alertPresenter: { _ in },
+            alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { PermissionTestHelpers.makeIdentity("denied") },
             statusMessageSink: { _ in },
@@ -33,7 +33,7 @@ final class PermissionCoordinatorTests: XCTestCase {
             defaults: defaults,
             passiveCheck: { true },
             interactiveCheck: { false },
-            alertPresenter: { _ in },
+            alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { identity },
             statusMessageSink: { _ in },
@@ -49,7 +49,7 @@ final class PermissionCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.permissionUIModel.shouldShowSignatureMismatchBanner)
     }
 
-    func testCaptureFailureAlertIsDedupedByCooldown() {
+    func testCaptureFailureAlertIsDedupedByCooldown() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         var alertCount = 0
         var statusMessage = ""
@@ -66,13 +66,13 @@ final class PermissionCoordinatorTests: XCTestCase {
             now: { now }
         )
 
-        coordinator.handleCapturePermissionFailure()
-        coordinator.handleCapturePermissionFailure()
+        await coordinator.handleCapturePermissionFailure()
+        await coordinator.handleCapturePermissionFailure()
         XCTAssertEqual(alertCount, 1)
         XCTAssertFalse(statusMessage.isEmpty)
 
         now = now.addingTimeInterval(50)
-        coordinator.handleCapturePermissionFailure()
+        await coordinator.handleCapturePermissionFailure()
         XCTAssertEqual(alertCount, 2)
     }
 
@@ -85,7 +85,7 @@ final class PermissionCoordinatorTests: XCTestCase {
             defaults: defaults,
             passiveCheck: { true },
             interactiveCheck: { interactiveAuthorized },
-            alertPresenter: { _ in },
+            alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { firstIdentity },
             statusMessageSink: { _ in },
@@ -103,7 +103,7 @@ final class PermissionCoordinatorTests: XCTestCase {
             defaults: defaults,
             passiveCheck: { true },
             interactiveCheck: { false },
-            alertPresenter: { _ in },
+            alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { PermissionTestHelpers.makeIdentity("secondary") },
             statusMessageSink: { _ in },
