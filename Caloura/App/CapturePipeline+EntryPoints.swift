@@ -48,9 +48,14 @@ extension CapturePipeline {
         }
     }
 
-    func performFullscreenCapture(screen: NSScreen? = nil) async {
-        // Brief delay to let menu bar close / overlays dismiss
-        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+    func performFullscreenCapture(
+        screen: NSScreen? = nil,
+        dismissDelay: Bool = false
+    ) async {
+        if dismissDelay {
+            // Brief delay to let menu bar close / overlays dismiss
+            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+        }
         await performCapture(mode: .fullscreen) {
             try await self.captureManager.captureFullScreen(screen: screen)
         }
@@ -199,7 +204,8 @@ extension CapturePipeline {
                     Task { @MainActor in
                         self.screenOverlays = []
                         await self.performFullscreenCapture(
-                            screen: selectedScreen
+                            screen: selectedScreen,
+                            dismissDelay: true
                         )
                     }
                 },
@@ -295,7 +301,7 @@ extension CapturePipeline {
                 self.appState.isCapturing = false
                 self.captureArea()
             case .fullscreen:
-                await self.performFullscreenCapture()
+                await self.performFullscreenCapture(dismissDelay: true)
             case .window:
                 self.appState.isCapturing = false
                 self.captureWindow()

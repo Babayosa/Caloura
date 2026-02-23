@@ -66,19 +66,14 @@ final class ProcessedScreenshot: @unchecked Sendable {
     }
     var pngData: Data {
         dataLock.lock()
+        defer { dataLock.unlock() }
         if let cached = _pngData {
-            dataLock.unlock()
             return cached
         }
-        dataLock.unlock()
-
         guard let data = try? ImageProcessor.pngRepresentation(of: cgImage) else {
             return Data()
         }
-
-        dataLock.lock()
         _pngData = data
-        dataLock.unlock()
         return data
     }
 
@@ -92,19 +87,14 @@ final class ProcessedScreenshot: @unchecked Sendable {
     }
     var tiffData: Data {
         dataLock.lock()
+        defer { dataLock.unlock() }
         if let cached = _tiffData {
-            dataLock.unlock()
             return cached
         }
-        dataLock.unlock()
-
         guard let data = try? ImageProcessor.tiffRepresentation(of: cgImage) else {
             return Data()
         }
-
-        dataLock.lock()
         _tiffData = data
-        dataLock.unlock()
         return data
     }
 

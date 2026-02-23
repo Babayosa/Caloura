@@ -127,11 +127,4 @@ extension ScreenCaptureManager {
         ])
     }
 
-    func screencaptureWindow(
-        windowID: CGWindowID
-    ) async throws -> CGImage {
-        return try await runScreencapture(
-            args: ["-o", "-l\(windowID)"]
-        )
-    }
 }

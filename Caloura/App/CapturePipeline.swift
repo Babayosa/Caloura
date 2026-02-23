@@ -175,12 +175,13 @@ final class CapturePipeline: ObservableObject {
                 appName: appName, windowTitle: windowTitle, category: category
             )
             await distributeCapture(processed, preset: preset)
-            if settings.autoSaveToDisk {
-                addToHistoryWithOCR(processed)
-            }
-
             showQuickAccess(processed)
             postNotification(.captureCompleted)
+
+            if settings.autoSaveToDisk {
+                await saveToDisk(processed, preset: preset)
+                addToHistoryWithOCR(processed)
+            }
             let totalDuration = self.elapsedMilliseconds(since: pipelineStart)
             logger.info(
                 "Capture pipeline finished in \(totalDuration, privacy: .public) ms"
@@ -230,30 +231,35 @@ final class CapturePipeline: ObservableObject {
         recordMetric(stage: .process, milliseconds: processDuration)
         processed.presetName = preset.name
 
-        if settings.autoSaveToDisk {
-            let saveStart = CFAbsoluteTimeGetCurrent()
-            do {
-                let fileURL = try await saveFile(
-                    processed,
-                    settings.saveDirectory,
-                    preset.subfolder,
-                    settings.imageFormat
-                )
-                let saveDuration = elapsedMilliseconds(since: saveStart)
-                logger.debug(
-                    "Disk save completed in \(saveDuration, privacy: .public) ms"
-                )
-                recordMetric(stage: .save, milliseconds: saveDuration)
-                processed.filePath = fileURL
-                processed.fileName = fileURL.lastPathComponent
-            } catch {
-                let desc = error.localizedDescription
-                logger.error("File save failed: \(desc, privacy: .public)")
-                appState.statusMessage = "Save failed: \(desc)"
-            }
-        }
-
         return (processed, preset)
+    }
+
+    // MARK: - Save to Disk
+
+    private func saveToDisk(
+        _ processed: ProcessedScreenshot,
+        preset: CapturePreset
+    ) async {
+        let saveStart = CFAbsoluteTimeGetCurrent()
+        do {
+            let fileURL = try await saveFile(
+                processed,
+                settings.saveDirectory,
+                preset.subfolder,
+                settings.imageFormat
+            )
+            let saveDuration = elapsedMilliseconds(since: saveStart)
+            logger.debug(
+                "Disk save completed in \(saveDuration, privacy: .public) ms"
+            )
+            recordMetric(stage: .save, milliseconds: saveDuration)
+            processed.filePath = fileURL
+            processed.fileName = fileURL.lastPathComponent
+        } catch {
+            let desc = error.localizedDescription
+            logger.error("File save failed: \(desc, privacy: .public)")
+            appState.statusMessage = "Save failed: \(desc)"
+        }
     }
 
     // MARK: - Distribute Capture

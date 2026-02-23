@@ -20,6 +20,11 @@ final class ScreenCaptureManager {
     /// Number of consecutive transient failures before giving up on SCK.
     private let maxTransientFailures = 3
 
+    /// Cached SCShareableContent to avoid 80–300ms fetch on every capture.
+    private var cachedContent: SCShareableContent?
+    private var cachedContentTimestamp: CFAbsoluteTime = 0
+    private let contentCacheTTL: CFAbsoluteTime = 2.0
+
     /// Observer token for app-became-active notification.
     private var didBecomeActiveObserver: (any NSObjectProtocol)?
 
@@ -28,6 +33,7 @@ final class ScreenCaptureManager {
     func resetSCKState() {
         sckFailed = false
         sckFailureCount = 0
+        cachedContent = nil
         logger.info("SCK failure flag reset")
     }
 
@@ -104,6 +110,20 @@ final class ScreenCaptureManager {
                 )
             }
         }
+    }
+
+    // MARK: - SCShareableContent Cache
+
+    func shareableContent() async throws -> SCShareableContent {
+        let now = CFAbsoluteTimeGetCurrent()
+        if let cached = cachedContent,
+           now - cachedContentTimestamp < contentCacheTTL {
+            return cached
+        }
+        let content = try await SCShareableContent.current
+        cachedContent = content
+        cachedContentTimestamp = now
+        return content
     }
 
     // MARK: - Full Screen Capture

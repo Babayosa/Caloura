@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import QuartzCore
 
 final class RegionSelectionView: NSView {
     var onRegionSelected: ((CGRect) -> Void)?
@@ -8,7 +9,9 @@ final class RegionSelectionView: NSView {
 
     /// Frozen screenshot to display as background (enables menu capture)
     var frozenImage: CGImage? {
-        didSet { needsDisplay = true }
+        didSet {
+            backgroundLayer.contents = frozenImage
+        }
     }
 
     private var selectionStart: NSPoint?
@@ -18,12 +21,116 @@ final class RegionSelectionView: NSView {
     private var cursorPushed = false
     private var trackingArea: NSTrackingArea?
 
-    // Selection styling
-    private let selectionBorderColor = NSColor.white
+    // Layer tree (z-order: background → dimming → border → labels)
+    private let backgroundLayer = CALayer()
+    private let dimmingLayer = CAShapeLayer()
+    private let borderLayer = CAShapeLayer()
+    private let sizeContainer = CALayer()
+    private let sizeTextLayer = CATextLayer()
+    private let hintContainer = CALayer()
+    private let hintTextLayer = CATextLayer()
+
+    // Styling constants
     private let sizeFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
+    private let hintFont = NSFont.systemFont(ofSize: 13, weight: .medium)
+    private let labelPadding: CGFloat = 6
+    private let hintPadding: CGFloat = 10
 
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+
+        // Layer-hosting view: we manage the entire layer tree.
+        // This avoids the AppKit restriction against adding sublayers
+        // to a layer-backed view's automatically managed layer.
+        let rootLayer = CALayer()
+        self.layer = rootLayer
+        self.wantsLayer = true
+
+        setupBackgroundLayer(in: rootLayer)
+        setupDimmingLayer(in: rootLayer)
+        setupBorderLayer(in: rootLayer)
+        setupSizeLabel(in: rootLayer)
+        setupHintLabel(in: rootLayer)
+
+        updateLayerVisibility()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: - Layer Setup
+
+    private func setupBackgroundLayer(in root: CALayer) {
+        backgroundLayer.contentsGravity = .resizeAspectFill
+        backgroundLayer.frame = bounds
+        root.addSublayer(backgroundLayer)
+    }
+
+    private func setupDimmingLayer(in root: CALayer) {
+        dimmingLayer.fillColor = NSColor.black.withAlphaComponent(0.4).cgColor
+        dimmingLayer.fillRule = .evenOdd
+        dimmingLayer.frame = bounds
+        root.addSublayer(dimmingLayer)
+    }
+
+    private func setupBorderLayer(in root: CALayer) {
+        borderLayer.strokeColor = NSColor.white.withAlphaComponent(0.9).cgColor
+        borderLayer.fillColor = nil
+        borderLayer.lineWidth = 1
+        borderLayer.isHidden = true
+        root.addSublayer(borderLayer)
+    }
+
+    private func setupSizeLabel(in root: CALayer) {
+        sizeContainer.backgroundColor = NSColor.black.withAlphaComponent(0.65).cgColor
+        sizeContainer.cornerRadius = 4
+        sizeContainer.isHidden = true
+        root.addSublayer(sizeContainer)
+
+        sizeTextLayer.font = sizeFont
+        sizeTextLayer.fontSize = sizeFont.pointSize
+        sizeTextLayer.foregroundColor = NSColor.white.withAlphaComponent(0.9).cgColor
+        sizeTextLayer.alignmentMode = .center
+        sizeTextLayer.truncationMode = .none
+        sizeTextLayer.isWrapped = false
+        sizeContainer.addSublayer(sizeTextLayer)
+    }
+
+    private func setupHintLabel(in root: CALayer) {
+        hintContainer.backgroundColor = NSColor.black.withAlphaComponent(0.50).cgColor
+        hintContainer.cornerRadius = 8
+        hintContainer.isHidden = false
+        root.addSublayer(hintContainer)
+
+        hintTextLayer.string = "Drag to select  \u{00B7}  ESC to cancel"
+        hintTextLayer.font = hintFont
+        hintTextLayer.fontSize = hintFont.pointSize
+        hintTextLayer.foregroundColor = NSColor.white.withAlphaComponent(0.8).cgColor
+        hintTextLayer.alignmentMode = .center
+        hintTextLayer.truncationMode = .none
+        hintTextLayer.isWrapped = false
+        hintContainer.addSublayer(hintTextLayer)
+
+        layoutHintLabel()
+    }
+
+    // MARK: - Layout
+
+    override func layout() {
+        super.layout()
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        backgroundLayer.frame = bounds
+        dimmingLayer.frame = bounds
+        layoutHintLabel()
+        CATransaction.commit()
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -32,6 +139,11 @@ final class RegionSelectionView: NSView {
             window.acceptsMouseMovedEvents = true
             NSCursor.crosshair.push()
             cursorPushed = true
+
+            // Set contentsScale for crisp Retina text
+            let scale = window.backingScaleFactor
+            sizeTextLayer.contentsScale = scale
+            hintTextLayer.contentsScale = scale
         } else if cursorPushed {
             NSCursor.pop()
             cursorPushed = false
@@ -67,125 +179,100 @@ final class RegionSelectionView: NSView {
         NSCursor.crosshair.set()
     }
 
-    // MARK: - Drawing
+    // MARK: - Layer Updates
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-
-        // Draw frozen screenshot as background (enables menu capture)
-        if let frozenImage = frozenImage {
-            let context = NSGraphicsContext.current?.cgContext
-            context?.draw(frozenImage, in: bounds)
-        }
+    private func updateLayerVisibility() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
 
         if isSelecting, let start = selectionStart, let end = selectionEnd {
             let rect = normalizedRect(from: start, to: end)
 
-            // Dim area outside selection when frozen image is shown
+            // Dimming (only when frozen image is present)
             if frozenImage != nil {
-                drawDimmingMask(excluding: rect)
+                let combined = CGMutablePath()
+                combined.addRect(bounds)
+                combined.addRect(rect)
+                dimmingLayer.path = combined
+            } else {
+                dimmingLayer.path = nil
             }
 
-            // Selection border — thin white
-            selectionBorderColor.withAlphaComponent(0.9).setStroke()
-            let borderPath = NSBezierPath(rect: rect)
-            borderPath.lineWidth = 1
-            borderPath.stroke()
+            // Border
+            borderLayer.path = CGPath(rect: rect, transform: nil)
+            borderLayer.isHidden = false
 
             // Size label
-            drawSizeLabel(for: rect)
+            layoutSizeLabel(for: rect)
+            sizeContainer.isHidden = false
+
+            // Hide hint
+            hintContainer.isHidden = true
         } else {
-            // Show hint label
-            drawHintLabel()
+            dimmingLayer.path = nil
+            borderLayer.path = nil
+            borderLayer.isHidden = true
+            sizeContainer.isHidden = true
+            hintContainer.isHidden = false
         }
-
     }
 
-    private func drawDimmingMask(excluding rect: CGRect) {
-        NSColor.black.withAlphaComponent(0.4).setFill()
-
-        // Draw four rectangles around the selection
-        // Top
-        NSBezierPath(rect: CGRect(x: 0, y: rect.maxY, width: bounds.width, height: bounds.maxY - rect.maxY)).fill()
-        // Bottom
-        NSBezierPath(rect: CGRect(x: 0, y: 0, width: bounds.width, height: rect.minY)).fill()
-        // Left
-        NSBezierPath(rect: CGRect(x: 0, y: rect.minY, width: rect.minX, height: rect.height)).fill()
-        // Right
-        let rightRect = CGRect(
-            x: rect.maxX, y: rect.minY,
-            width: bounds.maxX - rect.maxX, height: rect.height
-        )
-        NSBezierPath(rect: rightRect).fill()
-    }
-
-    private func drawSizeLabel(for rect: CGRect) {
+    private func layoutSizeLabel(for rect: CGRect) {
         let scale = window?.backingScaleFactor ?? 2.0
-        let sizeText = "\(Int(rect.width * scale)) \u{00D7} \(Int(rect.height * scale))" as NSString
+        let text = "\(Int(rect.width * scale)) \u{00D7} \(Int(rect.height * scale))"
+        sizeTextLayer.string = text
 
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: sizeFont,
-            .foregroundColor: NSColor.white.withAlphaComponent(0.9)
-        ]
-
-        let textSize = sizeText.size(withAttributes: attributes)
-        let padding: CGFloat = 6
-        let labelWidth = textSize.width + padding * 2
-        let labelHeight = textSize.height + padding
+        let textSize = (text as NSString).size(
+            withAttributes: [.font: sizeFont]
+        )
+        let containerWidth = textSize.width + labelPadding * 2
+        let containerHeight = textSize.height + labelPadding
 
         // Position below selection rect
-        var labelOrigin = CGPoint(
-            x: rect.midX - labelWidth / 2,
-            y: rect.minY - labelHeight - 6
-        )
+        var originX = rect.midX - containerWidth / 2
+        var originY = rect.minY - containerHeight - 6
 
         // Flip above if off-screen below
-        if labelOrigin.y < 4 {
-            labelOrigin.y = rect.maxY + 6
+        if originY < 4 {
+            originY = rect.maxY + 6
         }
 
         // Clamp horizontal
-        labelOrigin.x = max(4, min(labelOrigin.x, bounds.maxX - labelWidth - 4))
+        originX = max(4, min(originX, bounds.maxX - containerWidth - 4))
 
-        let labelRect = CGRect(origin: labelOrigin, size: CGSize(width: labelWidth, height: labelHeight))
-
-        let bgPath = NSBezierPath(roundedRect: labelRect, xRadius: 4, yRadius: 4)
-        NSColor.black.withAlphaComponent(0.65).setFill()
-        bgPath.fill()
-
-        let textOrigin = CGPoint(
-            x: labelRect.origin.x + padding,
-            y: labelRect.origin.y + (labelHeight - textSize.height) / 2
+        sizeContainer.frame = CGRect(
+            x: originX, y: originY,
+            width: containerWidth, height: containerHeight
         )
-        sizeText.draw(at: textOrigin, withAttributes: attributes)
+        sizeTextLayer.frame = CGRect(
+            x: labelPadding,
+            y: (containerHeight - textSize.height) / 2,
+            width: textSize.width,
+            height: textSize.height
+        )
     }
 
-    private func drawHintLabel() {
-        let text = "Drag to select  \u{00B7}  ESC to cancel" as NSString
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 13, weight: .medium),
-            .foregroundColor: NSColor.white.withAlphaComponent(0.8)
-        ]
-        let textSize = text.size(withAttributes: attributes)
-        let padding: CGFloat = 10
-        let labelWidth = textSize.width + padding * 2
-        let labelHeight = textSize.height + padding
+    private func layoutHintLabel() {
+        let text = "Drag to select  \u{00B7}  ESC to cancel"
+        let textSize = (text as NSString).size(
+            withAttributes: [.font: hintFont]
+        )
+        let containerWidth = textSize.width + hintPadding * 2
+        let containerHeight = textSize.height + hintPadding
 
-        let labelRect = CGRect(
-            x: bounds.midX - labelWidth / 2,
+        hintContainer.frame = CGRect(
+            x: bounds.midX - containerWidth / 2,
             y: 24,
-            width: labelWidth,
-            height: labelHeight
+            width: containerWidth,
+            height: containerHeight
         )
-        let bgPath = NSBezierPath(roundedRect: labelRect, xRadius: 8, yRadius: 8)
-        NSColor.black.withAlphaComponent(0.50).setFill()
-        bgPath.fill()
-
-        let textOrigin = CGPoint(
-            x: labelRect.origin.x + padding,
-            y: labelRect.origin.y + (labelHeight - textSize.height) / 2
+        hintTextLayer.frame = CGRect(
+            x: hintPadding,
+            y: (containerHeight - textSize.height) / 2,
+            width: textSize.width,
+            height: textSize.height
         )
-        text.draw(at: textOrigin, withAttributes: attributes)
     }
 
     // MARK: - Mouse Events
@@ -199,21 +286,20 @@ final class RegionSelectionView: NSView {
         selectionStart = point
         selectionEnd = point
         isSelecting = true
-        needsDisplay = true
+        updateLayerVisibility()
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard isSelecting else { return }
         let point = convert(event.locationInWindow, from: nil)
         selectionEnd = point
-        needsDisplay = true
+        updateLayerVisibility()
     }
 
     override func mouseUp(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
 
         guard isSelecting, let start = selectionStart else {
-            needsDisplay = true
             return
         }
         isSelecting = false
@@ -231,7 +317,7 @@ final class RegionSelectionView: NSView {
             // Too small, reset
             selectionStart = nil
             selectionEnd = nil
-            needsDisplay = true
+            updateLayerVisibility()
         }
 
         // Re-assert first responder so mouseMoved keeps firing

@@ -15,7 +15,7 @@ extension ScreenCaptureManager {
         screen: NSScreen?
     ) async throws -> CGImage {
         let resolved = try resolveScreen(screen)
-        let content = try await SCShareableContent.current
+        let content = try await shareableContent()
 
         guard let scDisplay = content.displays.first(where: { display in
             display.displayID == resolved.displayID
@@ -46,7 +46,7 @@ extension ScreenCaptureManager {
         screen: NSScreen?
     ) async throws -> CGImage {
         let resolved = try resolveScreen(screen)
-        let content = try await SCShareableContent.current
+        let content = try await shareableContent()
 
         guard let scDisplay = content.displays.first(where: { display in
             display.displayID == resolved.displayID
@@ -76,32 +76,6 @@ extension ScreenCaptureManager {
         config.height = Int(rect.height * scale)
         config.showsCursor = false
         config.captureResolution = .best
-
-        let image = try await SCScreenshotManager.captureImage(
-            contentFilter: filter,
-            configuration: config
-        )
-        return image
-    }
-
-    func sckCaptureWindow(
-        _ window: SCWindow
-    ) async throws -> CGImage {
-        let filter = SCContentFilter(
-            desktopIndependentWindow: window
-        )
-        let config = SCStreamConfiguration()
-        config.width = Int(
-            filter.contentRect.width
-                * CGFloat(filter.pointPixelScale)
-        )
-        config.height = Int(
-            filter.contentRect.height
-                * CGFloat(filter.pointPixelScale)
-        )
-        config.showsCursor = false
-        config.captureResolution = .best
-        config.shouldBeOpaque = true
 
         let image = try await SCScreenshotManager.captureImage(
             contentFilter: filter,

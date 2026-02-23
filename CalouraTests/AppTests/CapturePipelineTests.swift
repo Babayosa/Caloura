@@ -288,4 +288,36 @@ final class CapturePipelineTests: XCTestCase {
 
         XCTAssertTrue(presetByNameCalled)
     }
+
+    // MARK: - Pipeline Ordering (P3)
+
+    func testQuickAccess_firesBeforeSave() async {
+        var sequence = 0
+        var quickAccessOrder = -1
+        var saveOrder = -1
+
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            saveFile: { _, _, _, _ in
+                sequence += 1
+                saveOrder = sequence
+                return URL(fileURLWithPath: "/tmp/ordering-test.png")
+            },
+            showQuickAccess: { _ in
+                sequence += 1
+                quickAccessOrder = sequence
+            }
+        )
+        pipeline.settings.autoSaveToDisk = true
+
+        let img = testImage()
+        await pipeline.performCapture(mode: .area) { img }
+
+        XCTAssertGreaterThan(quickAccessOrder, 0, "showQuickAccess should be called")
+        XCTAssertGreaterThan(saveOrder, 0, "saveFile should be called")
+        XCTAssertLessThan(
+            quickAccessOrder, saveOrder,
+            "showQuickAccess (\(quickAccessOrder)) must fire before saveFile (\(saveOrder))"
+        )
+    }
 }
