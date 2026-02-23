@@ -9,6 +9,7 @@ enum PermissionStatus: Equatable {
     case grantedNeedsRelaunch
     case denied
     case signatureMismatch
+    case repairing
 }
 
 struct PermissionUIModel: Equatable {
@@ -155,6 +156,9 @@ final class PermissionCoordinator: ObservableObject {
     typealias IdentityProvider = () -> PermissionIdentity
     typealias StatusMessageSink = (String) -> Void
     typealias NowProvider = () -> Date
+    typealias RepairCheck = () async -> Bool
+    typealias TCCReset = () async -> Void
+    typealias Relauncher = () -> Void
 
     @Published private(set) var permissionUIModel = PermissionUIModel()
 
@@ -166,6 +170,9 @@ final class PermissionCoordinator: ObservableObject {
     private let identityProvider: IdentityProvider
     private let statusMessageSink: StatusMessageSink
     private let now: NowProvider
+    private let repairSCKAccess: RepairCheck
+    private let resetTCCEntry: TCCReset
+    private let relaunchApp: Relauncher
     private let logger = Logger(subsystem: "com.caloura.app", category: "Permission")
 
     private var isShowingAlert = false
@@ -186,6 +193,9 @@ final class PermissionCoordinator: ObservableObject {
         self.identityProvider = { PermissionIdentity.current() }
         self.statusMessageSink = { AppState.shared.statusMessage = $0 }
         self.now = Date.init
+        self.repairSCKAccess = { await ScreenCaptureManager.shared.repairSCKAccess() }
+        self.resetTCCEntry = { await ScreenCaptureManager.shared.resetTCCEntry() }
+        self.relaunchApp = { ScreenCaptureManager.shared.relaunchApp() }
     }
 
     init(
@@ -196,7 +206,10 @@ final class PermissionCoordinator: ObservableObject {
         permissionRequester: @escaping PermissionRequester,
         identityProvider: @escaping IdentityProvider,
         statusMessageSink: @escaping StatusMessageSink,
-        now: @escaping NowProvider
+        now: @escaping NowProvider,
+        repairSCKAccess: @escaping RepairCheck = { false },
+        resetTCCEntry: @escaping TCCReset = { },
+        relaunchApp: @escaping Relauncher = { }
     ) {
         self.defaults = defaults
         self.passiveCheck = passiveCheck
@@ -206,6 +219,9 @@ final class PermissionCoordinator: ObservableObject {
         self.identityProvider = identityProvider
         self.statusMessageSink = statusMessageSink
         self.now = now
+        self.repairSCKAccess = repairSCKAccess
+        self.resetTCCEntry = resetTCCEntry
+        self.relaunchApp = relaunchApp
     }
 
     /// Perform a non-interactive permission check and update the published UI model.
@@ -232,6 +248,7 @@ final class PermissionCoordinator: ObservableObject {
     }
 
     /// Run a full interactive validation (CG + SCK) triggered by an explicit user action.
+    /// Automatically attempts replayd repair if SCK fails but CG is granted.
     @discardableResult
     func runUserInitiatedValidation() async -> PermissionStatus {
         let identity = identityProvider()
@@ -246,11 +263,26 @@ final class PermissionCoordinator: ObservableObject {
         let sckAuthorized = await interactiveCheck()
         logger.info("interactive_check_result sck_authorized=\(sckAuthorized, privacy: .public)")
 
-        let status: PermissionStatus
         if sckAuthorized {
             defaults.set(identity.fingerprint, forKey: Keys.lastWorkingIdentityFingerprint)
-            status = .grantedWorking
-        } else if isIdentityMismatch(identity) {
+            updateUIModel(status: .grantedWorking, identity: identity)
+            return .grantedWorking
+        }
+
+        // SCK failed — attempt auto-repair via replayd restart
+        updateUIModel(status: .repairing, identity: identity)
+        logger.info("auto_repair_start")
+        let repaired = await repairSCKAccess()
+        logger.info("auto_repair_result repaired=\(repaired, privacy: .public)")
+
+        if repaired {
+            defaults.set(identity.fingerprint, forKey: Keys.lastWorkingIdentityFingerprint)
+            updateUIModel(status: .grantedWorking, identity: identity)
+            return .grantedWorking
+        }
+
+        let status: PermissionStatus
+        if isIdentityMismatch(identity) {
             status = .signatureMismatch
         } else {
             status = .grantedNeedsRelaunch
@@ -267,9 +299,23 @@ final class PermissionCoordinator: ObservableObject {
     }
 
     /// Handle a capture failure due to missing permission, showing an alert if not rate-limited.
+    /// Silently attempts replayd repair first when CG is granted.
     func handleCapturePermissionFailure() async {
         let identity = identityProvider()
         let status = refreshPassiveStatus()
+
+        // If CG is granted, attempt silent repair before showing any alert
+        if status != .denied {
+            logger.info("silent_repair_attempt before alert")
+            let repaired = await repairSCKAccess()
+            if repaired {
+                logger.info("silent_repair_success — no alert needed")
+                defaults.set(identity.fingerprint, forKey: Keys.lastWorkingIdentityFingerprint)
+                updateUIModel(status: .grantedWorking, identity: identity)
+                return
+            }
+        }
+
         let now = now()
         let cooldownActive = isCooldownActive(at: now)
 
@@ -300,6 +346,12 @@ final class PermissionCoordinator: ObservableObject {
         updateCooldownInModel(cooldownActive: true)
     }
 
+    /// Reset the TCC entry and relaunch so the system re-prompts for permission.
+    func performTCCResetAndRelaunch() async {
+        await resetTCCEntry()
+        relaunchApp()
+    }
+
     /// Record that the signature-mismatch banner has been shown for the current identity.
     func markCurrentMismatchBannerShown() {
         let identity = identityProvider()
@@ -315,7 +367,7 @@ final class PermissionCoordinator: ObservableObject {
         case .denied:
             return .neverGranted
         case .signatureMismatch,
-             .grantedNeedsRelaunch, .grantedWorking, .unknown:
+             .grantedNeedsRelaunch, .grantedWorking, .unknown, .repairing:
             return .grantedButFailing
         }
     }
@@ -365,6 +417,8 @@ final class PermissionCoordinator: ObservableObject {
             return "Screen Recording is granted, but macOS needs a Caloura relaunch to fully apply it."
         case .denied:
             return "Caloura needs Screen Recording access to capture screenshots."
+        case .repairing:
+            return "Restarting screen recording service."
         case .grantedWorking, .unknown:
             return nil
         }
@@ -377,7 +431,7 @@ final class PermissionCoordinator: ObservableObject {
                 + "Open System Settings to re-grant for this build."
         case .denied:
             return "Screen Recording permission required. Open System Settings to continue capturing."
-        case .grantedNeedsRelaunch, .grantedWorking, .unknown:
+        case .grantedNeedsRelaunch, .grantedWorking, .unknown, .repairing:
             return "Screen Recording is still initializing. Try again in a moment."
         }
     }

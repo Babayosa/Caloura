@@ -66,6 +66,63 @@ extension ScreenCaptureManager {
         await checkSCKAccess()
     }
 
+    /// Restart replayd to clear stale SCK authorization cache.
+    /// Returns true if SCK works after the restart.
+    func repairSCKAccess() async -> Bool {
+        logger.info("Attempting replayd restart")
+        do {
+            try await Task.detached {
+                let process = Process()
+                process.executableURL = URL(filePath: "/bin/launchctl")
+                process.arguments = [
+                    "kickstart", "-k",
+                    "gui/\(getuid())/com.apple.replayd"
+                ]
+                try process.run()
+                process.waitUntilExit()
+            }.value
+        } catch {
+            let desc = error.localizedDescription
+            logger.warning("replayd restart failed: \(desc)")
+            return false
+        }
+        try? await Task.sleep(for: .milliseconds(500))
+        return await checkSCKAccess()
+    }
+
+    /// Reset TCC entry so the system re-prompts on next request.
+    func resetTCCEntry() async {
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.caloura.app"
+        logger.info("Resetting TCC ScreenCapture entry for \(bundleID)")
+        do {
+            try await Task.detached {
+                let process = Process()
+                process.executableURL = URL(filePath: "/usr/bin/tccutil")
+                process.arguments = ["reset", "ScreenCapture", bundleID]
+                try process.run()
+                process.waitUntilExit()
+            }.value
+        } catch {
+            let desc = error.localizedDescription
+            logger.warning("TCC reset failed: \(desc)")
+        }
+    }
+
+    /// Relaunch the app cleanly via NSWorkspace.
+    func relaunchApp() {
+        let bundleURL = Bundle.main.bundleURL
+        logger.info("Relaunching app from \(bundleURL.path)")
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(
+            at: bundleURL,
+            configuration: config
+        ) { _, _ in }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            NSApp.terminate(nil)
+        }
+    }
+
     /// Show a permission guidance alert for a specific diagnosed state.
     func showPermissionAlert(
         for state: PermissionState

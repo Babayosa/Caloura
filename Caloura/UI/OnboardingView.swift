@@ -136,6 +136,7 @@ struct OnboardingView: View {
                     Label("Continue", systemImage: "chevron.right")
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(permissionPresentation.detail != .working)
             }
         }
     }
@@ -175,8 +176,13 @@ struct OnboardingView: View {
     }
 
     private func refreshPermissionStatus() {
-        let status = permissionCoordinator.refreshPassiveStatus()
-        handlePermissionStatus(status)
+        if isAwaitingAutoCheckAfterGrant {
+            // User just granted — run full validation (with auto-repair)
+            runUserInitiatedValidation()
+        } else {
+            let status = permissionCoordinator.refreshPassiveStatus()
+            handlePermissionStatus(status)
+        }
     }
 
     func runUserInitiatedValidation() {

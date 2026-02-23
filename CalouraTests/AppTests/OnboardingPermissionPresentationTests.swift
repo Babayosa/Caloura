@@ -31,8 +31,10 @@ final class OnboardingPermissionPresentationTests: XCTestCase {
 
         XCTAssertEqual(presentation.detail, .grantedNotWorking)
         XCTAssertFalse(presentation.showsGrantButton)
+        XCTAssertTrue(presentation.showsRepairButton)
+        XCTAssertTrue(presentation.showsResetRelaunchButton)
         XCTAssertTrue(presentation.showsCheckAgainButton)
-        XCTAssertEqual(presentation.statusHeadline, "Permission granted")
+        XCTAssertEqual(presentation.statusHeadline, "Permission needs repair")
         XCTAssertEqual(presentation.statusMessage, "Restart")
     }
 

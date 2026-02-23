@@ -83,6 +83,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else if passiveStatus == .denied {
             // Returning user with denied permission can be guided via onboarding.
             onboardingController.show(settings: AppSettings.shared)
+        } else if passiveStatus != .grantedWorking {
+            // Returning user with broken permission — try silent auto-repair
+            Task { @MainActor [onboardingController] in
+                let status = await PermissionCoordinator.shared.runUserInitiatedValidation()
+                if status != .grantedWorking {
+                    onboardingController.show(settings: AppSettings.shared)
+                }
+            }
         }
 
         // Show nag once per launch if trial expired and unlicensed
@@ -289,6 +297,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        nc.addObserver(forName: .showPermissionRepair, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                self?.onboardingController.show(settings: AppSettings.shared)
+            }
+        }
     }
 
     private func cleanupStaleTempFiles() {

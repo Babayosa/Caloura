@@ -74,17 +74,13 @@ extension OnboardingView {
         case .grantedNotWorking:
             Label(
                 permissionPresentation.statusHeadline,
-                systemImage: "checkmark.circle.fill"
+                systemImage: "exclamationmark.circle.fill"
             )
-            .foregroundStyle(.green)
+            .foregroundStyle(.orange)
             Text(permissionPresentation.statusMessage)
                 .font(.callout)
                 .foregroundStyle(.orange)
                 .multilineTextAlignment(.center)
-            Button("Quit Caloura") {
-                NSApplication.shared.terminate(nil)
-            }
-            .buttonStyle(.borderedProminent)
         case .notGranted:
             Label(
                 permissionPresentation.statusHeadline,
@@ -110,6 +106,14 @@ extension OnboardingView {
             if permissionPresentation.shouldShowMismatchBanner {
                 mismatchBanner
             }
+        case .repairing:
+            Label("Repairing...", systemImage: "gear.badge.questionmark")
+                .foregroundStyle(.blue)
+            ProgressView()
+                .controlSize(.small)
+            Text(permissionPresentation.statusMessage)
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -134,12 +138,26 @@ extension OnboardingView {
                           !isAwaitingAutoCheckAfterGrant else { return }
                     _ = permissionCoordinator.requestPermissionFromSystem()
                     isAwaitingAutoCheckAfterGrant = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        runUserInitiatedValidation()
-                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(isCheckingPermission || isAwaitingAutoCheckAfterGrant)
+            }
+
+            if permissionPresentation.showsRepairButton {
+                Button("Try Repair") {
+                    runUserInitiatedValidation()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isCheckingPermission)
+            }
+
+            if permissionPresentation.showsResetRelaunchButton {
+                Button("Reset & Relaunch") {
+                    Task { @MainActor in
+                        await permissionCoordinator.performTCCResetAndRelaunch()
+                    }
+                }
+                .buttonStyle(.bordered)
             }
 
             if permissionPresentation.showsCheckAgainButton {

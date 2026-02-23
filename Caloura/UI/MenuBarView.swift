@@ -167,6 +167,12 @@ struct MenuBarView: View {
         .keyboardShortcut(",")
 
         Button {
+            NotificationCenter.default.post(name: .showPermissionRepair, object: nil)
+        } label: {
+            Label("Screen Recording...", systemImage: "lock.shield")
+        }
+
+        Button {
             updateManager.checkForUpdates()
         } label: {
             Label("Check for Updates...", systemImage: "arrow.triangle.2.circlepath")
@@ -200,4 +206,5 @@ extension Notification.Name {
     static let cancelDelayedCapture = Notification.Name("cancelDelayedCapture")
     static let beautifyLastCapture = Notification.Name("beautifyLastCapture")
     static let redactLastCapture = Notification.Name("redactLastCapture")
+    static let showPermissionRepair = Notification.Name("showPermissionRepair")
 }
