@@ -75,17 +75,31 @@ final class URLSchemeHandlerTests: XCTestCase {
         XCTAssertEqual(URLSchemeHandler.parse(url), .showSettings)
     }
 
-    // MARK: - Handle: Notification posting
+    // MARK: - Handle: Command routing
 
-    func testHandle_historyURL_postsNotification() {
-        let expectation = XCTNSNotificationExpectation(name: .showHistory)
+    func testHandle_historyURL_dispatchesShowHistoryCommand() {
+        let expectation = expectation(description: "show history command")
+        let observerID = AppCommandRouter.shared.addHandler { command in
+            if command == .showHistory {
+                expectation.fulfill()
+            }
+        }
+        defer { AppCommandRouter.shared.removeHandler(observerID) }
+
         let url = URL(string: "caloura://history")!
         URLSchemeHandler.handle(url)
         wait(for: [expectation], timeout: 1.0)
     }
 
-    func testHandle_settingsURL_postsNotification() {
-        let expectation = XCTNSNotificationExpectation(name: .showSettings)
+    func testHandle_settingsURL_dispatchesShowSettingsCommand() {
+        let expectation = expectation(description: "show settings command")
+        let observerID = AppCommandRouter.shared.addHandler { command in
+            if command == .showSettings {
+                expectation.fulfill()
+            }
+        }
+        defer { AppCommandRouter.shared.removeHandler(observerID) }
+
         let url = URL(string: "caloura://settings")!
         URLSchemeHandler.handle(url)
         wait(for: [expectation], timeout: 1.0)

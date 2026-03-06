@@ -3,6 +3,7 @@ import AppKit
 final class ScreenSelectionView: NSView {
     var onScreenSelected: ((NSScreen) -> Void)?
     var onCancelled: (() -> Void)?
+    weak var cursorController: CaptureCursorControlling?
 
     private let targetScreen: NSScreen
     private var isHighlighted: Bool = false
@@ -29,6 +30,7 @@ final class ScreenSelectionView: NSView {
         if let window = window {
             window.makeFirstResponder(self)
             window.acceptsMouseMovedEvents = true
+            cursorController?.reassertCrosshair()
         }
     }
 
@@ -39,12 +41,21 @@ final class ScreenSelectionView: NSView {
         }
         let area = NSTrackingArea(
             rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways],
+            options: [.mouseEnteredAndExited, .mouseMoved, .cursorUpdate, .activeAlways, .inVisibleRect],
             owner: self,
             userInfo: nil
         )
         addTrackingArea(area)
         trackingArea = area
+    }
+
+    override func resetCursorRects() {
+        discardCursorRects()
+        addCursorRect(bounds, cursor: .crosshair)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        cursorController?.reassertCrosshair()
     }
 
     // MARK: - Drawing
@@ -76,6 +87,7 @@ final class ScreenSelectionView: NSView {
 
             // Display name label only
             drawDisplayName()
+            drawClickHint()
         }
     }
 
@@ -112,7 +124,7 @@ final class ScreenSelectionView: NSView {
     }
 
     private func drawClickHint() {
-        let text = "Click to capture" as NSString
+        let text = "Click a display to capture  ·  ESC to cancel" as NSString
         let attributes: [NSAttributedString.Key: Any] = [
             .font: hintFont,
             .foregroundColor: NSColor.white.withAlphaComponent(0.8)
@@ -129,6 +141,7 @@ final class ScreenSelectionView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         isHighlighted = true
+        cursorController?.reassertCrosshair()
         needsDisplay = true
     }
 
@@ -138,7 +151,12 @@ final class ScreenSelectionView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        cursorController?.reassertCrosshair()
         onScreenSelected?(targetScreen)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        cursorController?.reassertCrosshair()
     }
 
     // MARK: - Keyboard Events

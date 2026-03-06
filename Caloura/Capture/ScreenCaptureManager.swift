@@ -1,6 +1,6 @@
-import AppKit
+@preconcurrency import AppKit
 import os.log
-import ScreenCaptureKit
+@preconcurrency import ScreenCaptureKit
 
 private let logger = Logger(subsystem: "com.caloura.app", category: "ScreenCapture")
 
@@ -43,8 +43,9 @@ final class ScreenCaptureManager {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 self?.resetSCKState()
+                await self?.prewarmWindowShareableContent()
             }
         }
     }
@@ -126,6 +127,22 @@ final class ScreenCaptureManager {
         return content
     }
 
+    var hasWarmWindowShareableContent: Bool {
+        guard cachedContent != nil else { return false }
+        return CFAbsoluteTimeGetCurrent() - cachedContentTimestamp < contentCacheTTL
+    }
+
+    func prewarmWindowShareableContent() async {
+        guard checkPermission(), !sckFailed else { return }
+        do {
+            _ = try await shareableContent()
+        } catch {
+            logger.debug(
+                "Window shareable content prewarm skipped: \(error.localizedDescription)"
+            )
+        }
+    }
+
     // MARK: - Full Screen Capture
 
     /// Capture the full screen, falling back from SCK to CLI.
@@ -202,10 +219,21 @@ final class ScreenCaptureManager {
         config.captureResolution = .best
         config.shouldBeOpaque = true
 
-        return try await SCScreenshotManager.captureImage(
-            contentFilter: filter,
-            configuration: config
-        )
+        do {
+            return try await SCScreenshotManager.captureImage(
+                contentFilter: filter,
+                configuration: config
+            )
+        } catch {
+            logger.warning(
+                "SCK captureWindow failed: \(error.localizedDescription)"
+            )
+            handleSCKFailure(error)
+            if isSCKErrorPermanent(error) || !checkPermission() {
+                throw CaptureError.noPermission
+            }
+            throw error
+        }
     }
 
 }

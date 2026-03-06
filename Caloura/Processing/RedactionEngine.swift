@@ -3,6 +3,7 @@ import CoreImage
 
 struct RedactionEngine {
     private static let ciContext = CIContext()
+
     /// Redact regions by applying Gaussian blur.
     /// Regions are in normalized Vision coordinates (origin bottom-left, 0-1 range).
     static func redact(
@@ -58,13 +59,8 @@ struct RedactionEngine {
         // White regions (apply blur)
         maskContext.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         for region in regions {
-            // Convert normalized Vision coords to pixel coords
-            let pixelRect = CGRect(
-                x: region.origin.x * width,
-                y: region.origin.y * height,
-                width: region.width * width,
-                height: region.height * height
-            )
+            let pixelRect = pixelRect(for: region, imageWidth: width, imageHeight: height)
+            guard !pixelRect.isEmpty else { continue }
             maskContext.fill(pixelRect)
         }
 
@@ -87,5 +83,32 @@ struct RedactionEngine {
         }
 
         return resultCG
+    }
+
+    static func pixelRect(
+        for normalizedRegion: CGRect,
+        imageWidth: CGFloat,
+        imageHeight: CGFloat
+    ) -> CGRect {
+        guard imageWidth > 0, imageHeight > 0 else { return .zero }
+
+        let standardized = normalizedRegion.standardized
+        let clampedMinX = max(0, min(1, standardized.minX))
+        let clampedMinY = max(0, min(1, standardized.minY))
+        let clampedMaxX = max(clampedMinX, min(1, standardized.maxX))
+        let clampedMaxY = max(clampedMinY, min(1, standardized.maxY))
+
+        let rect = CGRect(
+            x: clampedMinX * imageWidth,
+            y: clampedMinY * imageHeight,
+            width: (clampedMaxX - clampedMinX) * imageWidth,
+            height: (clampedMaxY - clampedMinY) * imageHeight
+        )
+        guard !rect.isEmpty else { return .zero }
+
+        let padding = max(2, rect.height * 0.01)
+        let inflated = rect.insetBy(dx: -padding, dy: -padding)
+        let bounds = CGRect(x: 0, y: 0, width: imageWidth, height: imageHeight)
+        return inflated.intersection(bounds)
     }
 }

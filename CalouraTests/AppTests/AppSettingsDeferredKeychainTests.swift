@@ -23,10 +23,10 @@ final class AppSettingsDeferredKeychainTests: XCTestCase {
         )
 
         XCTAssertEqual(settings.licenseKey, "LEGACY-KEY-1234")
-        XCTAssertTrue(settings.isLicenseActivated)
+        XCTAssertFalse(settings.isLicenseActivated)
         // License key is now stored encrypted (as Data), not as a plaintext String
         XCTAssertNotNil(defaults.object(forKey: "licenseKey"), "License key should be persisted")
-        XCTAssertEqual(defaults.bool(forKey: "isLicenseActivated"), true)
+        XCTAssertEqual(defaults.bool(forKey: "isLicenseActivated"), false)
     }
 
     func testSkipsMigrationWhenLocalKeyAlreadyExists() {

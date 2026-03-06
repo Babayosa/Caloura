@@ -1,4 +1,5 @@
 import AppKit
+import os.log
 import Vision
 
 private struct BorderInsets {
@@ -15,17 +16,29 @@ struct SmartCropper {
     private static let paddingFactor: CGFloat = 0.05
     /// Maximum time to wait for Vision processing before falling back
     private static let visionTimeout: UInt64 = 300_000_000 // 300ms
+    private static let logger = Logger(
+        subsystem: "com.caloura.app",
+        category: "SmartCropper"
+    )
 
     /// Auto-crop using Vision saliency analysis.
     /// Runs entirely off the main thread for performance.
     static func autoCrop(_ cgImage: CGImage) async -> CGImage {
-        // Run Vision processing on background thread with timeout
-        let saliencyResult = await withTimeout(seconds: Double(visionTimeout) / 1_000_000_000) {
-            try await saliencyCrop(cgImage)
-        }
+        do {
+            // Run Vision processing on background thread with timeout
+            let saliencyResult = try await withTimeout(
+                seconds: Double(visionTimeout) / 1_000_000_000
+            ) {
+                try await saliencyCrop(cgImage)
+            }
 
-        if let cropped = saliencyResult {
-            return cropped
+            if let cropped = saliencyResult {
+                return cropped
+            }
+        } catch TimeoutError.timedOut {
+            logger.debug("Vision saliency crop timed out; using border-trim fallback")
+        } catch {
+            logger.debug("Vision saliency crop failed: \(error.localizedDescription)")
         }
 
         // Fallback: trim uniform borders (fast, CPU-based)

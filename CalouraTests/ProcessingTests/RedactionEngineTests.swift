@@ -72,4 +72,24 @@ final class RedactionEngineTests: XCTestCase {
         XCTAssertEqual(result.width, 200)
         XCTAssertEqual(result.height, 200)
     }
+
+    func testPixelRect_inflatesRegionWithSafetyPadding() {
+        let rect = RedactionEngine.pixelRect(
+            for: CGRect(x: 0.5, y: 0.5, width: 0.1, height: 0.1),
+            imageWidth: 100,
+            imageHeight: 100
+        )
+
+        XCTAssertEqual(rect, CGRect(x: 48, y: 48, width: 14, height: 14))
+    }
+
+    func testPixelRect_clampsInflatedRegionToImageBounds() {
+        let rect = RedactionEngine.pixelRect(
+            for: CGRect(x: 0.97, y: 0.97, width: 0.1, height: 0.1),
+            imageWidth: 100,
+            imageHeight: 100
+        )
+
+        XCTAssertEqual(rect, CGRect(x: 95, y: 95, width: 5, height: 5))
+    }
 }

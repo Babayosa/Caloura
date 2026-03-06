@@ -30,6 +30,7 @@ final class AppSettings: ObservableObject {
         static let checkForUpdatesAutomatically = "checkForUpdatesAutomatically"
         static let firstLaunchDate = "firstLaunchDate"
         static let licenseKey = "licenseKey"
+        static let licenseEntitlement = "licenseEntitlement"
         static let isLicenseActivated = "isLicenseActivated"
         static let hasSeenWelcome = "hasSeenWelcome"
         static let hasAttemptedLegacyLicenseMigration = "hasAttemptedLegacyLicenseMigration"
@@ -41,6 +42,10 @@ final class AppSettings: ObservableObject {
         static let beautifyThemeName = "beautifyThemeName"
         static let smartMetadataEnabled = "smartMetadataEnabled"
         static let semanticSearchEnabled = "semanticSearchEnabled"
+        static let scrollSpeed = "scrollSpeed"
+        static let scrollMaxHeight = "scrollMaxHeight"
+        static let scrollStickyHeaders = "scrollStickyHeaders"
+        static let scrollToTop = "scrollToTop"
     }
 
     @Published var saveDirectory: String {
@@ -95,12 +100,7 @@ final class AppSettings: ObservableObject {
         didSet { persistLicenseState() }
     }
 
-    @Published var isLicenseActivated: Bool {
-        didSet {
-            persistLicenseState()
-            debouncedSave()
-        }
-    }
+    @Published private(set) var isLicenseActivated: Bool
 
     @Published var hasSeenWelcome: Bool {
         didSet { debouncedSave() }
@@ -126,6 +126,22 @@ final class AppSettings: ObservableObject {
         didSet { debouncedSave() }
     }
 
+    @Published var scrollSpeed: Int {
+        didSet { debouncedSave() }
+    }
+
+    @Published var scrollMaxHeight: Int {
+        didSet { debouncedSave() }
+    }
+
+    @Published var scrollStickyHeaders: Bool {
+        didSet { debouncedSave() }
+    }
+
+    @Published var scrollToTop: Bool {
+        didSet { debouncedSave() }
+    }
+
     var lastLicenseValidationDate: Date? {
         get { defaults.object(forKey: Keys.lastLicenseValidationDate) as? Date }
         set { defaults.set(newValue, forKey: Keys.lastLicenseValidationDate) }
@@ -134,6 +150,17 @@ final class AppSettings: ObservableObject {
     var furthestDateSeen: Date? {
         get { defaults.object(forKey: Keys.furthestDateSeen) as? Date }
         set { defaults.set(newValue, forKey: Keys.furthestDateSeen) }
+    }
+
+    private var licenseEntitlement: LicenseEntitlement? {
+        didSet {
+            syncDerivedLicenseState()
+            persistLicenseState()
+        }
+    }
+
+    var currentLicenseEntitlement: LicenseEntitlement? {
+        licenseEntitlement
     }
 
     private static var defaultSaveDirectory: String {
@@ -178,6 +205,10 @@ final class AppSettings: ObservableObject {
         defaults.set(beautifyThemeName, forKey: Keys.beautifyThemeName)
         defaults.set(smartMetadataEnabled, forKey: Keys.smartMetadataEnabled)
         defaults.set(semanticSearchEnabled, forKey: Keys.semanticSearchEnabled)
+        defaults.set(scrollSpeed, forKey: Keys.scrollSpeed)
+        defaults.set(scrollMaxHeight, forKey: Keys.scrollMaxHeight)
+        defaults.set(scrollStickyHeaders, forKey: Keys.scrollStickyHeaders)
+        defaults.set(scrollToTop, forKey: Keys.scrollToTop)
     }
 
     func persistLicenseState() {
@@ -192,6 +223,18 @@ final class AppSettings: ObservableObject {
                 logger.error("Failed to encrypt license key — not persisting")
             }
         }
+
+        if let licenseEntitlement {
+            if let encryptedEntitlement = Self.encryptLicenseEntitlement(licenseEntitlement) {
+                defaults.set(encryptedEntitlement, forKey: Keys.licenseEntitlement)
+            } else {
+                logger.error("Failed to encrypt license entitlement — not persisting")
+            }
+        } else {
+            defaults.removeObject(forKey: Keys.licenseEntitlement)
+        }
+
+        // Mirror the derived state for compatibility, but do not trust this value on load.
         defaults.set(isLicenseActivated, forKey: Keys.isLicenseActivated)
     }
 
@@ -199,7 +242,12 @@ final class AppSettings: ObservableObject {
 
     nonisolated private static func encryptLicenseKey(_ plaintext: String) -> Data? {
         guard let data = plaintext.data(using: .utf8) else { return nil }
-        return try? HistoryCrypto.encrypt(data)
+        return try? HistoryCrypto.encrypt(data, purpose: "license-key")
+    }
+
+    nonisolated private static func encryptLicenseEntitlement(_ entitlement: LicenseEntitlement) -> Data? {
+        guard let data = try? JSONEncoder().encode(entitlement) else { return nil }
+        return try? HistoryCrypto.encrypt(data, purpose: "license-artifact")
     }
 
     nonisolated private static func decryptLicenseKey(
@@ -208,7 +256,11 @@ final class AppSettings: ObservableObject {
     ) -> String? {
         if let data = stored as? Data {
             // Encrypted format
-            guard let decrypted = try? HistoryCrypto.decrypt(data),
+            let decrypted = (
+                (try? HistoryCrypto.decrypt(data, purpose: "license-key"))
+                ?? (try? HistoryCrypto.decrypt(data))
+            )
+            guard let decrypted,
                   let string = String(data: decrypted, encoding: .utf8) else {
                 return nil
             }
@@ -219,6 +271,51 @@ final class AppSettings: ObservableObject {
             return nil
         }
         return stored as? String
+    }
+
+    nonisolated private static func decryptLicenseEntitlement(_ stored: Any?) -> LicenseEntitlement? {
+        guard let data = stored as? Data,
+              let decrypted = try? HistoryCrypto.decrypt(data, purpose: "license-artifact") else {
+            return nil
+        }
+        return try? JSONDecoder().decode(LicenseEntitlement.self, from: decrypted)
+    }
+
+    private func syncDerivedLicenseState(referenceDate: Date = Date()) {
+        isLicenseActivated = licenseEntitlement?.isCurrentlyValid(at: referenceDate) ?? false
+    }
+
+    func updateLicenseEntitlement(_ entitlement: LicenseEntitlement?) {
+        licenseEntitlement = entitlement
+        lastLicenseValidationDate = entitlement?.validatedAt
+    }
+
+    private func migrateLegacyActivationStateIfNeeded() {
+        guard licenseEntitlement == nil,
+              defaults.bool(forKey: Keys.isLicenseActivated) else {
+            return
+        }
+
+        let normalized = licenseKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return }
+
+        let validatedAt = lastLicenseValidationDate ?? Date()
+        let now = Date()
+        let effectiveValidation = max(validatedAt, now)
+        licenseEntitlement = LicenseEntitlement(
+            claims: LicenseEntitlementClaims(
+                productID: Bundle.main.bundleIdentifier ?? "com.caloura.app",
+                licenseID: normalized,
+                issuedAt: validatedAt,
+                refreshAfter: validatedAt,
+                expiresAt: effectiveValidation.addingTimeInterval(7 * 86_400),
+                featureFlags: [:]
+            ),
+            source: .legacyMigration,
+            token: nil,
+            signature: nil,
+            validatedAt: validatedAt
+        )
     }
 
     /// Best-effort migration path for legacy keychain-backed license keys.
@@ -240,9 +337,7 @@ final class AppSettings: ObservableObject {
             let normalized = migratedKey.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !normalized.isEmpty else { return }
             licenseKey = normalized
-            if !isLicenseActivated {
-                isLicenseActivated = true
-            }
+            migrateLegacyActivationStateIfNeeded()
             KeychainHelper.deleteLegacyItem(service: Self.keychainService, account: Keys.licenseKey)
             logger.info("Migrated legacy license key without prompting user.")
         case .notFound:
@@ -289,15 +384,30 @@ final class AppSettings: ObservableObject {
             defaults.object(forKey: Keys.licenseKey),
             migrated: defaults.bool(forKey: Keys.licenseKeyMigrated)
         ) ?? ""
-        self.isLicenseActivated = defaults.bool(forKey: Keys.isLicenseActivated)
+        self.isLicenseActivated = false
         self.hasSeenWelcome = defaults.bool(forKey: Keys.hasSeenWelcome)
         self.autoClearClipboard = defaults.object(forKey: Keys.autoClearClipboard) as? Bool ?? false
         self.autoDetectPII = defaults.object(forKey: Keys.autoDetectPII) as? Bool ?? false
         self.beautifyThemeName = defaults.string(forKey: Keys.beautifyThemeName) ?? "Clean"
         self.smartMetadataEnabled = defaults.object(forKey: Keys.smartMetadataEnabled) as? Bool ?? true
         self.semanticSearchEnabled = defaults.object(forKey: Keys.semanticSearchEnabled) as? Bool ?? true
+        self.licenseEntitlement = Self.decryptLicenseEntitlement(
+            defaults.object(forKey: Keys.licenseEntitlement)
+        )
+        self.scrollSpeed = defaults.object(forKey: Keys.scrollSpeed) as? Int ?? 300
+        self.scrollMaxHeight = defaults.object(forKey: Keys.scrollMaxHeight) as? Int ?? 20_000
+        self.scrollStickyHeaders = defaults.object(forKey: Keys.scrollStickyHeaders) as? Bool ?? true
+        // One-time migration: scrollToTop defaulted to true in earlier builds.
+        // Reset to false so captures start from the current scroll position.
+        if !defaults.bool(forKey: "scrollToTopMigratedV1") {
+            defaults.removeObject(forKey: Keys.scrollToTop)
+            defaults.set(true, forKey: "scrollToTopMigratedV1")
+        }
+        self.scrollToTop = defaults.object(forKey: Keys.scrollToTop) as? Bool ?? false
 
         migrateLegacyLicenseSilentlyIfAvailable()
+        migrateLegacyActivationStateIfNeeded()
+        syncDerivedLicenseState()
         persistLicenseState()
     }
 }

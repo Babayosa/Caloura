@@ -4,6 +4,42 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 07: Capture UX + Engine Hardening
+**Status:** Complete  
+**Branch:** codex/task-07-capture-hardening  
+**Changes:**
+- Added session coordinators and a shared cursor controller so area/fullscreen capture presents immediately with explicit mode cues and crosshair ownership independent of frozen screenshot readiness
+- Added `CapturePerformanceRecorder` instrumentation for app activation, overlay/picker visibility, screenshot duration, raw preview visibility, save completion, and clipboard completion
+- Moved area/fullscreen primary SCK capture to display-space rect capture and restricted `SCShareableContent` caching/prewarm to window workflows
+- Reordered the main capture pipeline so the raw preview chip appears before deferred OCR/PII/history enrichment completes
+- Replaced the long fixed quick-access toolbar with a compact contextual `4 + More` chip backed by a shared presentation model and centralized quick-action routing
+- Added validation coverage for quick-access presentation, capture performance summaries, rect conversion, and preview phase transitions
+- Ran validations (`swift build`, `swiftlint lint --quiet`, `swift test`, `xcodegen generate`, `xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData`)
+
+**Decisions Made:**
+- Prioritize immediate mode feedback over frozen-background perfection by backfilling snapshot imagery after the overlay is already visible
+- Use rect-based ScreenCaptureKit capture as the default for area/fullscreen to remove unnecessary shareable-content latency from the hot path
+- Treat post-capture preview as the primary UX milestone and defer enrichment rather than blocking the quick-access UI
+
+---
+
+## Task 06: Scroll Capture Engine V2
+**Status:** Complete  
+**Branch:** codex/task-06-scroll-capture-v2  
+**Changes:**
+- Rebuilt scroll capture around a viewport-aware `ScrollCaptureEngine` with adaptive automatic capture, direction calibration, absolute frame placement, seam-aware stitching, and guided manual fallback
+- Added `ScrollCaptureSessionCoordinator` and upgraded the scroll progress overlay to show phase/mode and expose manual switch / finish controls
+- Simplified exposed scroll preferences to `scrollToTop` and `maxHeight`; automatic viewport detection and sticky-header handling are now internal behavior
+- Replaced helper-only coverage with synthetic end-to-end scroll engine tests for bottom reach, seam handling, sticky headers, manual fallback, cancellation, no-scroll targets, and max-height termination
+- Ran validations (`swift build`, `swiftlint lint --quiet`, `swift test`, `xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData`)
+
+**Decisions Made:**
+- Prefer controlled manual fallback over attempting automatic capture on low-confidence or unstable scroll targets
+- Use absolute placement plus seam selection instead of overlap clipping heuristics to avoid horizontal separator artifacts
+- Keep the user-facing entrypoint unchanged while moving richer scroll state into internal engine/session types
+
+---
+
 ## Task 05: Release 1.0.7 (public update)
 **Status:** Complete (appcast live; Gumroad upload pending)  
 **Branch:** codex/task-05-release-1-0-7  

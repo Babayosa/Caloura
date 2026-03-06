@@ -39,6 +39,7 @@ enum CapturePipelineTestHelpers {
         detectContext: CapturePipeline.DetectContextFn? = nil,
         processImage: CapturePipeline.ProcessImageFn? = nil,
         saveFile: CapturePipeline.SaveFileFn? = nil,
+        persistArtifact: CapturePipeline.PersistArtifactFn? = nil,
         copyToClipboard: CapturePipeline.CopyToClipboardFn? = nil,
         recognizeText: CapturePipeline.RecognizeTextFn? = nil,
         handlePermissionFailure: CapturePipeline.HandlePermissionFailureFn? = nil,
@@ -65,6 +66,20 @@ enum CapturePipelineTestHelpers {
             },
             saveFile: saveFile ?? { _, _, _, _ in
                 URL(fileURLWithPath: "/tmp/test-save.png")
+            },
+            persistArtifact: persistArtifact ?? { processed, preset in
+                let url = try await (saveFile ?? { _, _, _, _ in
+                    URL(fileURLWithPath: "/tmp/test-save.png")
+                })(
+                    processed,
+                    testSettings.saveDirectory,
+                    preset.subfolder,
+                    testSettings.imageFormat
+                )
+                processed.filePath = url
+                processed.fileName = url.lastPathComponent
+                testAppState.lastScreenshot = processed
+                testAppState.syncProcessedScreenshot(processed)
             },
             copyToClipboard: copyToClipboard ?? { _, _ in },
             recognizeText: recognizeText ?? { _ in "" },

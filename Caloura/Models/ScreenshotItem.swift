@@ -4,14 +4,14 @@ struct ScreenshotItem: Identifiable, Codable, Hashable {
     let id: UUID
     let timestamp: Date
     var filePath: String
-    let fileName: String
+    var fileName: String
     let sourceAppName: String?
     let sourceWindowTitle: String?
     let captureMode: String
-    let presetName: String?
-    let ocrText: String?
-    let width: Int
-    let height: Int
+    var presetName: String?
+    var ocrText: String?
+    var width: Int
+    var height: Int
     var title: String?
     var tags: [String]
     let schemaVersion: Int
@@ -121,5 +121,41 @@ struct ScreenshotItem: Identifiable, Codable, Hashable {
         try container.encodeIfPresent(summary, forKey: .summary)
         try container.encode(autoTags, forKey: .autoTags)
         try container.encodeIfPresent(embeddingVersion, forKey: .embeddingVersion)
+    }
+
+    func updated(
+        filePath: String? = nil,
+        fileName: String? = nil,
+        presetName: String? = nil,
+        ocrText: String? = nil,
+        width: Int? = nil,
+        height: Int? = nil,
+        title: String? = nil,
+        tags: [String]? = nil,
+        smartFileName: String? = nil,
+        summary: String? = nil,
+        autoTags: [String]? = nil,
+        embeddingVersion: Int? = nil
+    ) -> ScreenshotItem {
+        ScreenshotItem(
+            id: id,
+            timestamp: timestamp,
+            filePath: filePath ?? self.filePath,
+            fileName: fileName ?? self.fileName,
+            sourceAppName: sourceAppName,
+            sourceWindowTitle: sourceWindowTitle,
+            captureMode: captureMode,
+            presetName: presetName ?? self.presetName,
+            ocrText: ocrText ?? self.ocrText,
+            width: width ?? self.width,
+            height: height ?? self.height,
+            title: title ?? self.title,
+            tags: tags ?? self.tags,
+            schemaVersion: schemaVersion,
+            smartFileName: smartFileName ?? self.smartFileName,
+            summary: summary ?? self.summary,
+            autoTags: autoTags ?? self.autoTags,
+            embeddingVersion: embeddingVersion ?? self.embeddingVersion
+        )
     }
 }

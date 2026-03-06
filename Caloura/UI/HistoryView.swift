@@ -206,7 +206,12 @@ struct HistoryView: View {
         guard !item.filePath.isEmpty else { return }
         let url = URL(fileURLWithPath: item.filePath)
         guard let image = NSImage(contentsOf: url) else { return }
-        ClipboardManager.copyNSImage(image)
+        do {
+            try ClipboardManager.copyNSImage(image)
+            appState.statusMessage = "Copied image"
+        } catch {
+            appState.statusMessage = error.localizedDescription
+        }
     }
 }
 

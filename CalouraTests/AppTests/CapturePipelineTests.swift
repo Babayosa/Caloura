@@ -79,12 +79,12 @@ final class CapturePipelineTests: XCTestCase {
     // MARK: - processCapture (via performCapture)
 
     func testProcessCapture_autoSaveOn() async {
-        var saveFileCalled = false
+        let saveExpectation = expectation(description: "saveFile called")
 
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function,
             saveFile: { _, _, _, _ in
-                saveFileCalled = true
+                saveExpectation.fulfill()
                 return URL(fileURLWithPath: "/tmp/saved.png")
             }
         )
@@ -93,7 +93,7 @@ final class CapturePipelineTests: XCTestCase {
         let img = testImage()
         await pipeline.performCapture(mode: .area) { img }
 
-        XCTAssertTrue(saveFileCalled)
+        await fulfillment(of: [saveExpectation], timeout: 2.0)
     }
 
     func testProcessCapture_autoSaveOff() async {
@@ -115,12 +115,12 @@ final class CapturePipelineTests: XCTestCase {
     }
 
     func testProcessCapture_saveFailure() async {
-        var saveFileThrew = false
+        let saveExpectation = expectation(description: "saveFile attempted")
 
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function,
             saveFile: { _, _, _, _ in
-                saveFileThrew = true
+                saveExpectation.fulfill()
                 throw NSError(
                     domain: "test", code: 1,
                     userInfo: [NSLocalizedDescriptionKey: "disk full"]
@@ -132,7 +132,7 @@ final class CapturePipelineTests: XCTestCase {
         let img = testImage()
         await pipeline.performCapture(mode: .area) { img }
 
-        XCTAssertTrue(saveFileThrew)
+        await fulfillment(of: [saveExpectation], timeout: 2.0)
         // filePath stays nil because the save threw
         XCTAssertNil(pipeline.appState.lastScreenshot?.filePath)
     }
@@ -216,8 +216,14 @@ final class CapturePipelineTests: XCTestCase {
     // MARK: - addToHistoryWithOCR (via performCapture with autoSaveToDisk on)
 
     func testHistoryWithOCR_addsItem() async {
+        let saveExpectation = expectation(description: "history save started")
+
         let pipeline = CapturePipelineTestHelpers.makePipeline(
-            testName: #function
+            testName: #function,
+            saveFile: { _, _, _, _ in
+                saveExpectation.fulfill()
+                return URL(fileURLWithPath: "/tmp/history-adds-item.png")
+            }
         )
         pipeline.settings.autoSaveToDisk = true
 
@@ -226,6 +232,7 @@ final class CapturePipelineTests: XCTestCase {
         let img = testImage()
         await pipeline.performCapture(mode: .area) { img }
 
+        await fulfillment(of: [saveExpectation], timeout: 2.0)
         XCTAssertEqual(pipeline.appState.recentScreenshots.count, 1)
     }
 
@@ -295,12 +302,14 @@ final class CapturePipelineTests: XCTestCase {
         var sequence = 0
         var quickAccessOrder = -1
         var saveOrder = -1
+        let saveExpectation = expectation(description: "saveFile called")
 
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function,
             saveFile: { _, _, _, _ in
                 sequence += 1
                 saveOrder = sequence
+                saveExpectation.fulfill()
                 return URL(fileURLWithPath: "/tmp/ordering-test.png")
             },
             showQuickAccess: { _ in
@@ -312,6 +321,7 @@ final class CapturePipelineTests: XCTestCase {
 
         let img = testImage()
         await pipeline.performCapture(mode: .area) { img }
+        await fulfillment(of: [saveExpectation], timeout: 2.0)
 
         XCTAssertGreaterThan(quickAccessOrder, 0, "showQuickAccess should be called")
         XCTAssertGreaterThan(saveOrder, 0, "saveFile should be called")
@@ -319,5 +329,39 @@ final class CapturePipelineTests: XCTestCase {
             quickAccessOrder, saveOrder,
             "showQuickAccess (\(quickAccessOrder)) must fire before saveFile (\(saveOrder))"
         )
+    }
+
+    func testPreviewPhase_transitionsFromPendingToComplete() async {
+        let saveExpectation = expectation(description: "saveFile called")
+
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            saveFile: { _, _, _, _ in
+                saveExpectation.fulfill()
+                return URL(fileURLWithPath: "/tmp/preview-phase.png")
+            },
+            recognizeText: { _ in
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                return ""
+            }
+        )
+        pipeline.settings.autoSaveToDisk = true
+
+        let img = testImage()
+        await pipeline.performCapture(mode: .area) { img }
+        let screenshot = try? XCTUnwrap(pipeline.appState.lastScreenshot)
+
+        await fulfillment(of: [saveExpectation], timeout: 2.0)
+        if let screenshot {
+            XCTAssertEqual(
+                pipeline.appState.previewPhase(for: screenshot.id),
+                .enrichmentPending
+            )
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            XCTAssertEqual(
+                pipeline.appState.previewPhase(for: screenshot.id),
+                .enrichmentComplete
+            )
+        }
     }
 }

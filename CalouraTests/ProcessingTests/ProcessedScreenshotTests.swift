@@ -45,25 +45,25 @@ final class ProcessedScreenshotTests: XCTestCase {
 
     // MARK: - Image data
 
-    func testPngData_returnsNonEmptyData() {
+    func testPngData_returnsNonEmptyData() throws {
         let screenshot = makeScreenshot()
-        let data = screenshot.pngData
+        let data = try screenshot.pngData()
         XCTAssertFalse(data.isEmpty)
         // PNG magic bytes
         XCTAssertEqual(data[0], 0x89)
         XCTAssertEqual(data[1], 0x50)
     }
 
-    func testTiffData_returnsNonEmptyData() {
+    func testTiffData_returnsNonEmptyData() throws {
         let screenshot = makeScreenshot()
-        let data = screenshot.tiffData
+        let data = try screenshot.tiffData()
         XCTAssertFalse(data.isEmpty)
     }
 
-    func testPngData_isCached() {
+    func testPngData_isCached() throws {
         let screenshot = makeScreenshot()
-        let first = screenshot.pngData
-        let second = screenshot.pngData
+        let first = try screenshot.pngData()
+        let second = try screenshot.pngData()
         XCTAssertEqual(first, second)
         XCTAssertNotNil(screenshot.cachedPNGData())
     }

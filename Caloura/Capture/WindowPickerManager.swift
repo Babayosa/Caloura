@@ -29,7 +29,9 @@ final class WindowPickerManager: NSObject, SCContentSharingPickerObserver {
     /// Present the system window picker and return the content filter for the selected window.
     /// Returns `nil` if the user cancels or no window is selected.
     /// The returned filter can be used directly with `SCScreenshotManager.captureImage()`.
-    func pickWindow() async -> SCContentFilter? {
+    func pickWindow(
+        onPresented: (() -> Void)? = nil
+    ) async -> SCContentFilter? {
         // H5: Resume any existing continuation before storing the new one
         if continuation != nil {
             logger.warning("pickWindow called while previous pick is pending — cancelling previous")
@@ -41,6 +43,7 @@ final class WindowPickerManager: NSObject, SCContentSharingPickerObserver {
         return await withCheckedContinuation { newContinuation in
             self.continuation = newContinuation
             picker.present(using: .window)
+            onPresented?()
 
             // H4: Timeout safety net — resume with nil if no delegate fires
             self.timeoutTask = Task { [weak self] in

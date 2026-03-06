@@ -1,5 +1,25 @@
 import AppKit
 
+enum ProcessedScreenshotEncodingError: LocalizedError {
+    case pngEncodingFailed
+    case tiffEncodingFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .pngEncodingFailed:
+            return "Failed to encode screenshot as PNG."
+        case .tiffEncodingFailed:
+            return "Failed to encode screenshot as TIFF."
+        }
+    }
+}
+
+enum ProcessedScreenshotImageFormat: String {
+    case png
+    case jpeg
+    case tiff
+}
+
 final class ProcessedScreenshot: @unchecked Sendable {
     let id: UUID
     let image: NSImage
@@ -64,14 +84,14 @@ final class ProcessedScreenshot: @unchecked Sendable {
         dataLock.unlock()
         return data
     }
-    var pngData: Data {
+    func pngData() throws -> Data {
         dataLock.lock()
         defer { dataLock.unlock() }
         if let cached = _pngData {
             return cached
         }
         guard let data = try? ImageProcessor.pngRepresentation(of: cgImage) else {
-            return Data()
+            throw ProcessedScreenshotEncodingError.pngEncodingFailed
         }
         _pngData = data
         return data
@@ -85,14 +105,14 @@ final class ProcessedScreenshot: @unchecked Sendable {
         dataLock.unlock()
         return data
     }
-    var tiffData: Data {
+    func tiffData() throws -> Data {
         dataLock.lock()
         defer { dataLock.unlock() }
         if let cached = _tiffData {
             return cached
         }
         guard let data = try? ImageProcessor.tiffRepresentation(of: cgImage) else {
-            return Data()
+            throw ProcessedScreenshotEncodingError.tiffEncodingFailed
         }
         _tiffData = data
         return data
@@ -134,6 +154,39 @@ final class ProcessedScreenshot: @unchecked Sendable {
             height: height,
             title: context.sourceWindowTitle ?? context.sourceAppName ?? "Untitled",
             tags: []
+        )
+    }
+
+    func encodedImageData(format: ProcessedScreenshotImageFormat) throws -> Data {
+        switch format {
+        case .png:
+            return try pngData()
+        case .jpeg:
+            return try ImageProcessor.jpegRepresentation(of: cgImage)
+        case .tiff:
+            return try tiffData()
+        }
+    }
+
+    func replacingImage(
+        _ newCGImage: CGImage,
+        nsImage: NSImage? = nil,
+        filePath: URL? = nil,
+        fileName: String? = nil
+    ) -> ProcessedScreenshot {
+        let resolvedImage = nsImage ?? NSImage(
+            cgImage: newCGImage,
+            size: NSSize(width: newCGImage.width, height: newCGImage.height)
+        )
+        return ProcessedScreenshot(
+            id: id,
+            image: resolvedImage,
+            cgImage: newCGImage,
+            context: context,
+            ocrText: ocrText,
+            filePath: filePath ?? self.filePath,
+            fileName: fileName ?? self.fileName,
+            presetName: presetName
         )
     }
 }

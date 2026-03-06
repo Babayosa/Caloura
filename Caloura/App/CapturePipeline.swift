@@ -17,7 +17,8 @@ final class CapturePipeline: ObservableObject {
     typealias DetectContextFn = () -> DetectedContext
     typealias ProcessImageFn = (CGImage, CaptureContext, Bool) async -> ProcessedScreenshot
     typealias SaveFileFn = (ProcessedScreenshot, String, String?, String) async throws -> URL
-    typealias CopyToClipboardFn = (ProcessedScreenshot, CopyMode) async -> Void
+    typealias PersistArtifactFn = (ProcessedScreenshot, CapturePreset) async throws -> Void
+    typealias CopyToClipboardFn = (ProcessedScreenshot, CopyMode) async throws -> Void
     typealias RecognizeTextFn = (CGImage) async throws -> String
     typealias HandlePermissionFailureFn = @MainActor () async -> Void
     typealias ShowQuickAccessFn = (ProcessedScreenshot) -> Void
@@ -29,11 +30,13 @@ final class CapturePipeline: ObservableObject {
     // MARK: - Dependencies
 
     let captureManager = ScreenCaptureManager.shared
+    let capturePerformanceRecorder = CapturePerformanceRecorder.shared
     let settings: AppSettings
     let appState: AppState
     private let detectContext: DetectContextFn
     private let processImage: ProcessImageFn
     private let saveFile: SaveFileFn
+    private let persistArtifact: PersistArtifactFn
     private let copyToClipboard: CopyToClipboardFn
     private let recognizeText: RecognizeTextFn
     private let handlePermissionFailure: HandlePermissionFailureFn
@@ -47,7 +50,10 @@ final class CapturePipeline: ObservableObject {
 
     var overlayWindows: [CaptureOverlayWindow] = []
     var screenOverlays: [ScreenSelectionOverlayWindow] = []
+    var areaCaptureSession: AreaCaptureSessionCoordinator?
+    var fullscreenCaptureSession: FullscreenCaptureSessionCoordinator?
     var delayedCaptureTask: Task<Void, Never>?
+    var scrollCaptureTask: Task<ScrollCaptureEngine.Result, Never>?
     private var ocrTask: Task<Void, Never>?
     /// Tracks whether the first mouseDown metric has been logged for the current capture session.
     var firstMouseDownLogged = false
@@ -76,16 +82,22 @@ final class CapturePipeline: ObservableObject {
                 subfolder: subfolder, imageFormat: format
             )
         }
+        self.persistArtifact = { processed, preset in
+            _ = try await ScreenshotArtifactCoordinator.shared.saveCapture(
+                processed,
+                subfolder: preset.subfolder
+            )
+        }
         self.copyToClipboard = { processed, copyMode in
             switch copyMode {
             case .image:
-                await ClipboardManager.copyImage(processed)
+                try await ClipboardManager.copyImage(processed)
             case .markdown:
-                ClipboardManager.copyAsMarkdown(processed)
+                try ClipboardManager.copyAsMarkdown(processed)
             case .citation:
-                ClipboardManager.copyWithCitation(processed)
+                try ClipboardManager.copyWithCitation(processed)
             case .multiFormat:
-                await ClipboardManager.copyMultiFormat(processed)
+                try await ClipboardManager.copyMultiFormat(processed)
             }
         }
         self.recognizeText = { cgImage in
@@ -119,6 +131,7 @@ final class CapturePipeline: ObservableObject {
         detectContext: @escaping DetectContextFn,
         processImage: @escaping ProcessImageFn,
         saveFile: @escaping SaveFileFn,
+        persistArtifact: @escaping PersistArtifactFn,
         copyToClipboard: @escaping CopyToClipboardFn,
         recognizeText: @escaping RecognizeTextFn,
         handlePermissionFailure: @escaping HandlePermissionFailureFn,
@@ -133,6 +146,7 @@ final class CapturePipeline: ObservableObject {
         self.detectContext = detectContext
         self.processImage = processImage
         self.saveFile = saveFile
+        self.persistArtifact = persistArtifact
         self.copyToClipboard = copyToClipboard
         self.recognizeText = recognizeText
         self.handlePermissionFailure = handlePermissionFailure
@@ -151,6 +165,7 @@ final class CapturePipeline: ObservableObject {
 
     func performCapture(
         mode: CaptureMode,
+        performanceSession: CapturePerformanceRecorder.Session? = nil,
         capture: () async throws -> CGImage
     ) async {
         let pipelineStart = CFAbsoluteTimeGetCurrent()
@@ -169,34 +184,79 @@ final class CapturePipeline: ObservableObject {
                 "Capture stage completed in \(captureDuration, privacy: .public) ms"
             )
             recordMetric(stage: .capture, milliseconds: captureDuration)
+            if let performanceSession {
+                capturePerformanceRecorder.recordDuration(
+                    .screenshotDuration,
+                    milliseconds: captureDuration,
+                    in: performanceSession
+                )
+            }
 
             let (processed, preset) = await processCapture(
                 cgImage: cgImage, mode: mode,
                 appName: appName, windowTitle: windowTitle, category: category
             )
-            await distributeCapture(processed, preset: preset)
+            let hasDeferredEnrichment = settings.autoSaveToDisk
+            appState.setCapturePreviewPhase(
+                hasDeferredEnrichment ? .enrichmentPending : .rawPreviewReady,
+                for: processed.id
+            )
+
+            await distributeCapture(
+                processed,
+                preset: preset,
+                performanceSession: performanceSession
+            )
             showQuickAccess(processed)
+            if let performanceSession {
+                capturePerformanceRecorder.mark(.rawPreviewVisible, in: performanceSession)
+            }
             postNotification(.captureCompleted)
 
-            if settings.autoSaveToDisk {
-                await saveToDisk(processed, preset: preset)
-                addToHistoryWithOCR(processed)
-            }
             let totalDuration = self.elapsedMilliseconds(since: pipelineStart)
             logger.info(
                 "Capture pipeline finished in \(totalDuration, privacy: .public) ms"
             )
             recordMetric(stage: .total, milliseconds: totalDuration)
 
+            if settings.autoSaveToDisk {
+                Task { @MainActor [weak self] in
+                    guard let self = self else { return }
+                    await self.saveToDisk(
+                        processed,
+                        preset: preset,
+                        performanceSession: performanceSession
+                    )
+                    self.addToHistoryWithOCR(processed)
+                    if let performanceSession {
+                        self.capturePerformanceRecorder.finishSession(performanceSession)
+                    }
+                }
+            } else {
+                appState.setCapturePreviewPhase(.enrichmentComplete, for: processed.id)
+                if let performanceSession {
+                    capturePerformanceRecorder.finishSession(performanceSession)
+                }
+            }
+            appState.isCapturing = false
+
         } catch CaptureError.noPermission {
             logger.warning("Capture failed: no permission")
             await handlePermissionFailure()
+            if let performanceSession {
+                capturePerformanceRecorder.finishSession(performanceSession)
+            }
         } catch {
             logger.error("Capture failed: \(error.localizedDescription)")
             appState.statusMessage = "Capture failed: \(error.localizedDescription)"
+            if let performanceSession {
+                capturePerformanceRecorder.finishSession(performanceSession)
+            }
         }
 
-        appState.isCapturing = false
+        if appState.isCapturing {
+            appState.isCapturing = false
+        }
     }
 
     // MARK: - Process Capture
@@ -238,23 +298,24 @@ final class CapturePipeline: ObservableObject {
 
     private func saveToDisk(
         _ processed: ProcessedScreenshot,
-        preset: CapturePreset
+        preset: CapturePreset,
+        performanceSession: CapturePerformanceRecorder.Session? = nil
     ) async {
         let saveStart = CFAbsoluteTimeGetCurrent()
         do {
-            let fileURL = try await saveFile(
-                processed,
-                settings.saveDirectory,
-                preset.subfolder,
-                settings.imageFormat
-            )
+            try await persistArtifact(processed, preset)
             let saveDuration = elapsedMilliseconds(since: saveStart)
             logger.debug(
                 "Disk save completed in \(saveDuration, privacy: .public) ms"
             )
             recordMetric(stage: .save, milliseconds: saveDuration)
-            processed.filePath = fileURL
-            processed.fileName = fileURL.lastPathComponent
+            if let performanceSession {
+                capturePerformanceRecorder.recordDuration(
+                    .saveComplete,
+                    milliseconds: saveDuration,
+                    in: performanceSession
+                )
+            }
         } catch {
             let desc = error.localizedDescription
             logger.error("File save failed: \(desc, privacy: .public)")
@@ -266,16 +327,30 @@ final class CapturePipeline: ObservableObject {
 
     private func distributeCapture(
         _ processed: ProcessedScreenshot,
-        preset: CapturePreset
+        preset: CapturePreset,
+        performanceSession: CapturePerformanceRecorder.Session? = nil
     ) async {
         if settings.autoCopyToClipboard {
             let clipboardStart = CFAbsoluteTimeGetCurrent()
-            await copyToClipboard(processed, preset.copyMode)
-            let clipDuration = elapsedMilliseconds(since: clipboardStart)
-            logger.debug(
-                "Clipboard stage completed in \(clipDuration, privacy: .public) ms"
-            )
-            recordMetric(stage: .clipboard, milliseconds: clipDuration)
+            do {
+                try await copyToClipboard(processed, preset.copyMode)
+                let clipDuration = elapsedMilliseconds(since: clipboardStart)
+                logger.debug(
+                    "Clipboard stage completed in \(clipDuration, privacy: .public) ms"
+                )
+                recordMetric(stage: .clipboard, milliseconds: clipDuration)
+                if let performanceSession {
+                    capturePerformanceRecorder.recordDuration(
+                        .clipboardComplete,
+                        milliseconds: clipDuration,
+                        in: performanceSession
+                    )
+                }
+            } catch {
+                let desc = error.localizedDescription
+                logger.error("Clipboard copy failed: \(desc, privacy: .public)")
+                appState.statusMessage = "Clipboard failed: \(desc)"
+            }
         }
 
         if settings.playCaptureSound {
@@ -288,10 +363,9 @@ final class CapturePipeline: ObservableObject {
 
     // MARK: - History + OCR
 
-    private func addToHistoryWithOCR(_ processed: ProcessedScreenshot) {
-        let newItem = processed.toScreenshotItem()
-        let screenshotID = newItem.id
-        appState.addScreenshot(newItem)
+    func addToHistoryWithOCR(_ processed: ProcessedScreenshot) {
+        let screenshotID = processed.id
+        appState.syncProcessedScreenshot(processed)
 
         // Cancel any in-flight OCR task to avoid unbounded pile-up (H9).
         // Only the latest capture's OCR matters for history.
@@ -301,33 +375,23 @@ final class CapturePipeline: ObservableObject {
         let recognizeTextFn = self.recognizeText
         let capturedAppState = self.appState
         ocrTask = Task.detached {
+            defer {
+                Task { @MainActor in
+                    capturedAppState.setCapturePreviewPhase(
+                        .enrichmentComplete,
+                        for: screenshotID
+                    )
+                }
+            }
             do {
                 guard !Task.isCancelled else { return }
                 let text = try await recognizeTextFn(cgImageForOCR)
                 guard !Task.isCancelled else { return }
                 guard !text.isEmpty else { return }
                 await MainActor.run {
-                    guard let index = capturedAppState.recentScreenshots.firstIndex(
-                        where: { $0.id == screenshotID }
-                    ) else { return }
-                    let item = capturedAppState.recentScreenshots[index]
-                    let updated = ScreenshotItem(
-                        id: item.id,
-                        timestamp: item.timestamp,
-                        filePath: item.filePath,
-                        fileName: item.fileName,
-                        sourceAppName: item.sourceAppName,
-                        sourceWindowTitle: item.sourceWindowTitle,
-                        captureMode: item.captureMode,
-                        presetName: item.presetName,
-                        ocrText: text,
-                        width: item.width,
-                        height: item.height,
-                        title: item.title,
-                        tags: item.tags
-                    )
-                    capturedAppState.recentScreenshots[index] = updated
-                    capturedAppState.saveHistory()
+                    capturedAppState.updateScreenshot(id: screenshotID) { item in
+                        item.ocrText = text
+                    }
                 }
 
                 // AI post-processing
@@ -419,6 +483,11 @@ private func generateEmbeddingIfEnabled(
         textHash: textHash
     )
     store.save()
+    await MainActor.run {
+        appState.updateScreenshot(id: screenshotID) { item in
+            item.embeddingVersion = EmbeddingEngine.modelVersion
+        }
+    }
 }
 
 private func generateSmartMetadataIfEnabled(

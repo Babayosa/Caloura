@@ -4,7 +4,10 @@ final class ScreenSelectionOverlayWindow: NSWindow {
     var onScreenSelected: ((NSScreen) -> Void)?
     var onCancelled: (() -> Void)?
 
-    convenience init(for screen: NSScreen) {
+    convenience init(
+        for screen: NSScreen,
+        cursorController: CaptureCursorControlling?
+    ) {
         self.init(
             contentRect: screen.frame,
             styleMask: .borderless,
@@ -25,6 +28,7 @@ final class ScreenSelectionOverlayWindow: NSWindow {
             frame: NSRect(origin: .zero, size: screen.frame.size),
             screen: screen
         )
+        selectionView.cursorController = cursorController
         selectionView.onScreenSelected = { [weak self] screen in
             self?.onScreenSelected?(screen)
         }
@@ -39,13 +43,17 @@ final class ScreenSelectionOverlayWindow: NSWindow {
 
     @MainActor
     static func showOnAllScreens(
+        cursorController: CaptureCursorControlling? = nil,
         onScreenSelected: @escaping (NSScreen) -> Void,
         onCancelled: @escaping () -> Void
     ) -> [ScreenSelectionOverlayWindow] {
         var overlays: [ScreenSelectionOverlayWindow] = []
 
         for screen in NSScreen.screens {
-            let overlay = ScreenSelectionOverlayWindow(for: screen)
+            let overlay = ScreenSelectionOverlayWindow(
+                for: screen,
+                cursorController: cursorController
+            )
             let closeAll = {
                 for item in overlays {
                     item.onScreenSelected = nil

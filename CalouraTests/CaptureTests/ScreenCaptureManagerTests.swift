@@ -144,4 +144,36 @@ final class ScreenCaptureManagerTests: XCTestCase {
         XCTAssertNotNil(error.errorDescription)
         XCTAssertTrue(error.errorDescription!.contains("cancelled"))
     }
+
+    // MARK: - display-space rect conversion
+
+    func testCaptureRectInDisplaySpace_mapsLocalSelectionToGlobalDisplaySpace() throws {
+        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
+        let resolved = try sut.resolveScreen(screen)
+        let displayBounds = CGDisplayBounds(resolved.displayID)
+        let localRect = CGRect(x: 12, y: 24, width: 120, height: 80)
+
+        let converted = try sut.captureRectInDisplaySpace(
+            rect: localRect,
+            screen: screen
+        )
+
+        let expected = CGRect(
+            x: displayBounds.origin.x + localRect.origin.x,
+            y: displayBounds.origin.y + (screen.frame.height - localRect.origin.y - localRect.height),
+            width: localRect.width,
+            height: localRect.height
+        ).integral
+
+        XCTAssertEqual(converted, expected)
+    }
+
+    func testFullscreenRectInDisplaySpace_matchesDisplayBounds() throws {
+        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
+        let resolved = try sut.resolveScreen(screen)
+
+        let fullscreenRect = try sut.fullscreenRectInDisplaySpace(screen: screen)
+
+        XCTAssertEqual(fullscreenRect, CGDisplayBounds(resolved.displayID).integral)
+    }
 }

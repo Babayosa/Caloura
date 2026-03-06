@@ -113,9 +113,9 @@ struct URLSchemeHandler {
         case "copy":
             handleCopy(pathComponents: pathComponents)
         case "history":
-            NotificationCenter.default.post(name: .showHistory, object: nil)
+            AppCommandRouter.shared.dispatch(.showHistory)
         case "settings":
-            NotificationCenter.default.post(name: .showSettings, object: nil)
+            AppCommandRouter.shared.dispatch(.showSettings)
         default:
             break
         }
@@ -158,20 +158,21 @@ struct URLSchemeHandler {
         mode: String,
         params: [String: String]
     ) -> Bool {
-        let pipeline = CapturePipeline.shared
         switch mode {
         case "area":
-            pipeline.captureArea()
+            AppCommandRouter.shared.dispatch(.captureArea)
         case "fullscreen":
-            pipeline.captureFullscreen()
+            AppCommandRouter.shared.dispatch(.captureFullscreen)
         case "window":
-            pipeline.captureWindow()
+            AppCommandRouter.shared.dispatch(.captureWindow)
         case "repeat":
-            pipeline.captureRepeat()
+            AppCommandRouter.shared.dispatch(.captureRepeat)
         case "delayed":
             let seconds = max(1, min(10, Int(params["seconds"] ?? "3") ?? 3))
             let delayMode = validatedDelayMode(from: params)
-            pipeline.captureDelayed(seconds: seconds, mode: delayMode)
+            AppCommandRouter.shared.dispatch(
+                .captureDelayed(mode: delayMode, seconds: seconds)
+            )
         default:
             return false
         }
@@ -207,15 +208,16 @@ struct URLSchemeHandler {
 
     private static func handleCopy(pathComponents: [String]) {
         let format = (pathComponents.first ?? "markdown").lowercased()
-        let pipeline = CapturePipeline.shared
 
         switch format {
+        case "image":
+            AppCommandRouter.shared.dispatch(.copyLastImage)
         case "markdown":
-            pipeline.copyLastAsMarkdown()
+            AppCommandRouter.shared.dispatch(.copyLastAsMarkdown)
         case "citation":
-            pipeline.copyLastWithCitation()
+            AppCommandRouter.shared.dispatch(.copyLastWithCitation)
         case "ocr":
-            pipeline.copyLastOCRText()
+            AppCommandRouter.shared.dispatch(.copyLastOCRText)
         default:
             break
         }
@@ -276,15 +278,13 @@ struct URLSchemeHandler {
                 for action in actions {
                     switch action {
                     case "copy":
-                        if let screenshot = AppState.shared.lastScreenshot {
-                            await ClipboardManager.copyImage(screenshot)
-                        }
+                        AppCommandRouter.shared.dispatch(.copyLastImage)
                     case "copy-markdown":
-                        CapturePipeline.shared.copyLastAsMarkdown()
+                        AppCommandRouter.shared.dispatch(.copyLastAsMarkdown)
                     case "copy-citation":
-                        CapturePipeline.shared.copyLastWithCitation()
+                        AppCommandRouter.shared.dispatch(.copyLastWithCitation)
                     case "copy-ocr":
-                        CapturePipeline.shared.copyLastOCRText()
+                        AppCommandRouter.shared.dispatch(.copyLastOCRText)
                     case "save":
                         break // Already handled by pipeline if autoSaveToDisk is on
                     default:

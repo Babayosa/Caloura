@@ -9,7 +9,8 @@ final class LicenseManagerTests: XCTestCase {
 
     private var savedFirstLaunchDate: Date!
     private var savedLicenseKey: String!
-    private var savedIsLicenseActivated: Bool!
+    private var savedEntitlement: LicenseEntitlement?
+    private var savedLastValidationDate: Date?
 
     override func setUp() {
         super.setUp()
@@ -18,11 +19,13 @@ final class LicenseManagerTests: XCTestCase {
         // Save original values
         savedFirstLaunchDate = settings.firstLaunchDate
         savedLicenseKey = settings.licenseKey
-        savedIsLicenseActivated = settings.isLicenseActivated
+        savedEntitlement = settings.currentLicenseEntitlement
+        savedLastValidationDate = settings.lastLicenseValidationDate
 
         // Reset to unlicensed state
         settings.licenseKey = ""
-        settings.isLicenseActivated = false
+        settings.updateLicenseEntitlement(nil)
+        settings.lastLicenseValidationDate = nil
 
         license = LicenseManager(settings: settings)
     }
@@ -31,7 +34,8 @@ final class LicenseManagerTests: XCTestCase {
         // Restore original values
         settings.firstLaunchDate = savedFirstLaunchDate
         settings.licenseKey = savedLicenseKey
-        settings.isLicenseActivated = savedIsLicenseActivated
+        settings.updateLicenseEntitlement(savedEntitlement)
+        settings.lastLicenseValidationDate = savedLastValidationDate
         super.tearDown()
     }
 
@@ -69,7 +73,8 @@ final class LicenseManagerTests: XCTestCase {
 
     func testIsTrialExpired_whenLicensed() {
         settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -8, to: Date())!
-        settings.isLicenseActivated = true
+        settings.licenseKey = "VALID-KEY-1234"
+        settings.updateLicenseEntitlement(makeTestEntitlement())
         XCTAssertFalse(license.isTrialExpired(settings: settings))
     }
 
@@ -87,7 +92,8 @@ final class LicenseManagerTests: XCTestCase {
 
     func testShouldShowNag_expiredAndLicensed() {
         settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -8, to: Date())!
-        settings.isLicenseActivated = true
+        settings.licenseKey = "VALID-KEY-1234"
+        settings.updateLicenseEntitlement(makeTestEntitlement())
         XCTAssertFalse(license.shouldShowNag(settings: settings))
     }
 
@@ -95,7 +101,7 @@ final class LicenseManagerTests: XCTestCase {
 
     func testActivationState_licensed() {
         settings.licenseKey = "XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX"
-        settings.isLicenseActivated = true
+        settings.updateLicenseEntitlement(makeTestEntitlement())
         license.refreshState(settings: settings)
         XCTAssertEqual(license.activationState, .licensed)
     }
@@ -103,7 +109,7 @@ final class LicenseManagerTests: XCTestCase {
     func testActivationState_licensed_emptyKeyRevokes() {
         // S2-16: Empty key with isLicenseActivated=true must revoke
         settings.licenseKey = ""
-        settings.isLicenseActivated = true
+        settings.updateLicenseEntitlement(makeTestEntitlement())
         license.refreshState(settings: settings)
         XCTAssertFalse(settings.isLicenseActivated)
         XCTAssertNotEqual(license.activationState, .licensed)

@@ -1,11 +1,13 @@
 import AppKit
 
+@MainActor
 final class CaptureOverlayWindow: NSWindow {
     var onRegionSelected: ((CGRect, NSScreen) -> Void)?
     var onCancelled: (() -> Void)?
     var onFirstMouseDown: (() -> Void)?
 
     private var selectionView: RegionSelectionView?
+    private weak var cursorController: CaptureCursorControlling?
 
     /// Set the frozen screenshot to display as background
     var frozenImage: CGImage? {
@@ -14,7 +16,10 @@ final class CaptureOverlayWindow: NSWindow {
         }
     }
 
-    convenience init(for screen: NSScreen) {
+    convenience init(
+        for screen: NSScreen,
+        cursorController: CaptureCursorControlling?
+    ) {
         self.init(
             contentRect: screen.frame,
             styleMask: .borderless,
@@ -34,6 +39,7 @@ final class CaptureOverlayWindow: NSWindow {
         let selectionView = RegionSelectionView(
             frame: NSRect(origin: .zero, size: screen.frame.size)
         )
+        selectionView.cursorController = cursorController
         selectionView.autoresizingMask = [.width, .height]
         selectionView.onRegionSelected = { [weak self] rect in
             guard let self = self else { return }
@@ -47,13 +53,29 @@ final class CaptureOverlayWindow: NSWindow {
             self?.onFirstMouseDown?()
         }
         self.selectionView = selectionView
+        self.cursorController = cursorController
         self.contentView = selectionView
     }
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
 
+    override func close() {
+        tearDownHandlers()
+        super.close()
+    }
+
+    private func tearDownHandlers() {
+        onRegionSelected = nil
+        onCancelled = nil
+        onFirstMouseDown = nil
+        selectionView?.onRegionSelected = nil
+        selectionView?.onCancelled = nil
+        selectionView?.onFirstMouseDown = nil
+    }
+
     static func showOnAllScreens(
+        cursorController: CaptureCursorControlling? = nil,
         frozenImages: [NSScreen: CGImage]? = nil,
         onRegionSelected: @escaping (CGRect, NSScreen) -> Void,
         onCancelled: @escaping () -> Void,
@@ -61,11 +83,11 @@ final class CaptureOverlayWindow: NSWindow {
     ) -> [CaptureOverlayWindow] {
         var windows: [CaptureOverlayWindow] = []
 
-        // Activate app so the first click is a real mouseDown, not a window-activation click
-        NSApp.activate()
-
         for screen in NSScreen.screens {
-            let overlay = CaptureOverlayWindow(for: screen)
+            let overlay = CaptureOverlayWindow(
+                for: screen,
+                cursorController: cursorController
+            )
 
             // Set frozen image for this screen if provided
             if let frozenImages = frozenImages, let image = frozenImages[screen] {
@@ -90,17 +112,6 @@ final class CaptureOverlayWindow: NSWindow {
             }
             overlay.onFirstMouseDown = onFirstMouseDown
 
-            // Break retain cycle: nil out closures when the window closes
-            NotificationCenter.default.addObserver(
-                forName: NSWindow.willCloseNotification,
-                object: overlay,
-                queue: .main
-            ) { [weak overlay] _ in
-                overlay?.onRegionSelected = nil
-                overlay?.onCancelled = nil
-                overlay?.onFirstMouseDown = nil
-            }
-
             overlay.makeKeyAndOrderFront(nil)
             windows.append(overlay)
         }
@@ -110,23 +121,6 @@ final class CaptureOverlayWindow: NSWindow {
             NSMouseInRect(NSEvent.mouseLocation, screen.frame, false)
         }) {
             windows.first { $0.screen == mouseScreen }?.makeKey()
-        }
-
-        // Re-assert crosshair after activation completes.
-        // NSApp.activate() is async — when activation finishes, AppKit
-        // recalculates cursor rects and may briefly reset to arrow.
-        // This one-shot observer fires at that exact moment to fix it.
-        var activationObserver: NSObjectProtocol?
-        activationObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didBecomeActiveNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            NSCursor.crosshair.set()
-            if let obs = activationObserver {
-                NotificationCenter.default.removeObserver(obs)
-                activationObserver = nil
-            }
         }
 
         return windows

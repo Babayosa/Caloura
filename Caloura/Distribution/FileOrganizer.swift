@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 struct FileOrganizer {
@@ -13,7 +14,7 @@ struct FileOrganizer {
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "HH-mm-ss"
+        formatter.dateFormat = "HH-mm-ss-SSS"
         return formatter
     }()
 
@@ -26,46 +27,48 @@ struct FileOrganizer {
         subfolder: String? = nil,
         imageFormat: String = "png"
     ) async throws -> URL {
+        try await save(
+            cgImage: screenshot.cgImage,
+            context: screenshot.context,
+            baseDirectory: baseDirectory,
+            subfolder: subfolder,
+            imageFormat: imageFormat,
+            smartFileName: screenshot.fileName.isEmpty ? nil : screenshot.fileName.deletingPathExtension
+        )
+    }
+
+    @discardableResult
+    static func save(
+        cgImage: CGImage,
+        context: CaptureContext,
+        baseDirectory: String,
+        subfolder: String? = nil,
+        imageFormat: String = "png",
+        smartFileName: String? = nil
+    ) async throws -> URL {
         // Prepare all data on current thread (fast)
         let baseURL = URL(fileURLWithPath: baseDirectory)
-        let dateFolder = dateFormatter.string(from: screenshot.context.timestamp)
+        let dateFolder = dateFormatter.string(from: context.timestamp)
 
         var directoryURL = baseURL.appendingPathComponent(dateFolder)
         if let subfolder = subfolder, !subfolder.isEmpty {
             directoryURL = baseURL.appendingPathComponent(subfolder).appendingPathComponent(dateFolder)
         }
 
-        let fileName = generateFileName(for: screenshot, imageFormat: imageFormat)
+        let fileName = generateFileName(
+            for: context,
+            imageFormat: imageFormat,
+            smartFileName: smartFileName
+        )
         let fileURL = directoryURL.appendingPathComponent(fileName)
-
-        let cgImage = screenshot.cgImage
-        let format = imageFormat
 
         try validatePathSafety(url: fileURL, baseDirectory: baseDirectory)
 
         // Move encoding + file I/O to background thread
         let savedURL = try await Task.detached(priority: .userInitiated) {
-            let imageData: Data
-
-            switch format {
-            case "jpeg":
-                imageData = try ImageProcessor.jpegRepresentation(of: cgImage)
-            case "tiff":
-                imageData = screenshot.tiffData
-            default:
-                imageData = screenshot.pngData
-            }
-
-            try FileManager.default.createDirectory(
-                at: directoryURL,
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
-            try imageData.write(to: fileURL, options: .atomic)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o600],
-                ofItemAtPath: fileURL.path
-            )
+            let imageData = try encodedData(for: cgImage, imageFormat: imageFormat)
+            try prepareDirectory(at: directoryURL)
+            try writeImageData(imageData, to: fileURL)
             return fileURL
         }.value
 
@@ -75,6 +78,18 @@ struct FileOrganizer {
     /// Generate filename: uses smartFileName if available, otherwise Caloura_HH-mm-ss_AppName.{ext}
     static func generateFileName(
         for screenshot: ProcessedScreenshot,
+        imageFormat: String = "png",
+        smartFileName: String? = nil
+    ) -> String {
+        generateFileName(
+            for: screenshot.context,
+            imageFormat: imageFormat,
+            smartFileName: smartFileName
+        )
+    }
+
+    static func generateFileName(
+        for context: CaptureContext,
         imageFormat: String = "png",
         smartFileName: String? = nil
     ) -> String {
@@ -92,8 +107,8 @@ struct FileOrganizer {
             }
         }
 
-        let timeStr = timeFormatter.string(from: screenshot.context.timestamp)
-        let appName = sanitizeFileName(screenshot.context.sourceAppName ?? "Unknown")
+        let timeStr = timeFormatter.string(from: context.timestamp)
+        let appName = sanitizeFileName(context.sourceAppName ?? "Unknown")
         return "Caloura_\(timeStr)_\(appName).\(ext)"
     }
 
@@ -119,14 +134,39 @@ struct FileOrganizer {
 
     // MARK: - Path Safety
 
-    enum FileOrganizerError: LocalizedError {
+    enum FileOrganizerError: LocalizedError, Equatable {
         case pathTraversal
+        case unsupportedImageFormat(String)
 
         var errorDescription: String? {
             switch self {
             case .pathTraversal:
                 return "Save path resolved outside the base directory"
+            case .unsupportedImageFormat(let format):
+                return "Unsupported image format: \(format)"
             }
+        }
+    }
+
+    static func overwrite(
+        cgImage: CGImage,
+        at url: URL,
+        imageFormat: String
+    ) async throws {
+        try await Task.detached(priority: .userInitiated) {
+            let imageData = try encodedData(for: cgImage, imageFormat: imageFormat)
+            try writeImageData(imageData, to: url)
+        }.value
+    }
+
+    static func imageFormat(for url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "jpg", "jpeg":
+            return "jpeg"
+        case "tif", "tiff":
+            return "tiff"
+        default:
+            return "png"
         }
     }
 
@@ -163,5 +203,43 @@ struct FileOrganizer {
         guard ancestorInBase || ancestorIsParentOfBase else {
             throw FileOrganizerError.pathTraversal
         }
+    }
+
+    private static func prepareDirectory(at directoryURL: URL) throws {
+        try FileManager.default.createDirectory(
+            at: directoryURL,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+    }
+
+    private static func writeImageData(_ imageData: Data, to fileURL: URL) throws {
+        try imageData.write(to: fileURL, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: fileURL.path
+        )
+    }
+
+    private static func encodedData(
+        for cgImage: CGImage,
+        imageFormat: String
+    ) throws -> Data {
+        switch imageFormat {
+        case "jpeg":
+            return try ImageProcessor.jpegRepresentation(of: cgImage)
+        case "tiff":
+            return try ImageProcessor.tiffRepresentation(of: cgImage)
+        case "png":
+            return try ImageProcessor.pngRepresentation(of: cgImage)
+        default:
+            throw FileOrganizerError.unsupportedImageFormat(imageFormat)
+        }
+    }
+}
+
+private extension String {
+    var deletingPathExtension: String {
+        (self as NSString).deletingPathExtension
     }
 }

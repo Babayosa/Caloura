@@ -5,18 +5,16 @@ import Foundation
 //
 // HistoryCrypto encrypts history data at rest using AES-256-GCM.
 //
-// Key storage: a 256-bit root key is stored as a local file at
-// ~/Library/Application Support/Caloura/security/history.key with POSIX 0600
-// permissions (directory: 0700).
+// Key storage: a 256-bit root key is stored in a non-interactive app-owned
+// Keychain item. In DEBUG tests, file-backed storage can be overridden to keep
+// deterministic fixture behavior.
 //
 // Protects against: other users on the same machine reading history data,
-// and casual inspection of the Application Support directory.
+// casual inspection of the Application Support directory, and simple tampering
+// with encrypted blobs stored in UserDefaults or on disk.
 //
 // Does NOT protect against: malware running as the same user, or physical
-// access to an unlocked machine (the key file is readable by the current user).
-//
-// Why not Keychain: project convention avoids Keychain to prevent startup
-// authentication prompts that degrade the user experience.
+// access to an unlocked machine with control over the current app process.
 //
 // HKDF key derivation: different purposes (e.g. "history-encryption") derive
 // distinct subkeys from the single root key, enabling domain separation.
@@ -32,10 +30,14 @@ enum HistoryCryptoError: Error {
 
 enum HistoryCrypto {
     private static let keyFileName = "history.key"
+    private static let keychainAccount = "history-root-key-v1"
+    nonisolated private static let keychainService = (Bundle.main.bundleIdentifier ?? "com.caloura.app")
+        + ".security"
     private static let keyQueue = DispatchQueue(label: "com.caloura.historycrypto.key")
     private static var cachedKey: SymmetricKey?
     #if DEBUG
     private static var securityDirectoryOverride: URL?
+    private static var keychainItemOverride: (service: String, account: String)?
     #endif
     private static let currentKeyVersion: UInt8 = 1
     // AES-GCM nonce (12) + tag (16) = 28 bytes minimum for a valid sealed box
@@ -93,78 +95,110 @@ enum HistoryCrypto {
                 return cachedKey
             }
 
-            let keyFile = try keyFileURL()
-            let fileManager = FileManager.default
-
-            if fileManager.fileExists(atPath: keyFile.path) {
-                do {
-                    let stored = try Data(contentsOf: keyFile)
-                    guard stored.count == 32 else {
-                        throw HistoryCryptoError.invalidKeyMaterial
-                    }
-                    let key = SymmetricKey(data: stored)
-                    cachedKey = key
-                    return key
-                } catch let error as HistoryCryptoError {
-                    throw error
-                } catch {
-                    throw HistoryCryptoError.keyReadFailed(error.localizedDescription)
-                }
+            #if DEBUG
+            if securityDirectoryOverride != nil {
+                let key = try getOrCreateFileBackedKey()
+                cachedKey = key
+                return key
             }
+            #endif
 
-            let key = SymmetricKey(size: .bits256)
-            let keyData = key.withUnsafeBytes { Data($0) }
-
-            let securityDir = keyFile.deletingLastPathComponent()
-            try fileManager.createDirectory(
-                at: securityDir,
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
-
-            // Atomic create-if-not-exists to prevent TOCTOU race
-            let fd = open(keyFile.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
-            guard fd >= 0 else {
-                if errno == EEXIST {
-                    // Another process created the file between our exists-check and here
-                    let stored = try Data(contentsOf: keyFile)
-                    guard stored.count == 32 else { throw HistoryCryptoError.invalidKeyMaterial }
-                    let existingKey = SymmetricKey(data: stored)
-                    cachedKey = existingKey
-                    return existingKey
-                }
-                throw HistoryCryptoError.keyFileCreationFailed
-            }
-            let written = keyData.withUnsafeBytes { buf in
-                Darwin.write(fd, buf.baseAddress!, buf.count)
-            }
-            close(fd)
-            guard written == keyData.count else {
-                try? fileManager.removeItem(at: keyFile)
-                throw HistoryCryptoError.keyWriteFailed("Partial write: \(written)/\(keyData.count)")
-            }
+            let key = try getOrCreateKeychainKey()
             cachedKey = key
             return key
         }
     }
 
-    private static func keyFileURL() throws -> URL {
-        let baseDir = try securityDirectoryURL()
-        return baseDir.appendingPathComponent(keyFileName)
+    private static func getOrCreateKeychainKey() throws -> SymmetricKey {
+        let identifier = keychainIdentifier()
+        switch KeychainHelper.readDataNonInteractive(
+            service: identifier.service,
+            account: identifier.account
+        ) {
+        case .success(let stored):
+            guard stored.count == 32 else {
+                throw HistoryCryptoError.invalidKeyMaterial
+            }
+            return SymmetricKey(data: stored)
+        case .notFound:
+            let key = SymmetricKey(size: .bits256)
+            let keyData = key.withUnsafeBytes { Data($0) }
+            do {
+                try KeychainHelper.writeData(
+                    keyData,
+                    service: identifier.service,
+                    account: identifier.account
+                )
+                return key
+            } catch let error as KeychainHelperError {
+                switch error {
+                case .interactionRequired:
+                    throw HistoryCryptoError.keyStorageUnavailable(
+                        "Keychain unexpectedly required user interaction."
+                    )
+                case .operationFailed(let status):
+                    throw HistoryCryptoError.keyWriteFailed("Keychain status \(status)")
+                }
+            } catch {
+                throw HistoryCryptoError.keyWriteFailed(error.localizedDescription)
+            }
+        case .interactionRequired:
+            throw HistoryCryptoError.keyStorageUnavailable(
+                "Keychain unexpectedly required user interaction."
+            )
+        case .failure(let status):
+            throw HistoryCryptoError.keyReadFailed("Keychain status \(status)")
+        }
     }
 
-    private static func securityDirectoryURL() throws -> URL {
-        #if DEBUG
-        if let override = securityDirectoryOverride {
-            return override
+    private static func getOrCreateFileBackedKey() throws -> SymmetricKey {
+        let keyFile = try keyFileURL()
+        let fileManager = FileManager.default
+
+        if fileManager.fileExists(atPath: keyFile.path) {
+            do {
+                let stored = try Data(contentsOf: keyFile)
+                guard stored.count == 32 else {
+                    throw HistoryCryptoError.invalidKeyMaterial
+                }
+                return SymmetricKey(data: stored)
+            } catch let error as HistoryCryptoError {
+                throw error
+            } catch {
+                throw HistoryCryptoError.keyReadFailed(error.localizedDescription)
+            }
         }
-        #endif
-        guard let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first else {
-            throw HistoryCryptoError.keyStorageUnavailable("Could not resolve Application Support directory.")
+
+        let key = SymmetricKey(size: .bits256)
+        let keyData = key.withUnsafeBytes { Data($0) }
+
+        let securityDir = keyFile.deletingLastPathComponent()
+        try fileManager.createDirectory(
+            at: securityDir,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+
+        // Atomic create-if-not-exists to prevent TOCTOU race
+        let fd = open(keyFile.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+        guard fd >= 0 else {
+            if errno == EEXIST {
+                // Another process created the file between our exists-check and here
+                let stored = try Data(contentsOf: keyFile)
+                guard stored.count == 32 else { throw HistoryCryptoError.invalidKeyMaterial }
+                return SymmetricKey(data: stored)
+            }
+            throw HistoryCryptoError.keyFileCreationFailed
         }
-        return appSupport.appendingPathComponent("Caloura").appendingPathComponent("security")
+        let written = keyData.withUnsafeBytes { buf in
+            Darwin.write(fd, buf.baseAddress!, buf.count)
+        }
+        close(fd)
+        guard written == keyData.count else {
+            try? fileManager.removeItem(at: keyFile)
+            throw HistoryCryptoError.keyWriteFailed("Partial write: \(written)/\(keyData.count)")
+        }
+        return key
     }
 
     // MARK: - Secure File I/O
@@ -206,29 +240,33 @@ enum HistoryCrypto {
         var warnings: [String] = []
         let fileManager = FileManager.default
 
-        do {
-            let securityDirectory = try securityDirectoryURL()
-            if fileManager.fileExists(atPath: securityDirectory.path) {
-                appendPermissionWarningIfNeeded(
-                    for: securityDirectory,
-                    expected: 0o700,
-                    label: "History security directory",
-                    to: &warnings
-                )
-            }
+        #if DEBUG
+        if securityDirectoryOverride != nil {
+            do {
+                let securityDirectory = try securityDirectoryURL()
+                if fileManager.fileExists(atPath: securityDirectory.path) {
+                    appendPermissionWarningIfNeeded(
+                        for: securityDirectory,
+                        expected: 0o700,
+                        label: "History security directory",
+                        to: &warnings
+                    )
+                }
 
-            let keyFile = securityDirectory.appendingPathComponent(keyFileName)
-            if fileManager.fileExists(atPath: keyFile.path) {
-                appendPermissionWarningIfNeeded(
-                    for: keyFile,
-                    expected: 0o600,
-                    label: "History encryption key file",
-                    to: &warnings
-                )
+                let keyFile = securityDirectory.appendingPathComponent(keyFileName)
+                if fileManager.fileExists(atPath: keyFile.path) {
+                    appendPermissionWarningIfNeeded(
+                        for: keyFile,
+                        expected: 0o600,
+                        label: "History encryption key file",
+                        to: &warnings
+                    )
+                }
+            } catch {
+                warnings.append("History security permission audit skipped: \(error.localizedDescription)")
             }
-        } catch {
-            warnings.append("History security permission audit skipped: \(error.localizedDescription)")
         }
+        #endif
 
         if fileManager.fileExists(atPath: historyFileURL.path) {
             appendPermissionWarningIfNeeded(
@@ -271,6 +309,34 @@ enum HistoryCrypto {
         String(format: "0%o", value)
     }
 
+    private static func keyFileURL() throws -> URL {
+        let baseDir = try securityDirectoryURL()
+        return baseDir.appendingPathComponent(keyFileName)
+    }
+
+    private static func securityDirectoryURL() throws -> URL {
+        #if DEBUG
+        if let override = securityDirectoryOverride {
+            return override
+        }
+        #endif
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        ).first else {
+            throw HistoryCryptoError.keyStorageUnavailable("Could not resolve Application Support directory.")
+        }
+        return appSupport.appendingPathComponent("Caloura").appendingPathComponent("security")
+    }
+
+    private static func keychainIdentifier() -> (service: String, account: String) {
+        #if DEBUG
+        if let override = keychainItemOverride {
+            return override
+        }
+        #endif
+        return (service: keychainService, account: keychainAccount)
+    }
+
     // MARK: - Testing Helpers
 
     #if DEBUG
@@ -280,6 +346,15 @@ enum HistoryCrypto {
 
     static func setSecurityDirectoryForTesting(_ url: URL?) {
         securityDirectoryOverride = url
+        keyQueue.sync { cachedKey = nil }
+    }
+
+    static func setKeychainItemForTesting(service: String?, account: String = keychainAccount) {
+        if let service {
+            keychainItemOverride = (service: service, account: account)
+        } else {
+            keychainItemOverride = nil
+        }
         keyQueue.sync { cachedKey = nil }
     }
     #endif

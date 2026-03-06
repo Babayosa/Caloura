@@ -2,6 +2,8 @@ import Foundation
 import NaturalLanguage
 
 struct EmbeddingEngine {
+    static let modelVersion = 1
+
     /// Generate sentence embedding for text. Returns nil if embedding unavailable.
     static func embed(_ text: String) -> [Double]? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)

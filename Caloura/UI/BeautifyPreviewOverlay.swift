@@ -6,7 +6,7 @@ final class BeautifyPreviewController {
     static let shared = BeautifyPreviewController()
     private let presenter = SingleWindowPresenter<BeautifyPreviewView>()
 
-    func show(cgImage: CGImage, filePath: URL?) {
+    func show(screenshot: ProcessedScreenshot) {
         presenter.show(
             config: .init(
                 title: "Beautify Screenshot",
@@ -16,7 +16,7 @@ final class BeautifyPreviewController {
                 autosaveName: "CalouraBeautifyPreview"
             )
         ) {
-            BeautifyPreviewView(originalImage: cgImage, filePath: filePath)
+            BeautifyPreviewView(screenshot: screenshot)
         }
     }
 
@@ -26,8 +26,7 @@ final class BeautifyPreviewController {
 }
 
 struct BeautifyPreviewView: View {
-    let originalImage: CGImage
-    let filePath: URL?
+    let screenshot: ProcessedScreenshot
 
     @State private var selectedTheme = BeautifyTheme.builtInThemes
         .first { $0.name == AppSettings.shared.beautifyThemeName }
@@ -47,7 +46,7 @@ struct BeautifyPreviewView: View {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    Image(decorative: originalImage, scale: 1.0)
+                    Image(decorative: screenshot.cgImage, scale: 1.0)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                 }
@@ -111,7 +110,7 @@ struct BeautifyPreviewView: View {
 
     private func generatePreview() async {
         isProcessing = true
-        let result = await Beautifier.beautify(cgImage: originalImage, theme: selectedTheme)
+        let result = await Beautifier.beautify(cgImage: screenshot.cgImage, theme: selectedTheme)
         previewImage = result
         isProcessing = false
     }
@@ -123,35 +122,29 @@ struct BeautifyPreviewView: View {
 
     private func copyToClipboard(_ cgImage: CGImage) {
         let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-        ClipboardManager.copyNSImage(nsImage)
-        AppState.shared.statusMessage = "Beautified image copied"
+        do {
+            try ClipboardManager.copyNSImage(nsImage)
+            AppState.shared.statusMessage = "Beautified image copied"
+        } catch {
+            AppState.shared.statusMessage = error.localizedDescription
+        }
     }
 
     private func saveImage(_ cgImage: CGImage) {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png]
-        panel.nameFieldStringValue = "beautified-screenshot.png"
-        if let fp = filePath {
-            let base = fp.deletingPathExtension().lastPathComponent
-            panel.nameFieldStringValue = "\(base)-beautified.png"
-        }
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
         Task {
-            let success = await Task.detached {
-                guard let dest = CGImageDestinationCreateWithURL(
-                    url as CFURL, "public.png" as CFString, 1, nil
-                ) else { return false }
-                CGImageDestinationAddImage(dest, cgImage, nil)
-                return CGImageDestinationFinalize(dest)
-            }.value
-
-            if success {
+            do {
+                _ = try await ScreenshotArtifactCoordinator.shared.saveDerivedCapture(
+                    cgImage,
+                    basedOn: screenshot,
+                    suggestedSuffix: "beautified"
+                )
                 AppState.shared.statusMessage = "Beautified image saved"
-            } else {
-                AppState.shared.statusMessage = "Failed to save beautified image"
+                BeautifyPreviewController.shared.close()
+            } catch is CancellationError {
+                AppState.shared.statusMessage = "Beautify save cancelled"
+            } catch {
+                AppState.shared.statusMessage = "Overwrite failed: \(error.localizedDescription)"
             }
-            BeautifyPreviewController.shared.close()
         }
     }
 }

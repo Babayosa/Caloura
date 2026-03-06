@@ -56,7 +56,12 @@ final class PinnedScreenshotManager {
         let pinnedView = PinnedScreenshotView(
             image: displayImage,
             onCopy: {
-                ClipboardManager.copyNSImage(displayImage)
+                do {
+                    try ClipboardManager.copyNSImage(displayImage)
+                    AppState.shared.statusMessage = "Copied pinned screenshot"
+                } catch {
+                    AppState.shared.statusMessage = error.localizedDescription
+                }
             },
             onClose: { [weak panel] in
                 panel?.close()

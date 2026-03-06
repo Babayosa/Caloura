@@ -9,31 +9,35 @@ final class HotKeyManager {
 
     func registerAll() {
         KeyboardShortcuts.onKeyUp(for: .captureArea) {
-            NotificationCenter.default.post(name: .captureArea, object: nil)
+            AppCommandRouter.shared.dispatch(.captureArea)
         }
 
         KeyboardShortcuts.onKeyUp(for: .captureWindow) {
-            NotificationCenter.default.post(name: .captureWindow, object: nil)
+            AppCommandRouter.shared.dispatch(.captureWindow)
         }
 
         KeyboardShortcuts.onKeyUp(for: .captureFullscreen) {
-            NotificationCenter.default.post(name: .captureFullscreen, object: nil)
+            AppCommandRouter.shared.dispatch(.captureFullscreen)
         }
 
         KeyboardShortcuts.onKeyUp(for: .captureRepeat) {
-            NotificationCenter.default.post(name: .captureRepeat, object: nil)
+            AppCommandRouter.shared.dispatch(.captureRepeat)
         }
 
         KeyboardShortcuts.onKeyUp(for: .copyAsMarkdown) {
-            NotificationCenter.default.post(name: .copyLastAsMarkdown, object: nil)
+            AppCommandRouter.shared.dispatch(.copyLastAsMarkdown)
         }
 
         KeyboardShortcuts.onKeyUp(for: .copyWithCitation) {
-            NotificationCenter.default.post(name: .copyLastWithCitation, object: nil)
+            AppCommandRouter.shared.dispatch(.copyLastWithCitation)
         }
 
         KeyboardShortcuts.onKeyUp(for: .copyOCRText) {
-            NotificationCenter.default.post(name: .copyLastOCRText, object: nil)
+            AppCommandRouter.shared.dispatch(.copyLastOCRText)
+        }
+
+        KeyboardShortcuts.onKeyUp(for: .captureScroll) {
+            AppCommandRouter.shared.dispatch(.captureScroll)
         }
     }
 }

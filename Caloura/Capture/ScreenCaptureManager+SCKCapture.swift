@@ -11,77 +11,71 @@ extension ScreenCaptureManager {
 
     // MARK: - SCK Capture
 
+    func captureRectInDisplaySpace(
+        rect: CGRect,
+        screen: NSScreen?
+    ) throws -> CGRect {
+        let resolved = try resolveScreen(screen)
+        let screenFrame = resolved.screen.frame
+        let displayBounds = CGDisplayBounds(resolved.displayID)
+
+        let globalY = displayBounds.origin.y
+            + (screenFrame.height - rect.origin.y - rect.height)
+        let globalX = displayBounds.origin.x + rect.origin.x
+
+        return CGRect(
+            x: globalX,
+            y: globalY,
+            width: rect.width,
+            height: rect.height
+        ).integral
+    }
+
+    func fullscreenRectInDisplaySpace(
+        screen: NSScreen?
+    ) throws -> CGRect {
+        let resolved = try resolveScreen(screen)
+        return CGDisplayBounds(resolved.displayID).integral
+    }
+
+    private func sckCaptureImage(
+        in rect: CGRect
+    ) async throws -> CGImage {
+        try await withCheckedThrowingContinuation { continuation in
+            SCScreenshotManager.captureImage(in: rect) { image, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let image else {
+                    continuation.resume(
+                        throwing: CaptureError.captureFailed(
+                            "ScreenCaptureKit returned no image"
+                        )
+                    )
+                    return
+                }
+                continuation.resume(returning: image)
+            }
+        }
+    }
+
     func sckCaptureFullScreen(
         screen: NSScreen?
     ) async throws -> CGImage {
-        let resolved = try resolveScreen(screen)
-        let content = try await shareableContent()
-
-        guard let scDisplay = content.displays.first(where: { display in
-            display.displayID == resolved.displayID
-        }) ?? content.displays.first else {
-            throw CaptureError.noDisplay
-        }
-
-        let filter = SCContentFilter(
-            display: scDisplay,
-            excludingWindows: []
-        )
-        let config = SCStreamConfiguration()
-        let scale = resolved.screen.backingScaleFactor
-        config.width = Int(CGFloat(scDisplay.width) * scale)
-        config.height = Int(CGFloat(scDisplay.height) * scale)
-        config.showsCursor = false
-        config.captureResolution = .best
-
-        let image = try await SCScreenshotManager.captureImage(
-            contentFilter: filter,
-            configuration: config
-        )
-        return image
+        let rect = try fullscreenRectInDisplaySpace(screen: screen)
+        return try await sckCaptureImage(in: rect)
     }
 
     func sckCaptureArea(
         rect: CGRect,
         screen: NSScreen?
     ) async throws -> CGImage {
-        let resolved = try resolveScreen(screen)
-        let content = try await shareableContent()
-
-        guard let scDisplay = content.displays.first(where: { display in
-            display.displayID == resolved.displayID
-        }) ?? content.displays.first else {
-            throw CaptureError.noDisplay
-        }
-
-        let filter = SCContentFilter(
-            display: scDisplay,
-            excludingWindows: []
+        let captureRect = try captureRectInDisplaySpace(
+            rect: rect,
+            screen: screen
         )
-        let config = SCStreamConfiguration()
-
-        // Convert from AppKit coordinates (bottom-left)
-        // to ScreenCaptureKit (top-left)
-        let screenFrame = resolved.screen.frame
-        let flippedY = screenFrame.height - rect.origin.y - rect.height
-
-        let scale = resolved.screen.backingScaleFactor
-        config.sourceRect = CGRect(
-            x: rect.origin.x,
-            y: flippedY,
-            width: rect.width,
-            height: rect.height
-        )
-        config.width = Int(rect.width * scale)
-        config.height = Int(rect.height * scale)
-        config.showsCursor = false
-        config.captureResolution = .best
-
-        let image = try await SCScreenshotManager.captureImage(
-            contentFilter: filter,
-            configuration: config
-        )
-        return image
+        return try await sckCaptureImage(in: captureRect)
     }
 
 }

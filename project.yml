@@ -62,6 +62,7 @@ targets:
         LSMinimumSystemVersion: "26.0"
         LSUIElement: true
         NSScreenCaptureUsageDescription: "Caloura needs screen recording access to capture screenshots."
+        NSAccessibilityUsageDescription: "Caloura needs Accessibility access to simulate scrolling for Scroll Capture."
         SUPublicEDKey: "jvH62SR8OsHYcY9lPGDneNLbOWijs5GGempwmXnEUL8="
         SUFeedURL: "https://caloura.app/appcast.xml"
 

@@ -94,8 +94,7 @@ extension ScreenCaptureManager {
     func screencaptureFullScreen(
         screen: NSScreen?
     ) async throws -> CGImage {
-        let resolved = try resolveScreen(screen)
-        let bounds = CGDisplayBounds(resolved.displayID)
+        let bounds = try fullscreenRectInDisplaySpace(screen: screen)
         return try await runScreencapture(args: [
             "-R\(Int(floor(bounds.origin.x))),"
             + "\(Int(floor(bounds.origin.y))),"
@@ -108,22 +107,16 @@ extension ScreenCaptureManager {
         rect: CGRect,
         screen: NSScreen?
     ) async throws -> CGImage {
-        let resolved = try resolveScreen(screen)
-        let screenFrame = resolved.screen.frame
-        let displayBounds = CGDisplayBounds(resolved.displayID)
-
-        // Convert AppKit local coords (bottom-left origin)
-        // to global CG coords (top-left origin)
-        let localCGY = screenFrame.height
-            - rect.origin.y - rect.height
-        let globalX = displayBounds.origin.x + rect.origin.x
-        let globalY = displayBounds.origin.y + localCGY
+        let captureRect = try captureRectInDisplaySpace(
+            rect: rect,
+            screen: screen
+        )
 
         return try await runScreencapture(args: [
-            "-R\(Int(floor(globalX))),"
-            + "\(Int(floor(globalY))),"
-            + "\(Int(rect.width)),"
-            + "\(Int(rect.height))"
+            "-R\(Int(floor(captureRect.origin.x))),"
+            + "\(Int(floor(captureRect.origin.y))),"
+            + "\(Int(captureRect.width)),"
+            + "\(Int(captureRect.height))"
         ])
     }
 

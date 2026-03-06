@@ -9,7 +9,8 @@ final class LicenseManagerEdgeCaseTests: XCTestCase {
 
     private var savedFirstLaunchDate: Date!
     private var savedLicenseKey: String!
-    private var savedIsLicenseActivated: Bool!
+    private var savedEntitlement: LicenseEntitlement?
+    private var savedLastValidationDate: Date?
 
     override func setUp() {
         super.setUp()
@@ -18,11 +19,13 @@ final class LicenseManagerEdgeCaseTests: XCTestCase {
         // Save original values
         savedFirstLaunchDate = settings.firstLaunchDate
         savedLicenseKey = settings.licenseKey
-        savedIsLicenseActivated = settings.isLicenseActivated
+        savedEntitlement = settings.currentLicenseEntitlement
+        savedLastValidationDate = settings.lastLicenseValidationDate
 
         // Reset to unlicensed state
         settings.licenseKey = ""
-        settings.isLicenseActivated = false
+        settings.updateLicenseEntitlement(nil)
+        settings.lastLicenseValidationDate = nil
 
         license = LicenseManager(settings: settings)
     }
@@ -31,7 +34,8 @@ final class LicenseManagerEdgeCaseTests: XCTestCase {
         // Restore original values
         settings.firstLaunchDate = savedFirstLaunchDate
         settings.licenseKey = savedLicenseKey
-        settings.isLicenseActivated = savedIsLicenseActivated
+        settings.updateLicenseEntitlement(savedEntitlement)
+        settings.lastLicenseValidationDate = savedLastValidationDate
         super.tearDown()
     }
 

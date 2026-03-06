@@ -5,6 +5,7 @@ import XCTest
 final class HistoryCryptoTests: XCTestCase {
 
     private var tempDir: URL!
+    private var keychainService: String?
 
     override func setUp() {
         super.setUp()
@@ -15,7 +16,12 @@ final class HistoryCryptoTests: XCTestCase {
 
     override func tearDown() {
         HistoryCrypto.setSecurityDirectoryForTesting(nil)
+        HistoryCrypto.setKeychainItemForTesting(service: nil)
         HistoryCrypto.resetCachedKeyForTesting()
+        if let keychainService {
+            KeychainHelper.deleteItem(service: keychainService, account: "history-root-key-v1")
+        }
+        keychainService = nil
         try? FileManager.default.removeItem(at: tempDir)
         super.tearDown()
     }
@@ -180,5 +186,31 @@ final class HistoryCryptoTests: XCTestCase {
         let attrs = try FileManager.default.attributesOfItem(atPath: keyFile.path)
         let permissions = attrs[.posixPermissions] as? NSNumber
         XCTAssertEqual(permissions?.intValue, 0o600)
+    }
+
+    func testKeychainBackedStorage_roundTripsWithoutCreatingFileKey() throws {
+        HistoryCrypto.setSecurityDirectoryForTesting(nil)
+        keychainService = "com.caloura.tests.historycrypto.\(UUID().uuidString)"
+        HistoryCrypto.setKeychainItemForTesting(service: keychainService)
+        HistoryCrypto.resetCachedKeyForTesting()
+
+        let plaintext = Data("keychain secret".utf8)
+        let encrypted = try HistoryCrypto.encrypt(plaintext)
+        let decrypted = try HistoryCrypto.decrypt(encrypted)
+
+        XCTAssertEqual(decrypted, plaintext)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: tempDir.appendingPathComponent("history.key").path)
+        )
+
+        switch KeychainHelper.readDataNonInteractive(
+            service: keychainService!,
+            account: "history-root-key-v1"
+        ) {
+        case .success(let data):
+            XCTAssertEqual(data.count, 32)
+        default:
+            XCTFail("Expected keychain-backed root key to be stored")
+        }
     }
 }

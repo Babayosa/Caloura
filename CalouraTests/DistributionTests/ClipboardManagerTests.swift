@@ -41,20 +41,20 @@ final class ClipboardManagerTests: XCTestCase {
 
     // MARK: - copyImage
 
-    func testCopyImage_putsTIFFDataOnPasteboard() async {
+    func testCopyImage_putsTIFFDataOnPasteboard() async throws {
         let screenshot = makeScreenshot()
 
-        await ClipboardManager.copyImage(screenshot)
+        try await ClipboardManager.copyImage(screenshot)
 
         let tiffData = testPasteboard.data(forType: .tiff)
         XCTAssertNotNil(tiffData, "Pasteboard should contain TIFF data after copyImage")
         XCTAssertFalse(tiffData!.isEmpty, "TIFF data should not be empty")
     }
 
-    func testCopyImage_putsPNGDataOnPasteboard() async {
+    func testCopyImage_putsPNGDataOnPasteboard() async throws {
         let screenshot = makeScreenshot()
 
-        await ClipboardManager.copyImage(screenshot)
+        try await ClipboardManager.copyImage(screenshot)
 
         let pngData = testPasteboard.data(forType: .png)
         XCTAssertNotNil(pngData, "Pasteboard should contain PNG data after copyImage")
@@ -66,14 +66,14 @@ final class ClipboardManagerTests: XCTestCase {
         XCTAssertEqual(pngData![3], 0x47) // 'G'
     }
 
-    func testCopyImage_clearsPasteboardBeforeWriting() async {
+    func testCopyImage_clearsPasteboardBeforeWriting() async throws {
         // Put some dummy data on the pasteboard first
         testPasteboard.clearContents()
         testPasteboard.setString("pre-existing data", forType: .string)
         let changeCountBefore = testPasteboard.changeCount
 
         let screenshot = makeScreenshot()
-        await ClipboardManager.copyImage(screenshot)
+        try await ClipboardManager.copyImage(screenshot)
 
         // changeCount increments on clearContents, proving the pasteboard was cleared
         XCTAssertGreaterThan(
@@ -91,30 +91,30 @@ final class ClipboardManagerTests: XCTestCase {
 
     // MARK: - copyMultiFormat
 
-    func testCopyMultiFormat_setsTIFFData() async {
+    func testCopyMultiFormat_setsTIFFData() async throws {
         let screenshot = makeScreenshot()
 
-        await ClipboardManager.copyMultiFormat(screenshot)
+        try await ClipboardManager.copyMultiFormat(screenshot)
 
         let tiffData = testPasteboard.data(forType: .tiff)
         XCTAssertNotNil(tiffData, "Pasteboard should contain TIFF data after copyMultiFormat")
         XCTAssertFalse(tiffData!.isEmpty)
     }
 
-    func testCopyMultiFormat_setsPNGData() async {
+    func testCopyMultiFormat_setsPNGData() async throws {
         let screenshot = makeScreenshot()
 
-        await ClipboardManager.copyMultiFormat(screenshot)
+        try await ClipboardManager.copyMultiFormat(screenshot)
 
         let pngData = testPasteboard.data(forType: .png)
         XCTAssertNotNil(pngData, "Pasteboard should contain PNG data after copyMultiFormat")
         XCTAssertFalse(pngData!.isEmpty)
     }
 
-    func testCopyMultiFormat_setsStringData() async {
+    func testCopyMultiFormat_setsStringData() async throws {
         let screenshot = makeScreenshot()
 
-        await ClipboardManager.copyMultiFormat(screenshot)
+        try await ClipboardManager.copyMultiFormat(screenshot)
 
         let stringData = testPasteboard.string(forType: .string)
         XCTAssertNotNil(
@@ -129,10 +129,10 @@ final class ClipboardManagerTests: XCTestCase {
         )
     }
 
-    func testCopyMultiFormat_setsHTMLData() async {
+    func testCopyMultiFormat_setsHTMLData() async throws {
         let screenshot = makeScreenshot()
 
-        await ClipboardManager.copyMultiFormat(screenshot)
+        try await ClipboardManager.copyMultiFormat(screenshot)
 
         let htmlData = testPasteboard.data(forType: .html)
         XCTAssertNotNil(htmlData, "Pasteboard should contain HTML data after copyMultiFormat")
@@ -141,10 +141,10 @@ final class ClipboardManagerTests: XCTestCase {
         XCTAssertTrue(html!.contains("<img"), "HTML should contain an img tag")
     }
 
-    func testCopyMultiFormat_allFourTypesSimultaneously() async {
+    func testCopyMultiFormat_allFourTypesSimultaneously() async throws {
         let screenshot = makeScreenshot()
 
-        await ClipboardManager.copyMultiFormat(screenshot)
+        try await ClipboardManager.copyMultiFormat(screenshot)
 
         // All four types should be present at the same time
         XCTAssertNotNil(testPasteboard.data(forType: .tiff), "TIFF should be present")
@@ -155,26 +155,26 @@ final class ClipboardManagerTests: XCTestCase {
 
     // MARK: - copyOCRText
 
-    func testCopyOCRText_setsStringOnPasteboard() {
-        ClipboardManager.copyOCRText("Hello, world!")
+    func testCopyOCRText_setsStringOnPasteboard() throws {
+        try ClipboardManager.copyOCRText("Hello, world!")
 
         let result = testPasteboard.string(forType: .string)
         XCTAssertEqual(result, "Hello, world!")
     }
 
-    func testCopyOCRText_emptyString_handlesGracefully() {
-        ClipboardManager.copyOCRText("")
+    func testCopyOCRText_emptyString_handlesGracefully() throws {
+        try ClipboardManager.copyOCRText("")
 
         let result = testPasteboard.string(forType: .string)
         XCTAssertEqual(result, "")
     }
 
-    func testCopyOCRText_clearsPreviousContent() {
+    func testCopyOCRText_clearsPreviousContent() throws {
         // Pre-fill with image data
         testPasteboard.clearContents()
         testPasteboard.setData(Data([0xFF]), forType: .tiff)
 
-        ClipboardManager.copyOCRText("Some text")
+        try ClipboardManager.copyOCRText("Some text")
 
         // TIFF should be gone after copyOCRText clears and writes string
         XCTAssertNil(
@@ -186,10 +186,10 @@ final class ClipboardManagerTests: XCTestCase {
 
     // MARK: - copyAsMarkdown
 
-    func testCopyAsMarkdown_setsMarkdownString() {
+    func testCopyAsMarkdown_setsMarkdownString() throws {
         let screenshot = makeScreenshot()
 
-        ClipboardManager.copyAsMarkdown(screenshot)
+        try ClipboardManager.copyAsMarkdown(screenshot)
 
         let result = testPasteboard.string(forType: .string)
         XCTAssertNotNil(result)
@@ -202,11 +202,11 @@ final class ClipboardManagerTests: XCTestCase {
 
     // MARK: - copyNSImage
 
-    func testCopyNSImage_writesImageToPasteboard() {
+    func testCopyNSImage_writesImageToPasteboard() throws {
         let cgImage = TestImageFactory.makeTestImage(width: 50, height: 50)
         let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: 50, height: 50))
 
-        ClipboardManager.copyNSImage(nsImage)
+        try ClipboardManager.copyNSImage(nsImage)
 
         let objects = testPasteboard.readObjects(forClasses: [NSImage.self])
         XCTAssertNotNil(objects)
@@ -215,10 +215,10 @@ final class ClipboardManagerTests: XCTestCase {
 
     // MARK: - Small / edge-case images
 
-    func testCopyImage_smallImage_handlesGracefully() async {
+    func testCopyImage_smallImage_handlesGracefully() async throws {
         let screenshot = makeScreenshot(width: 1, height: 1)
 
-        await ClipboardManager.copyImage(screenshot)
+        try await ClipboardManager.copyImage(screenshot)
 
         // Should still put data on pasteboard without crashing
         let tiffData = testPasteboard.data(forType: .tiff)

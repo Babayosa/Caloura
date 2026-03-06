@@ -6,6 +6,7 @@ final class RegionSelectionView: NSView {
     var onRegionSelected: ((CGRect) -> Void)?
     var onCancelled: (() -> Void)?
     var onFirstMouseDown: (() -> Void)?
+    weak var cursorController: CaptureCursorControlling?
 
     /// Frozen screenshot to display as background (enables menu capture)
     var frozenImage: CGImage? {
@@ -18,7 +19,6 @@ final class RegionSelectionView: NSView {
     private var selectionEnd: NSPoint?
     private var isSelecting = false
     private var hasSentFirstMouseDown = false
-    private var cursorPushed = false
     private var trackingArea: NSTrackingArea?
 
     // Layer tree (z-order: background → dimming → border → labels)
@@ -137,16 +137,12 @@ final class RegionSelectionView: NSView {
         if let window = window {
             window.makeFirstResponder(self)
             window.acceptsMouseMovedEvents = true
-            NSCursor.crosshair.push()
-            cursorPushed = true
+            cursorController?.reassertCrosshair()
 
             // Set contentsScale for crisp Retina text
             let scale = window.backingScaleFactor
             sizeTextLayer.contentsScale = scale
             hintTextLayer.contentsScale = scale
-        } else if cursorPushed {
-            NSCursor.pop()
-            cursorPushed = false
         }
         window?.invalidateCursorRects(for: self)
     }
@@ -172,11 +168,11 @@ final class RegionSelectionView: NSView {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        NSCursor.crosshair.set()
+        cursorController?.reassertCrosshair()
     }
 
     override func mouseMoved(with event: NSEvent) {
-        NSCursor.crosshair.set()
+        cursorController?.reassertCrosshair()
     }
 
     // MARK: - Layer Updates
@@ -188,6 +184,7 @@ final class RegionSelectionView: NSView {
 
         if isSelecting, let start = selectionStart, let end = selectionEnd {
             let rect = normalizedRect(from: start, to: end)
+            dimmingLayer.fillColor = NSColor.black.withAlphaComponent(0.32).cgColor
 
             // Dimming (only when frozen image is present)
             if frozenImage != nil {
@@ -196,7 +193,7 @@ final class RegionSelectionView: NSView {
                 combined.addRect(rect)
                 dimmingLayer.path = combined
             } else {
-                dimmingLayer.path = nil
+                dimmingLayer.path = CGPath(rect: bounds, transform: nil)
             }
 
             // Border
@@ -210,7 +207,10 @@ final class RegionSelectionView: NSView {
             // Hide hint
             hintContainer.isHidden = true
         } else {
-            dimmingLayer.path = nil
+            dimmingLayer.fillColor = NSColor.black.withAlphaComponent(
+                frozenImage == nil ? 0.16 : 0.28
+            ).cgColor
+            dimmingLayer.path = CGPath(rect: bounds, transform: nil)
             borderLayer.path = nil
             borderLayer.isHidden = true
             sizeContainer.isHidden = true
@@ -308,10 +308,6 @@ final class RegionSelectionView: NSView {
 
         // Minimum selection size (10x10)
         if rect.width >= 10 && rect.height >= 10 {
-            if cursorPushed {
-                NSCursor.pop()
-                cursorPushed = false
-            }
             onRegionSelected?(rect)
         } else {
             // Too small, reset
@@ -328,10 +324,6 @@ final class RegionSelectionView: NSView {
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == UInt16(kVK_Escape) {
-            if cursorPushed {
-                NSCursor.pop()
-                cursorPushed = false
-            }
             onCancelled?()
         }
     }

@@ -16,7 +16,7 @@ final class FileOrganizerTests: XCTestCase {
         let screenshot = makeProcessedScreenshot(context: context)
         let fileName = FileOrganizer.generateFileName(for: screenshot)
 
-        XCTAssertEqual(fileName, "Caloura_14-30-45_Safari.png")
+        XCTAssertEqual(fileName, "Caloura_14-30-45-000_Safari.png")
     }
 
     func testGenerateFileName_withoutAppName() {
@@ -29,7 +29,7 @@ final class FileOrganizerTests: XCTestCase {
         let screenshot = makeProcessedScreenshot(context: context)
         let fileName = FileOrganizer.generateFileName(for: screenshot)
 
-        XCTAssertEqual(fileName, "Caloura_09-05-00_Unknown.png")
+        XCTAssertEqual(fileName, "Caloura_09-05-00-000_Unknown.png")
     }
 
     func testGenerateFileName_appNameWithSpaces() {
@@ -42,7 +42,7 @@ final class FileOrganizerTests: XCTestCase {
         let screenshot = makeProcessedScreenshot(context: context)
         let fileName = FileOrganizer.generateFileName(for: screenshot)
 
-        XCTAssertEqual(fileName, "Caloura_12-00-00_VSCode.png")
+        XCTAssertEqual(fileName, "Caloura_12-00-00-000_VSCode.png")
     }
 
     func testEnsureBaseDirectory() throws {
@@ -119,7 +119,7 @@ final class FileOrganizerTests: XCTestCase {
         let fileName = FileOrganizer.generateFileName(for: screenshot)
 
         XCTAssertFalse(fileName.contains("/"), "Filename should not contain slashes")
-        XCTAssertEqual(fileName, "Caloura_08-00-00_AppWithSlashes.png")
+        XCTAssertEqual(fileName, "Caloura_08-00-00-000_AppWithSlashes.png")
     }
 
     // MARK: - Path Traversal Safety
@@ -380,8 +380,8 @@ final class FileOrganizerTests: XCTestCase {
         let fileName = FileOrganizer.generateFileName(for: screenshot)
 
         XCTAssertTrue(
-            fileName.contains("23-59-59"),
-            "Filename should contain HH-mm-ss timestamp"
+            fileName.contains("23-59-59-000"),
+            "Filename should contain HH-mm-ss-SSS timestamp"
         )
     }
 

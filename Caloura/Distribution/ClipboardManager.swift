@@ -1,5 +1,19 @@
 import AppKit
 
+enum ClipboardManagerError: LocalizedError {
+    case pasteboardWriteFailed(String)
+    case htmlEncodingFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .pasteboardWriteFailed(let item):
+            return "Failed to write \(item) to the clipboard."
+        case .htmlEncodingFailed:
+            return "Failed to encode HTML clipboard content."
+        }
+    }
+}
+
 struct ClipboardManager {
     #if DEBUG
     @MainActor static var pasteboardOverride: NSPasteboard?
@@ -32,85 +46,105 @@ struct ClipboardManager {
     }
 
     @MainActor
-    static func copyNSImage(_ image: NSImage) {
+    static func copyNSImage(_ image: NSImage) throws {
         activePasteboard.clearContents()
-        activePasteboard.writeObjects([image])
+        guard activePasteboard.writeObjects([image]) else {
+            throw ClipboardManagerError.pasteboardWriteFailed("image")
+        }
         scheduleAutoClearIfEnabled()
     }
 
     /// Copy image to clipboard as TIFF + PNG
-    static func copyImage(_ screenshot: ProcessedScreenshot) async {
-        let imageData = await imageData(for: screenshot)
-        await MainActor.run {
+    static func copyImage(_ screenshot: ProcessedScreenshot) async throws {
+        let imageData = try await imageData(for: screenshot)
+        try await MainActor.run {
             activePasteboard.clearContents()
-            activePasteboard.setData(imageData.tiff, forType: .tiff)
-            activePasteboard.setData(imageData.png, forType: .png)
+            guard activePasteboard.setData(imageData.tiff, forType: .tiff) else {
+                throw ClipboardManagerError.pasteboardWriteFailed("TIFF image")
+            }
+            guard activePasteboard.setData(imageData.png, forType: .png) else {
+                throw ClipboardManagerError.pasteboardWriteFailed("PNG image")
+            }
             scheduleAutoClearIfEnabled()
         }
     }
 
     /// Copy as Markdown text: ![alt](filename)
     @MainActor
-    static func copyAsMarkdown(_ screenshot: ProcessedScreenshot) {
+    static func copyAsMarkdown(_ screenshot: ProcessedScreenshot) throws {
         let markdown = MarkdownExporter.markdownImageTag(for: screenshot)
         activePasteboard.clearContents()
-        activePasteboard.setString(markdown, forType: .string)
+        guard activePasteboard.setString(markdown, forType: .string) else {
+            throw ClipboardManagerError.pasteboardWriteFailed("Markdown text")
+        }
         scheduleAutoClearIfEnabled()
     }
 
     /// Copy as Markdown with citation
     @MainActor
-    static func copyWithCitation(_ screenshot: ProcessedScreenshot) {
+    static func copyWithCitation(_ screenshot: ProcessedScreenshot) throws {
         let citation = MarkdownExporter.markdownWithCitation(for: screenshot)
         activePasteboard.clearContents()
-        activePasteboard.setString(citation, forType: .string)
+        guard activePasteboard.setString(citation, forType: .string) else {
+            throw ClipboardManagerError.pasteboardWriteFailed("citation text")
+        }
         scheduleAutoClearIfEnabled()
     }
 
     /// Copy OCR text
     @MainActor
-    static func copyOCRText(_ text: String) {
+    static func copyOCRText(_ text: String) throws {
         activePasteboard.clearContents()
-        activePasteboard.setString(text, forType: .string)
+        guard activePasteboard.setString(text, forType: .string) else {
+            throw ClipboardManagerError.pasteboardWriteFailed("OCR text")
+        }
         scheduleAutoClearIfEnabled()
     }
 
     /// Copy multi-format: image + Markdown + HTML simultaneously
     /// Rich text editors get the image, plain text editors get markdown
-    static func copyMultiFormat(_ screenshot: ProcessedScreenshot) async {
-        let imageData = await imageData(for: screenshot)
+    static func copyMultiFormat(_ screenshot: ProcessedScreenshot) async throws {
+        let imageData = try await imageData(for: screenshot)
         let markdown = MarkdownExporter.markdownImageTag(for: screenshot)
         let html = MarkdownExporter.htmlImageTag(for: screenshot)
-        await MainActor.run {
+        guard let htmlData = html.data(using: .utf8) else {
+            throw ClipboardManagerError.htmlEncodingFailed
+        }
+        try await MainActor.run {
             activePasteboard.clearContents()
 
             // Image formats (use cached data)
-            activePasteboard.setData(imageData.tiff, forType: .tiff)
-            activePasteboard.setData(imageData.png, forType: .png)
+            guard activePasteboard.setData(imageData.tiff, forType: .tiff) else {
+                throw ClipboardManagerError.pasteboardWriteFailed("TIFF image")
+            }
+            guard activePasteboard.setData(imageData.png, forType: .png) else {
+                throw ClipboardManagerError.pasteboardWriteFailed("PNG image")
+            }
 
             // Plain text (Markdown)
-            activePasteboard.setString(markdown, forType: .string)
+            guard activePasteboard.setString(markdown, forType: .string) else {
+                throw ClipboardManagerError.pasteboardWriteFailed("Markdown text")
+            }
 
             // HTML
-            activePasteboard.setData(
-                html.data(using: .utf8) ?? Data(),
-                forType: .html
-            )
+            guard activePasteboard.setData(htmlData, forType: .html) else {
+                throw ClipboardManagerError.pasteboardWriteFailed("HTML content")
+            }
 
             scheduleAutoClearIfEnabled()
         }
     }
 
-    private static func imageData(for screenshot: ProcessedScreenshot) async -> (png: Data, tiff: Data) {
+    private static func imageData(for screenshot: ProcessedScreenshot) async throws -> (png: Data, tiff: Data) {
         let cachedPNG = screenshot.cachedPNGData()
         let cachedTIFF = screenshot.cachedTIFFData()
         if let cachedPNG, let cachedTIFF {
             return (cachedPNG, cachedTIFF)
         }
 
-        let generated = await Task.detached(priority: .utility) {
-            let png = screenshot.pngData
-            let tiff = screenshot.tiffData
+        let generated = try await Task.detached(priority: .utility) {
+            let png = try screenshot.pngData()
+            let tiff = try screenshot.tiffData()
             return (png: png, tiff: tiff)
         }.value
 

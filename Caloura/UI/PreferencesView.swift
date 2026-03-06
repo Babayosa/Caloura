@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 import ServiceManagement
 import SwiftUI
 import KeyboardShortcuts
@@ -276,6 +277,15 @@ struct GeneralPreferencesView: View {
                 }
             }
 
+            Section("Scroll Capture") {
+                Toggle("Scroll to top before capture", isOn: $settings.scrollToTop)
+                Stepper("Max height: \(settings.scrollMaxHeight / 1000)k px",
+                        value: $settings.scrollMaxHeight, in: 5000...200_000, step: 5000)
+                Text("Viewport detection, sticky-header handling, and manual fallback are automatic.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Appearance") {
                 Picker("Beautify Theme", selection: $settings.beautifyThemeName) {
                     ForEach(BeautifyTheme.builtInThemes) { theme in
@@ -328,6 +338,7 @@ extension KeyboardShortcuts.Name {
     static let copyAsMarkdown = Self("copyAsMarkdown")
     static let copyWithCitation = Self("copyWithCitation")
     static let copyOCRText = Self("copyOCRText")
+    static let captureScroll = Self("captureScroll", default: .init(.six, modifiers: [.command, .shift]))
 }
 
 struct ShortcutsPreferencesView: View {
@@ -338,6 +349,7 @@ struct ShortcutsPreferencesView: View {
                 KeyboardShortcuts.Recorder("Capture Window", name: .captureWindow)
                 KeyboardShortcuts.Recorder("Capture Full Screen", name: .captureFullscreen)
                 KeyboardShortcuts.Recorder("Repeat Last Area", name: .captureRepeat)
+                KeyboardShortcuts.Recorder("Scroll Capture", name: .captureScroll)
             }
 
             Section("Clipboard") {

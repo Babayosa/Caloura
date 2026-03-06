@@ -170,7 +170,7 @@ struct OnboardingView: View {
 
         if startCapture {
             DispatchQueue.main.async {
-                NotificationCenter.default.post(name: .captureArea, object: nil)
+                AppCommandRouter.shared.dispatch(.captureArea)
             }
         }
     }

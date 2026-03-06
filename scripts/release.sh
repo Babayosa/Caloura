@@ -145,12 +145,89 @@ check_version_placeholders() {
     fi
 }
 
+check_minimum_system_version_alignment() {
+    local plist_path="$PROJECT_DIR/Caloura/Resources/Info.plist"
+    local plist_min
+    local project_min
+
+    plist_min="$(read_plist_value "$plist_path" "LSMinimumSystemVersion")"
+    project_min="$(awk -F'"' '/MACOSX_DEPLOYMENT_TARGET:/ {print $2; exit}' "$PROJECT_DIR/project.yml")"
+
+    if [ -z "$plist_min" ]; then
+        fail_release "Missing LSMinimumSystemVersion in $plist_path."
+    fi
+
+    if [ -z "$project_min" ]; then
+        fail_release "Missing MACOSX_DEPLOYMENT_TARGET in project.yml."
+    fi
+
+    if [ "$plist_min" != "$project_min" ]; then
+        fail_release "Minimum macOS version mismatch: Info.plist=$plist_min project.yml=$project_min."
+    fi
+
+    echo "==> Minimum macOS version check passed (LSMinimumSystemVersion=$plist_min)"
+}
+
+check_sparkle_release_metadata() {
+    local plist_path="$PROJECT_DIR/Caloura/Resources/Info.plist"
+    local feed_url
+    local public_key
+
+    feed_url="$(read_plist_value "$plist_path" "SUFeedURL")"
+    public_key="$(read_plist_value "$plist_path" "SUPublicEDKey")"
+
+    if [ -z "$feed_url" ]; then
+        fail_release "Missing SUFeedURL in $plist_path."
+    fi
+
+    if [ -z "$public_key" ]; then
+        fail_release "Missing SUPublicEDKey in $plist_path."
+    fi
+
+    echo "==> Sparkle metadata check passed"
+}
+
+verify_signed_identity() {
+    local app_path="$1"
+    local signature_details
+    signature_details="$(codesign -dvv "$app_path" 2>&1)"
+
+    if ! grep -q "TeamIdentifier=$TEAM_ID" <<<"$signature_details"; then
+        fail_release "Signed app team identifier does not match expected Team ID $TEAM_ID."
+    fi
+
+    if ! grep -q "Authority=Developer ID Application" <<<"$signature_details"; then
+        fail_release "Signed app is not using a Developer ID Application certificate."
+    fi
+
+    echo "    Signing identity matches Team ID $TEAM_ID"
+}
+
+verify_gatekeeper_and_notarization() {
+    local app_path="$1"
+
+    if ! spctl -a -vv "$app_path" >/tmp/caloura-spctl.txt 2>&1; then
+        cat /tmp/caloura-spctl.txt
+        fail_release "Gatekeeper assessment failed."
+    fi
+
+    if ! grep -q "accepted" /tmp/caloura-spctl.txt; then
+        cat /tmp/caloura-spctl.txt
+        fail_release "Gatekeeper did not accept the app."
+    fi
+
+    xcrun stapler validate "$app_path"
+    echo "    Gatekeeper and stapler validation passed"
+}
+
 echo "==> Building $APP_NAME v$VERSION"
 echo ""
 
 # Guard against accidental tag/version mismatch before packaging.
 check_release_tag_alignment
 check_version_placeholders
+check_minimum_system_version_alignment
+check_sparkle_release_metadata
 
 if [ "${RELEASE_GUARD_ONLY:-0}" = "1" ]; then
     echo "==> Guard-only mode: release tag and version placeholder checks passed."
@@ -195,6 +272,7 @@ check_bundle_version_matches_release "$APP_PATH/Contents/Info.plist" "Exported a
 # Verify code signature
 echo "==> Verifying code signature..."
 codesign --verify --deep --strict "$APP_PATH"
+verify_signed_identity "$APP_PATH"
 echo "    Signature valid"
 
 # Create zip for notarization (--sequesterRsrc preserves resource forks for Gatekeeper)
@@ -212,6 +290,7 @@ fi
 # Staple the notarization ticket to the app
 echo "==> Stapling notarization ticket..."
 xcrun stapler staple "$APP_PATH"
+verify_gatekeeper_and_notarization "$APP_PATH"
 
 # Re-create zip with the stapled app (--sequesterRsrc preserves resource forks for Gatekeeper)
 rm "$ZIP_PATH"

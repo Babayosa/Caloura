@@ -1,4 +1,10 @@
 import Foundation
+import os.log
+
+private let embeddingStoreLogger = Logger(
+    subsystem: "com.caloura.app",
+    category: "EmbeddingStore"
+)
 
 struct EmbeddingEntry: Codable {
     let screenshotID: UUID
@@ -6,14 +12,27 @@ struct EmbeddingEntry: Codable {
     let textHash: String
 }
 
+private struct EmbeddingStorePayload: Codable {
+    let schemaVersion: Int
+    let modelVersion: Int
+    let entries: [EmbeddingEntry]
+}
+
 final class EmbeddingStore: @unchecked Sendable {
+    static let currentSchemaVersion = 1
+
     private var entries: [EmbeddingEntry] = []
     private let storeURL: URL
+    private let modelVersion: Int
     private let lock = NSLock()
     private static let encryptionPurpose = "embedding-storage"
 
-    init(storeURL: URL? = nil) {
+    init(
+        storeURL: URL? = nil,
+        modelVersion: Int = EmbeddingEngine.modelVersion
+    ) {
         self.storeURL = storeURL ?? Self.defaultStoreURL()
+        self.modelVersion = modelVersion
     }
 
     private static func defaultStoreURL() -> URL {
@@ -56,10 +75,16 @@ final class EmbeddingStore: @unchecked Sendable {
         lock.unlock()
 
         do {
-            let data = try JSONEncoder().encode(snapshot)
+            let payload = EmbeddingStorePayload(
+                schemaVersion: Self.currentSchemaVersion,
+                modelVersion: modelVersion,
+                entries: snapshot
+            )
+            let data = try JSONEncoder().encode(payload)
             try HistoryCrypto.writeEncrypted(data, to: storeURL, purpose: Self.encryptionPurpose)
         } catch {
-            // Non-fatal — embeddings will be regenerated on next launch
+            let message = error.localizedDescription
+            embeddingStoreLogger.error("Failed to persist embeddings: \(message, privacy: .public)")
         }
     }
 
@@ -67,12 +92,26 @@ final class EmbeddingStore: @unchecked Sendable {
         guard let data = try? Data(contentsOf: storeURL) else { return }
         do {
             let decrypted = try HistoryCrypto.decrypt(data, purpose: Self.encryptionPurpose)
-            let decoded = try JSONDecoder().decode([EmbeddingEntry].self, from: decrypted)
+            let decoded = try JSONDecoder().decode(EmbeddingStorePayload.self, from: decrypted)
+            guard decoded.schemaVersion == Self.currentSchemaVersion,
+                  decoded.modelVersion == modelVersion else {
+                let mismatchMessage =
+                    "Discarding incompatible embedding store "
+                    + "(schema=\(decoded.schemaVersion), model=\(decoded.modelVersion), "
+                    + "expectedSchema=\(Self.currentSchemaVersion), expectedModel=\(self.modelVersion))"
+                embeddingStoreLogger.info(
+                    "\(mismatchMessage, privacy: .public)"
+                )
+                clear()
+                return
+            }
             lock.lock()
-            entries = decoded
+            entries = decoded.entries
             lock.unlock()
         } catch {
-            // Corrupt or incompatible — start fresh
+            let message = error.localizedDescription
+            embeddingStoreLogger.error("Failed to load embeddings: \(message, privacy: .public)")
+            clear()
         }
     }
 
@@ -80,7 +119,14 @@ final class EmbeddingStore: @unchecked Sendable {
         lock.lock()
         entries.removeAll()
         lock.unlock()
-        try? FileManager.default.removeItem(at: storeURL)
+        do {
+            try FileManager.default.removeItem(at: storeURL)
+        } catch CocoaError.fileNoSuchFile {
+            return
+        } catch {
+            let message = error.localizedDescription
+            embeddingStoreLogger.error("Failed to remove embedding store: \(message, privacy: .public)")
+        }
     }
 
     var count: Int {

@@ -17,6 +17,8 @@ final class AppState: ObservableObject {
     @Published var statusMessage: String = ""
     @Published var isCountingDown: Bool = false
     @Published var countdownRemaining: Int = 0
+    @Published private(set) var lastCapturePreviewPhase: CapturePreviewPhase = .rawPreviewReady
+    @Published private(set) var lastCapturePreviewScreenshotID: UUID?
 
     /// Stores the last area capture rect for the repeat capture feature.
     @Published var lastCaptureRect: CGRect?
@@ -49,9 +51,44 @@ final class AppState: ObservableObject {
 
     func addScreenshot(_ item: ScreenshotItem) {
         recentScreenshots.insert(item, at: 0)
-        if recentScreenshots.count > maxRecentItems {
-            recentScreenshots.removeLast(recentScreenshots.count - maxRecentItems)
+        pruneRecentScreenshotsIfNeeded()
+        debouncedSaveHistory()
+    }
+
+    func upsertScreenshot(_ item: ScreenshotItem) {
+        if let existingIndex = recentScreenshots.firstIndex(where: { $0.id == item.id }) {
+            recentScreenshots[existingIndex] = item
+        } else {
+            recentScreenshots.insert(item, at: 0)
+            pruneRecentScreenshotsIfNeeded()
         }
+        debouncedSaveHistory()
+    }
+
+    func syncProcessedScreenshot(_ screenshot: ProcessedScreenshot) {
+        let item = screenshot.toScreenshotItem()
+        if let existingIndex = recentScreenshots.firstIndex(where: { $0.id == item.id }) {
+            let existing = recentScreenshots[existingIndex]
+            recentScreenshots[existingIndex] = existing.updated(
+                filePath: item.filePath,
+                fileName: item.fileName,
+                presetName: screenshot.presetName,
+                width: item.width,
+                height: item.height,
+                title: item.title
+            )
+        } else {
+            recentScreenshots.insert(item, at: 0)
+            pruneRecentScreenshotsIfNeeded()
+        }
+        debouncedSaveHistory()
+    }
+
+    func updateScreenshot(id: UUID, _ update: (inout ScreenshotItem) -> Void) {
+        guard let index = recentScreenshots.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        update(&recentScreenshots[index])
         debouncedSaveHistory()
     }
 
@@ -59,6 +96,21 @@ final class AppState: ObservableObject {
         recentScreenshots.removeAll()
         embeddingStore.clear()
         saveHistoryNow()
+    }
+
+    func setCapturePreviewPhase(
+        _ phase: CapturePreviewPhase,
+        for screenshotID: UUID
+    ) {
+        lastCapturePreviewScreenshotID = screenshotID
+        lastCapturePreviewPhase = phase
+    }
+
+    func previewPhase(for screenshotID: UUID) -> CapturePreviewPhase {
+        guard lastCapturePreviewScreenshotID == screenshotID else {
+            return .rawPreviewReady
+        }
+        return lastCapturePreviewPhase
     }
 
     /// Schedule a debounced save (coalesces rapid changes).
@@ -240,5 +292,17 @@ final class AppState: ObservableObject {
     ) {
         defaults.removeObject(forKey: historyDefaultsKey)
         defaults.removeObject(forKey: legacyHistoryDefaultsKey)
+    }
+
+    private func pruneRecentScreenshotsIfNeeded() {
+        guard recentScreenshots.count > maxRecentItems else { return }
+        let removed = recentScreenshots.suffix(recentScreenshots.count - maxRecentItems)
+        recentScreenshots.removeLast(recentScreenshots.count - maxRecentItems)
+        guard !removed.isEmpty else { return }
+
+        for item in removed {
+            embeddingStore.remove(screenshotID: item.id)
+        }
+        embeddingStore.save()
     }
 }

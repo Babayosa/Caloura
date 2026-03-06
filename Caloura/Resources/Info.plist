@@ -24,6 +24,8 @@
 	<string>26.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSAccessibilityUsageDescription</key>
+	<string>Caloura needs Accessibility access to simulate scrolling for Scroll Capture.</string>
 	<key>NSScreenCaptureUsageDescription</key>
 	<string>Caloura needs screen recording access to capture screenshots.</string>
 	<key>SUFeedURL</key>

@@ -63,4 +63,19 @@ final class EmbeddingStoreTests: XCTestCase {
         XCTAssertEqual(results.count, 1, "Only exact/near match should pass high threshold")
         store.clear()
     }
+
+    func testLoad_modelVersionMismatch_clearsStore() {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("test-version-mismatch-\(UUID().uuidString).enc")
+        let writer = EmbeddingStore(storeURL: url, modelVersion: 1)
+        let screenshotID = UUID()
+        writer.add(screenshotID: screenshotID, vector: [1.0, 2.0], textHash: "hash")
+        writer.save()
+
+        let reader = EmbeddingStore(storeURL: url, modelVersion: 2)
+        reader.load()
+
+        XCTAssertEqual(reader.count, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
 }

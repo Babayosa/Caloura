@@ -24,7 +24,7 @@ struct MenuBarView: View {
 
         // Capture actions
         Button {
-            NotificationCenter.default.post(name: .captureArea, object: nil)
+            AppCommandRouter.shared.dispatch(.captureArea)
         } label: {
             Label("Capture Area", systemImage: "rectangle.dashed")
         }
@@ -32,7 +32,7 @@ struct MenuBarView: View {
         .disabled(appState.isCapturing)
 
         Button {
-            NotificationCenter.default.post(name: .captureWindow, object: nil)
+            AppCommandRouter.shared.dispatch(.captureWindow)
         } label: {
             Label("Capture Window", systemImage: "macwindow")
         }
@@ -40,7 +40,7 @@ struct MenuBarView: View {
         .disabled(appState.isCapturing)
 
         Button {
-            NotificationCenter.default.post(name: .captureFullscreen, object: nil)
+            AppCommandRouter.shared.dispatch(.captureFullscreen)
         } label: {
             Label("Capture Full Screen", systemImage: "rectangle.inset.filled")
         }
@@ -48,7 +48,15 @@ struct MenuBarView: View {
         .disabled(appState.isCapturing)
 
         Button {
-            NotificationCenter.default.post(name: .copyLastOCRText, object: nil)
+            AppCommandRouter.shared.dispatch(.captureScroll)
+        } label: {
+            Label("Scroll Capture", systemImage: "rectangle.bottomhalf.inset.filled")
+        }
+        .keyboardShortcut("6", modifiers: [.command, .shift])
+        .disabled(appState.isCapturing)
+
+        Button {
+            AppCommandRouter.shared.dispatch(.copyLastOCRText)
         } label: {
             Label("Copy Text (OCR)", systemImage: "text.viewfinder")
         }
@@ -59,7 +67,7 @@ struct MenuBarView: View {
         // More submenu — secondary capture & post-capture actions
         Menu {
             Button {
-                NotificationCenter.default.post(name: .captureRepeat, object: nil)
+                AppCommandRouter.shared.dispatch(.captureRepeat)
             } label: {
                 Label("Repeat Last Area", systemImage: "arrow.counterclockwise.circle")
             }
@@ -67,14 +75,18 @@ struct MenuBarView: View {
 
             Menu {
                 Button {
-                    NotificationCenter.default.post(name: .captureDelayedArea, object: nil)
+                    AppCommandRouter.shared.dispatch(
+                        .captureDelayed(mode: .area, seconds: 3)
+                    )
                 } label: {
                     Label("Delayed Area (3s)", systemImage: "rectangle.dashed")
                 }
                 .disabled(appState.isCapturing)
 
                 Button {
-                    NotificationCenter.default.post(name: .captureDelayedFullscreen, object: nil)
+                    AppCommandRouter.shared.dispatch(
+                        .captureDelayed(mode: .fullscreen, seconds: 3)
+                    )
                 } label: {
                     Label("Delayed Full Screen (3s)", systemImage: "rectangle.inset.filled")
                 }
@@ -83,7 +95,7 @@ struct MenuBarView: View {
                 if appState.isCountingDown {
                     Divider()
                     Button {
-                        NotificationCenter.default.post(name: .cancelDelayedCapture, object: nil)
+                        AppCommandRouter.shared.dispatch(.cancelDelayedCapture)
                     } label: {
                         Label("Cancel Countdown", systemImage: "xmark.circle")
                     }
@@ -95,42 +107,42 @@ struct MenuBarView: View {
             Divider()
 
             Button {
-                NotificationCenter.default.post(name: .copyLastAsMarkdown, object: nil)
+                AppCommandRouter.shared.dispatch(.copyLastAsMarkdown)
             } label: {
                 Label("Copy as Markdown", systemImage: "doc.text")
             }
             .disabled(appState.lastScreenshot == nil)
 
             Button {
-                NotificationCenter.default.post(name: .copyLastWithCitation, object: nil)
+                AppCommandRouter.shared.dispatch(.copyLastWithCitation)
             } label: {
                 Label("Copy with Citation", systemImage: "quote.closing")
             }
             .disabled(appState.lastScreenshot == nil)
 
             Button {
-                NotificationCenter.default.post(name: .annotateLastCapture, object: nil)
+                AppCommandRouter.shared.dispatch(.annotateLastCapture)
             } label: {
                 Label("Annotate Last", systemImage: "pencil.tip")
             }
             .disabled(appState.lastScreenshot == nil)
 
             Button {
-                NotificationCenter.default.post(name: .pinScreenshot, object: nil)
+                AppCommandRouter.shared.dispatch(.pinScreenshot)
             } label: {
                 Label("Pin Screenshot", systemImage: "pin")
             }
             .disabled(appState.lastScreenshot == nil)
 
             Button {
-                NotificationCenter.default.post(name: .beautifyLastCapture, object: nil)
+                AppCommandRouter.shared.dispatch(.beautifyLastCapture)
             } label: {
                 Label("Beautify Last", systemImage: "sparkles")
             }
             .disabled(appState.lastScreenshot == nil)
 
             Button {
-                NotificationCenter.default.post(name: .redactLastCapture, object: nil)
+                AppCommandRouter.shared.dispatch(.redactLastCapture)
             } label: {
                 Label("Redact PII", systemImage: "eye.slash")
             }
@@ -152,7 +164,7 @@ struct MenuBarView: View {
         Divider()
 
         Button {
-            NotificationCenter.default.post(name: .showHistory, object: nil)
+            AppCommandRouter.shared.dispatch(.showHistory)
         } label: {
             Label("History", systemImage: "clock")
         }
@@ -160,14 +172,14 @@ struct MenuBarView: View {
         Divider()
 
         Button {
-            NotificationCenter.default.post(name: .showSettings, object: nil)
+            AppCommandRouter.shared.dispatch(.showSettings)
         } label: {
             Label("Preferences...", systemImage: "gear")
         }
         .keyboardShortcut(",")
 
         Button {
-            NotificationCenter.default.post(name: .showPermissionRepair, object: nil)
+            AppCommandRouter.shared.dispatch(.showPermissionRepair)
         } label: {
             Label("Screen Recording...", systemImage: "lock.shield")
         }
@@ -184,27 +196,4 @@ struct MenuBarView: View {
         }
         .keyboardShortcut("q")
     }
-}
-
-// MARK: - Notification Names
-
-extension Notification.Name {
-    static let captureArea = Notification.Name("captureArea")
-    static let captureWindow = Notification.Name("captureWindow")
-    static let captureFullscreen = Notification.Name("captureFullscreen")
-    static let captureRepeat = Notification.Name("captureRepeat")
-    static let captureDelayedArea = Notification.Name("captureDelayedArea")
-    static let captureDelayedFullscreen = Notification.Name("captureDelayedFullscreen")
-    static let copyLastAsMarkdown = Notification.Name("copyLastAsMarkdown")
-    static let copyLastWithCitation = Notification.Name("copyLastWithCitation")
-    static let copyLastOCRText = Notification.Name("copyLastOCRText")
-    static let annotateLastCapture = Notification.Name("annotateLastCapture")
-    static let pinScreenshot = Notification.Name("pinScreenshot")
-    static let showHistory = Notification.Name("showHistory")
-    static let captureCompleted = Notification.Name("captureCompleted")
-    static let showSettings = Notification.Name("showSettings")
-    static let cancelDelayedCapture = Notification.Name("cancelDelayedCapture")
-    static let beautifyLastCapture = Notification.Name("beautifyLastCapture")
-    static let redactLastCapture = Notification.Name("redactLastCapture")
-    static let showPermissionRepair = Notification.Name("showPermissionRepair")
 }

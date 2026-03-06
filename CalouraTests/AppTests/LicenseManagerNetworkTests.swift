@@ -79,7 +79,7 @@ final class LicenseManagerNetworkTests: XCTestCase {
 
     private var savedFirstLaunchDate: Date!
     private var savedLicenseKey: String!
-    private var savedIsLicenseActivated: Bool!
+    private var savedEntitlement: LicenseEntitlement?
     private var savedLastValidationDate: Date?
 
     override func setUp() {
@@ -91,12 +91,12 @@ final class LicenseManagerNetworkTests: XCTestCase {
         // Save original values
         savedFirstLaunchDate = settings.firstLaunchDate
         savedLicenseKey = settings.licenseKey
-        savedIsLicenseActivated = settings.isLicenseActivated
+        savedEntitlement = settings.currentLicenseEntitlement
         savedLastValidationDate = settings.lastLicenseValidationDate
 
         // Reset to unlicensed state
         settings.licenseKey = ""
-        settings.isLicenseActivated = false
+        settings.updateLicenseEntitlement(nil)
         settings.lastLicenseValidationDate = nil
 
         license = LicenseManager(settings: settings)
@@ -109,7 +109,7 @@ final class LicenseManagerNetworkTests: XCTestCase {
         // Restore original values
         settings.firstLaunchDate = savedFirstLaunchDate
         settings.licenseKey = savedLicenseKey
-        settings.isLicenseActivated = savedIsLicenseActivated
+        settings.updateLicenseEntitlement(savedEntitlement)
         settings.lastLicenseValidationDate = savedLastValidationDate
         super.tearDown()
     }
@@ -286,9 +286,12 @@ final class LicenseManagerNetworkTests: XCTestCase {
     func testRevalidation_refund_revokesLicense() async {
         // Set up as already licensed with a stale validation date to trigger revalidation
         settings.licenseKey = "VALID-KEY-1234"
-        settings.isLicenseActivated = true
-        // Set validation date to 2 days ago to exceed revalidation interval (1 day)
-        settings.lastLicenseValidationDate = Date().addingTimeInterval(-2 * 86_400)
+        let staleDate = Date().addingTimeInterval(-2 * 86_400)
+        settings.updateLicenseEntitlement(makeTestEntitlement(
+            validatedAt: staleDate,
+            refreshAfter: staleDate,
+            expiresAt: staleDate.addingTimeInterval(7 * 86_400)
+        ))
 
         MockURLProtocol.requestHandler = { _ in
             try makeGumroadResponse(json: makeSuccessJSON(refunded: true))
@@ -304,8 +307,12 @@ final class LicenseManagerNetworkTests: XCTestCase {
 
     func testRevalidation_networkError_doesNotRevoke() async {
         settings.licenseKey = "VALID-KEY-1234"
-        settings.isLicenseActivated = true
-        settings.lastLicenseValidationDate = Date().addingTimeInterval(-2 * 86_400)
+        let staleDate = Date().addingTimeInterval(-2 * 86_400)
+        settings.updateLicenseEntitlement(makeTestEntitlement(
+            validatedAt: staleDate,
+            refreshAfter: staleDate,
+            expiresAt: staleDate.addingTimeInterval(7 * 86_400)
+        ))
 
         MockURLProtocol.requestHandler = { _ in
             throw URLError(.notConnectedToInternet)
@@ -323,8 +330,12 @@ final class LicenseManagerNetworkTests: XCTestCase {
 
     func testRevalidation_oversizedResponse_doesNotRevoke() async {
         settings.licenseKey = "VALID-KEY-1234"
-        settings.isLicenseActivated = true
-        settings.lastLicenseValidationDate = Date().addingTimeInterval(-2 * 86_400)
+        let staleDate = Date().addingTimeInterval(-2 * 86_400)
+        settings.updateLicenseEntitlement(makeTestEntitlement(
+            validatedAt: staleDate,
+            refreshAfter: staleDate,
+            expiresAt: staleDate.addingTimeInterval(7 * 86_400)
+        ))
 
         MockURLProtocol.requestHandler = { _ in
             let url = URL(string: "https://api.gumroad.com/v2/licenses/verify")!
@@ -345,8 +356,12 @@ final class LicenseManagerNetworkTests: XCTestCase {
 
     func testRevalidation_wrongHost_doesNotRevoke() async {
         settings.licenseKey = "VALID-KEY-1234"
-        settings.isLicenseActivated = true
-        settings.lastLicenseValidationDate = Date().addingTimeInterval(-2 * 86_400)
+        let staleDate = Date().addingTimeInterval(-2 * 86_400)
+        settings.updateLicenseEntitlement(makeTestEntitlement(
+            validatedAt: staleDate,
+            refreshAfter: staleDate,
+            expiresAt: staleDate.addingTimeInterval(7 * 86_400)
+        ))
 
         MockURLProtocol.requestHandler = { _ in
             let redirectedURL = URL(string: "https://evil.com/v2/licenses/verify")!
@@ -367,9 +382,12 @@ final class LicenseManagerNetworkTests: XCTestCase {
 
     func testRevalidation_validResponse_updatesTimestamp() async {
         settings.licenseKey = "VALID-KEY-1234"
-        settings.isLicenseActivated = true
         let staleDate = Date().addingTimeInterval(-2 * 86_400)
-        settings.lastLicenseValidationDate = staleDate
+        settings.updateLicenseEntitlement(makeTestEntitlement(
+            validatedAt: staleDate,
+            refreshAfter: staleDate,
+            expiresAt: staleDate.addingTimeInterval(7 * 86_400)
+        ))
 
         MockURLProtocol.requestHandler = { _ in
             try makeGumroadResponse(json: makeSuccessJSON())

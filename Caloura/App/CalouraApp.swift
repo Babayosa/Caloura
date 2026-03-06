@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let annotationController = AnnotationWindowController()
     private let nagController = NagWindowController()
     private var isInitialLaunch = true
+    private var commandHandlerID: UUID?
 
     func applicationWillTerminate(_ notification: Notification) {
         // Synchronous flush — blocks until written, ensuring data survives process exit.
@@ -43,6 +44,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let status = PermissionCoordinator.shared.refreshPassiveStatus()
         AppState.shared.hasScreenRecordingPermission = status != .denied
+        if status != .denied {
+            Task { @MainActor in
+                await ScreenCaptureManager.shared.prewarmWindowShareableContent()
+            }
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -52,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let launchStart = CFAbsoluteTimeGetCurrent()
         HotKeyManager.shared.registerAll()
-        setupNotificationHandlers()
+        setupCommandHandlers()
 
         // Register URL scheme handler
         NSAppleEventManager.shared().setEventHandler(
@@ -76,6 +82,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let permissionCheckStart = CFAbsoluteTimeGetCurrent()
         let passiveStatus = PermissionCoordinator.shared.refreshPassiveStatus()
         AppState.shared.hasScreenRecordingPermission = passiveStatus != .denied
+        if passiveStatus != .denied {
+            Task { @MainActor in
+                await ScreenCaptureManager.shared.prewarmWindowShareableContent()
+            }
+        }
 
         if !AppSettings.shared.hasCompletedOnboarding {
             // First launch — always show setup guide
@@ -116,190 +127,119 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func setupNotificationHandlers() {
-        setupCaptureHandlers()
-        setupPostCaptureHandlers()
-        setupAIHandlers()
-        setupUIHandlers()
-    }
-
-    private func setupCaptureHandlers() {
-        let nc = NotificationCenter.default
-
-        nc.addObserver(forName: .captureArea, object: nil, queue: .main) { _ in
-            Task { @MainActor in
-                CapturePipeline.shared.captureArea()
-            }
-        }
-
-        nc.addObserver(forName: .captureWindow, object: nil, queue: .main) { _ in
-            Task { @MainActor in
-                CapturePipeline.shared.captureWindow()
-            }
-        }
-
-        nc.addObserver(forName: .captureFullscreen, object: nil, queue: .main) { _ in
-            Task { @MainActor in
-                CapturePipeline.shared.captureFullscreen()
-            }
-        }
-
-        nc.addObserver(forName: .captureRepeat, object: nil, queue: .main) { _ in
-            Task { @MainActor in
-                CapturePipeline.shared.captureRepeat()
-            }
-        }
-
-        nc.addObserver(forName: .captureDelayedArea, object: nil, queue: .main) { _ in
-            Task { @MainActor in
-                CapturePipeline.shared.captureDelayed(seconds: 3, mode: .area)
-            }
-        }
-
-        nc.addObserver(forName: .captureDelayedFullscreen, object: nil, queue: .main) { _ in
-            Task { @MainActor in
-                CapturePipeline.shared.captureDelayed(seconds: 3, mode: .fullscreen)
-            }
-        }
-
-        nc.addObserver(forName: .cancelDelayedCapture, object: nil, queue: .main) { _ in
-            Task { @MainActor in
-                CapturePipeline.shared.cancelDelayedCapture()
-            }
+    private func setupCommandHandlers() {
+        commandHandlerID = AppCommandRouter.shared.addHandler { [weak self] command in
+            self?.handle(command)
         }
     }
 
-    private func setupPostCaptureHandlers() {
-        let nc = NotificationCenter.default
-
-        nc.addObserver(forName: .copyLastAsMarkdown, object: nil, queue: .main) { _ in
-            Task { @MainActor in
-                CapturePipeline.shared.copyLastAsMarkdown()
-            }
+    private func handle(_ command: AppCommand) {
+        switch command {
+        case .captureArea:
+            CapturePipeline.shared.captureArea()
+        case .captureWindow:
+            CapturePipeline.shared.captureWindow()
+        case .captureFullscreen:
+            CapturePipeline.shared.captureFullscreen()
+        case .captureRepeat:
+            CapturePipeline.shared.captureRepeat()
+        case .captureDelayed(let mode, let seconds):
+            CapturePipeline.shared.captureDelayed(seconds: seconds, mode: mode)
+        case .cancelDelayedCapture:
+            CapturePipeline.shared.cancelDelayedCapture()
+        case .captureScroll:
+            CapturePipeline.shared.captureScroll()
+        case .copyLastImage:
+            CapturePipeline.shared.copyLastImage()
+        case .copyLastAsMarkdown:
+            CapturePipeline.shared.copyLastAsMarkdown()
+        case .copyLastWithCitation:
+            CapturePipeline.shared.copyLastWithCitation()
+        case .copyLastOCRText:
+            CapturePipeline.shared.copyLastOCRText()
+        case .annotateLastCapture:
+            handleAnnotateLastCapture()
+        case .pinScreenshot:
+            handlePinScreenshot()
+        case .beautifyLastCapture:
+            handleBeautifyLastCapture()
+        case .redactLastCapture:
+            handleRedactLastCapture()
+        case .showHistory:
+            historyController.show(appState: AppState.shared)
+        case .showSettings:
+            PreferencesWindowController.shared.show()
+        case .showPermissionRepair:
+            onboardingController.show(settings: AppSettings.shared)
         }
-
-        nc.addObserver(forName: .copyLastWithCitation, object: nil, queue: .main) { _ in
-            Task { @MainActor in
-                CapturePipeline.shared.copyLastWithCitation()
-            }
-        }
-
-        nc.addObserver(forName: .copyLastOCRText, object: nil, queue: .main) { _ in
-            Task { @MainActor in
-                CapturePipeline.shared.copyLastOCRText()
-            }
-        }
-
-        nc.addObserver(forName: .annotateLastCapture, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                guard let self = self else { return }
-                guard let screenshot = AppState.shared.lastScreenshot else { return }
-                self.annotationController.show(image: screenshot.image) { annotatedImage in
-                    if let cgImage = annotatedImage.cgImage(
-                        forProposedRect: nil, context: nil, hints: nil
-                    ) {
-                        if let filePath = screenshot.filePath {
-                            do {
-                                let pngData = try ImageProcessor.pngRepresentation(of: cgImage)
-                                try pngData.write(to: filePath)
-                                let updated = ProcessedScreenshot(
-                                    id: screenshot.id,
-                                    image: annotatedImage,
-                                    cgImage: cgImage,
-                                    pngData: pngData,
-                                    context: screenshot.context,
-                                    ocrText: screenshot.ocrText,
-                                    filePath: screenshot.filePath,
-                                    fileName: screenshot.fileName,
-                                    presetName: screenshot.presetName
-                                )
-                                AppState.shared.lastScreenshot = updated
-                            } catch {
-                                Logger(
-                                    subsystem: "com.caloura.app",
-                                    category: "Annotation"
-                                ).error(
-                                    "Failed to save annotated image: \(error.localizedDescription)"
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        nc.addObserver(forName: .pinScreenshot, object: nil, queue: .main) { _ in
-            Task { @MainActor in
-                guard let screenshot = AppState.shared.lastScreenshot else { return }
-                PinnedScreenshotManager.shared.pin(screenshot)
-            }
-        }
-
     }
 
-    private func setupAIHandlers() {
-        let nc = NotificationCenter.default
-
-        nc.addObserver(forName: .beautifyLastCapture, object: nil, queue: .main) { _ in
-            Task { @MainActor in
-                guard let screenshot = AppState.shared.lastScreenshot else { return }
-                BeautifyPreviewController.shared.show(
-                    cgImage: screenshot.cgImage,
-                    filePath: screenshot.filePath
-                )
-            }
-        }
-
-        nc.addObserver(forName: .redactLastCapture, object: nil, queue: .main) { _ in
-            Task { @MainActor in
-                guard let screenshot = AppState.shared.lastScreenshot else { return }
-                let pii = AppState.shared.lastPIIResult
-                if let pii, !pii.detections.isEmpty {
-                    RedactionReviewController.shared.show(
-                        cgImage: screenshot.cgImage,
-                        detections: pii.detections,
-                        filePath: screenshot.filePath
-                    )
-                } else {
+    private func handleAnnotateLastCapture() {
+        guard let screenshot = AppState.shared.lastScreenshot else { return }
+        annotationController.show(image: screenshot.image) { annotatedImage in
+            if let cgImage = annotatedImage.cgImage(
+                forProposedRect: nil, context: nil, hints: nil
+            ) {
+                Task { @MainActor in
                     do {
-                        let detections = try await PIIDetector.detect(
-                            in: screenshot.cgImage
+                        _ = try await ScreenshotArtifactCoordinator.shared.saveDerivedCapture(
+                            cgImage,
+                            basedOn: screenshot,
+                            suggestedSuffix: "annotated"
                         )
-                        if detections.isEmpty {
-                            AppState.shared.statusMessage = "No PII detected"
-                        } else {
-                            RedactionReviewController.shared.show(
-                                cgImage: screenshot.cgImage,
-                                detections: detections,
-                                filePath: screenshot.filePath
-                            )
-                        }
+                        AppState.shared.statusMessage = "Annotated image saved"
+                    } catch is CancellationError {
+                        AppState.shared.statusMessage = "Annotation save cancelled"
                     } catch {
-                        AppState.shared.statusMessage = "PII detection failed"
+                        Logger(
+                            subsystem: "com.caloura.app",
+                            category: "Annotation"
+                        ).error(
+                            "Failed to save annotated image: \(error.localizedDescription)"
+                        )
+                        AppState.shared.statusMessage = "Overwrite failed: \(error.localizedDescription)"
                     }
                 }
             }
         }
     }
 
-    private func setupUIHandlers() {
-        let nc = NotificationCenter.default
+    private func handlePinScreenshot() {
+        guard let screenshot = AppState.shared.lastScreenshot else { return }
+        PinnedScreenshotManager.shared.pin(screenshot)
+    }
 
-        nc.addObserver(forName: .showHistory, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                self?.historyController.show(appState: AppState.shared)
-            }
+    private func handleBeautifyLastCapture() {
+        guard let screenshot = AppState.shared.lastScreenshot else { return }
+        BeautifyPreviewController.shared.show(screenshot: screenshot)
+    }
+
+    private func handleRedactLastCapture() {
+        guard let screenshot = AppState.shared.lastScreenshot else { return }
+        let pii = AppState.shared.lastPIIResult
+        if let pii, !pii.detections.isEmpty {
+            RedactionReviewController.shared.show(
+                screenshot: screenshot,
+                detections: pii.detections
+            )
+            return
         }
 
-        nc.addObserver(forName: .showSettings, object: nil, queue: .main) { _ in
-            Task { @MainActor in
-                PreferencesWindowController.shared.show()
-            }
-        }
-
-        nc.addObserver(forName: .showPermissionRepair, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
-                self?.onboardingController.show(settings: AppSettings.shared)
+        Task {
+            do {
+                let detections = try await PIIDetector.detect(
+                    in: screenshot.cgImage
+                )
+                if detections.isEmpty {
+                    AppState.shared.statusMessage = "No PII detected"
+                } else {
+                    RedactionReviewController.shared.show(
+                        screenshot: screenshot,
+                        detections: detections
+                    )
+                }
+            } catch {
+                AppState.shared.statusMessage = "PII detection failed"
             }
         }
     }

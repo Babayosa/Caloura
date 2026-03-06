@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import os.log
 
 struct ScreenshotMetadata {
     let smartFileName: String?
@@ -13,6 +14,10 @@ protocol MetadataGenerating {
 
 struct SmartMetadataGenerator: MetadataGenerating {
     static let shared = SmartMetadataGenerator()
+    private static let logger = Logger(
+        subsystem: "com.caloura.app",
+        category: "SmartMetadata"
+    )
 
     func generate(ocrText: String, sourceApp: String?, windowTitle: String?) async -> ScreenshotMetadata? {
         let trimmedOCR = String(ocrText.prefix(1000))
@@ -39,8 +44,17 @@ struct SmartMetadataGenerator: MetadataGenerating {
         """
 
         let session = LanguageModelSession()
-        let response: String? = await withTimeout(seconds: 2) {
-            try await session.respond(to: prompt).content
+        let response: String?
+        do {
+            response = try await withTimeout(seconds: 2) {
+                try await session.respond(to: prompt).content
+            }
+        } catch TimeoutError.timedOut {
+            Self.logger.debug("Metadata generation timed out")
+            return nil
+        } catch {
+            Self.logger.debug("Metadata generation failed: \(error.localizedDescription)")
+            return nil
         }
 
         guard let response else { return nil }

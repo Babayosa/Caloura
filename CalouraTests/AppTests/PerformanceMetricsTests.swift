@@ -47,4 +47,21 @@ final class PerformanceMetricsTests: XCTestCase {
         XCTAssertEqual(PerformanceMetricStage.total.rawValue, "total")
         XCTAssertEqual(PerformanceMetricStage.historyWindowOpen.rawValue, "history_window_open")
     }
+
+    @MainActor
+    func testCapturePerformanceRecorderSummarizesByModeAndEvent() {
+        let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 50, reportInterval: 5)
+
+        for value in [10.0, 20.0, 30.0, 40.0, 50.0] {
+            let session = recorder.beginSession(mode: .area)
+            recorder.recordDuration(.rawPreviewVisible, milliseconds: value, in: session)
+            recorder.finishSession(session)
+        }
+
+        let summary = recorder.summary(for: .area, event: .rawPreviewVisible)
+        XCTAssertEqual(summary?.sampleCount, 5)
+        XCTAssertEqual(summary?.latestMilliseconds, 50.0)
+        XCTAssertEqual(summary?.p50Milliseconds, 30.0)
+        XCTAssertEqual(summary?.p95Milliseconds, 40.0)
+    }
 }

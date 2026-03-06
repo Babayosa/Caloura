@@ -6,7 +6,7 @@ final class RedactionReviewController {
     static let shared = RedactionReviewController()
     private let presenter = SingleWindowPresenter<RedactionReviewView>()
 
-    func show(cgImage: CGImage, detections: [PIIDetection], filePath: URL?) {
+    func show(screenshot: ProcessedScreenshot, detections: [PIIDetection]) {
         presenter.show(
             config: .init(
                 title: "Review Detected PII",
@@ -17,9 +17,8 @@ final class RedactionReviewController {
             )
         ) {
             RedactionReviewView(
-                originalImage: cgImage,
-                detections: detections,
-                filePath: filePath
+                screenshot: screenshot,
+                detections: detections
             )
         }
     }
@@ -30,19 +29,17 @@ final class RedactionReviewController {
 }
 
 struct RedactionReviewView: View {
-    let originalImage: CGImage
+    let screenshot: ProcessedScreenshot
     let detections: [PIIDetection]
-    let filePath: URL?
 
     @State private var selectedIndices: Set<Int>
     @State private var redactedImage: CGImage?
     @State private var isRedacting = false
     @State private var hasRedacted = false
 
-    init(originalImage: CGImage, detections: [PIIDetection], filePath: URL?) {
-        self.originalImage = originalImage
+    init(screenshot: ProcessedScreenshot, detections: [PIIDetection]) {
+        self.screenshot = screenshot
         self.detections = detections
-        self.filePath = filePath
         // All detections selected by default
         _selectedIndices = State(initialValue: Set(detections.indices))
     }
@@ -50,7 +47,7 @@ struct RedactionReviewView: View {
     var body: some View {
         VStack(spacing: 12) {
             // Preview
-            Image(decorative: redactedImage ?? originalImage, scale: 1.0)
+            Image(decorative: redactedImage ?? screenshot.cgImage, scale: 1.0)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -127,7 +124,7 @@ struct RedactionReviewView: View {
     private func applyRedaction() async {
         isRedacting = true
         let regions = selectedIndices.map { detections[$0].boundingBox }
-        let result = await RedactionEngine.redact(cgImage: originalImage, regions: regions)
+        let result = await RedactionEngine.redact(cgImage: screenshot.cgImage, regions: regions)
         redactedImage = result
         isRedacting = false
         hasRedacted = true
@@ -136,42 +133,31 @@ struct RedactionReviewView: View {
     private func commitAndClose() async {
         guard let redactedImage else { return }
 
-        if let filePath {
-            let saved = await saveRedactedImage(redactedImage, to: filePath)
-            if !saved {
-                AppState.shared.statusMessage = "Failed to save redacted image"
-                return
-            }
+        do {
+            _ = try await ScreenshotArtifactCoordinator.shared.saveDerivedCapture(
+                redactedImage,
+                basedOn: screenshot,
+                suggestedSuffix: "redacted"
+            )
+        } catch is CancellationError {
+            AppState.shared.statusMessage = "Redaction save cancelled"
+            return
+        } catch {
+            AppState.shared.statusMessage = "Overwrite failed: \(error.localizedDescription)"
+            return
         }
 
         let size = NSSize(width: redactedImage.width, height: redactedImage.height)
         let nsImage = NSImage(cgImage: redactedImage, size: size)
-        ClipboardManager.copyNSImage(nsImage)
+        do {
+            try ClipboardManager.copyNSImage(nsImage)
+        } catch {
+            AppState.shared.statusMessage = error.localizedDescription
+            return
+        }
 
         AppState.shared.statusMessage = "Redacted \(selectedIndices.count) item(s)"
         RedactionReviewController.shared.close()
-    }
-
-    private func saveRedactedImage(_ cgImage: CGImage, to url: URL) async -> Bool {
-        await Task.detached {
-            let tempURL = url.deletingLastPathComponent()
-                .appendingPathComponent(UUID().uuidString + ".tmp.png")
-            guard let dest = CGImageDestinationCreateWithURL(
-                tempURL as CFURL, "public.png" as CFString, 1, nil
-            ) else { return false }
-            CGImageDestinationAddImage(dest, cgImage, nil)
-            guard CGImageDestinationFinalize(dest) else {
-                try? FileManager.default.removeItem(at: tempURL)
-                return false
-            }
-            do {
-                _ = try FileManager.default.replaceItemAt(url, withItemAt: tempURL)
-                return true
-            } catch {
-                try? FileManager.default.removeItem(at: tempURL)
-                return false
-            }
-        }.value
     }
 
     private func piiTypeBadge(_ type: PIIType) -> some View {
