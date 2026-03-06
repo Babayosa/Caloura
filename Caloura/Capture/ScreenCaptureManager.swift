@@ -129,7 +129,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
 
     /// Once SCK fails permanently (e.g. user denied permission), skip it on
     /// subsequent captures to avoid repeated system prompts and latency.
-    internal(set) var sckFailed: Bool = false
+    var sckFailed: Bool = false
 
     /// Consecutive transient SCK failure count. After
     /// `maxTransientFailures` consecutive transient failures, `sckFailed`

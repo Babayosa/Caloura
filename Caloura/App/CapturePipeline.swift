@@ -74,10 +74,10 @@ final class CapturePipeline: ObservableObject {
 
     // MARK: - Mutable State
 
-    internal(set) var overlayWindows: [CaptureOverlayWindow] = []
-    internal(set) var screenOverlays: [ScreenSelectionOverlayWindow] = []
-    internal(set) var areaCaptureSession: (any AreaCaptureSessionHandling)?
-    internal(set) var fullscreenCaptureSession: (any FullscreenCaptureSessionHandling)?
+    var overlayWindows: [CaptureOverlayWindow] = []
+    var screenOverlays: [ScreenSelectionOverlayWindow] = []
+    var areaCaptureSession: (any AreaCaptureSessionHandling)?
+    var fullscreenCaptureSession: (any FullscreenCaptureSessionHandling)?
     var delayedCaptureTask: Task<Void, Never>?
     var scrollCaptureTask: Task<ScrollCaptureEngine.Result, Never>?
     /// Tracks whether the first mouseDown metric has been logged for the current capture session.
