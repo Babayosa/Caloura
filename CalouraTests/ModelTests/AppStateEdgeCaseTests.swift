@@ -122,23 +122,31 @@ final class AppStateEdgeCaseTests: XCTestCase {
 
         XCTAssertEqual(appState.recentScreenshots.count, 50)
 
-        // Force save and wait for debounce to settle
-        appState.saveHistory()
-        try await Task.sleep(nanoseconds: 1_000_000_000) // 1s
+        // Force immediate save (skip debounce) and poll until file contains the expected data
+        appState.saveHistoryNow()
+        let historyURL = historyFileURL!
+        let storeDefaults = defaults!
+        var reloaded: AppState?
+        await pollUntil(timeout: 3.0) {
+            guard FileManager.default.fileExists(atPath: historyURL.path) else { return false }
+            let candidate = AppState(defaults: storeDefaults, historyStoreURL: historyURL)
+            if candidate.recentScreenshots.count == 50 {
+                reloaded = candidate
+                return true
+            }
+            return false
+        }
 
-        // Reload into a fresh AppState using the same backing store
-        let reloaded = AppState(
-            defaults: defaults,
-            historyStoreURL: historyFileURL
-        )
+        // Use the reloaded state verified by polling, or create one for assertion failure message
+        let verified = reloaded ?? AppState(defaults: defaults, historyStoreURL: historyFileURL)
 
-        XCTAssertEqual(reloaded.recentScreenshots.count, 50)
+        XCTAssertEqual(verified.recentScreenshots.count, 50)
         XCTAssertEqual(
-            reloaded.recentScreenshots[0].fileName,
+            verified.recentScreenshots[0].fileName,
             "persist_59.png"
         )
         XCTAssertEqual(
-            reloaded.recentScreenshots[49].fileName,
+            verified.recentScreenshots[49].fileName,
             "persist_10.png"
         )
     }

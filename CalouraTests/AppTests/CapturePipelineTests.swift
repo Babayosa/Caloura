@@ -260,7 +260,7 @@ final class CapturePipelineTests: XCTestCase {
             testName: #function,
             recognizeText: { cgImage in
                 if cgImage.width == 101 {
-                    try? await Task.sleep(for: .milliseconds(80))
+                    try? await Task.sleep(for: .milliseconds(300))
                 }
                 return "text-\(cgImage.width)"
             }
@@ -523,7 +523,9 @@ final class CapturePipelineTests: XCTestCase {
                 pipeline.appState.previewPhase(for: screenshot.id),
                 .enrichmentPending
             )
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            await pollUntil(timeout: 3.0) {
+                pipeline.appState.previewPhase(for: screenshot.id) == .enrichmentComplete
+            }
             XCTAssertEqual(
                 pipeline.appState.previewPhase(for: screenshot.id),
                 .enrichmentComplete

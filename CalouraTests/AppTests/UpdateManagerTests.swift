@@ -85,7 +85,7 @@ final class UpdateManagerTests: XCTestCase {
         let manager = UpdateManager(settings: makeSettings(#function), controller: controller)
 
         controller.setCanCheckForUpdates(false)
-        await waitForMainQueuePropagation()
+        await pollUntil { !manager.canCheckForUpdates }
 
         XCTAssertFalse(manager.canCheckForUpdates)
     }
@@ -96,7 +96,7 @@ final class UpdateManagerTests: XCTestCase {
         let manager = UpdateManager(settings: settings, controller: controller)
 
         settings.checkForUpdatesAutomatically = false
-        await waitForMainQueuePropagation()
+        await pollUntil { !controller.automaticallyChecksForUpdates }
 
         XCTAssertEqual(manager.state, .idle)
         XCTAssertFalse(controller.automaticallyChecksForUpdates)
@@ -193,9 +193,6 @@ final class UpdateManagerTests: XCTestCase {
         XCTAssertEqual(manager.errorSummary, "bad feed")
     }
 
-    private func waitForMainQueuePropagation() async {
-        try? await Task.sleep(for: .milliseconds(20))
-    }
 }
 
 @MainActor

@@ -110,6 +110,11 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
     }
 
     func testRelaunchApp_failureUpdatesStatusMessage() async {
+        let originalStatus = AppState.shared.statusMessage
+        addTeardownBlock { @MainActor in
+            AppState.shared.statusMessage = originalStatus
+        }
+
         let box = DependencyBox()
         let manager = ScreenCaptureManager(
             permissionDependencies: makeDependencies(
@@ -124,7 +129,7 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
         AppState.shared.statusMessage = ""
 
         manager.relaunchApp()
-        try? await Task.sleep(for: .milliseconds(20))
+        await pollUntil { AppState.shared.statusMessage == "Restart failed: boom" }
 
         XCTAssertEqual(AppState.shared.statusMessage, "Restart failed: boom")
     }
@@ -144,7 +149,7 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
         XCTAssertTrue(box.openedURLs[0].absoluteString.contains("Privacy_ScreenCapture"))
     }
 
-    func testShowPermissionAlert_grantedButFailingRestartRunsOpenToolAndTerminates() async {
+    func testShowPermissionAlert_grantedButFailingRestartRelaunchesAndTerminates() async {
         let box = DependencyBox()
         let manager = ScreenCaptureManager(
             permissionDependencies: makeDependencies(
@@ -152,13 +157,15 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
                 alertAction: .restartApp
             )
         )
+        let expectation = expectation(description: "terminate called")
+        box.onTerminate = {
+            expectation.fulfill()
+        }
 
         manager.showPermissionAlert(for: .grantedButFailing)
-        try? await Task.sleep(for: .milliseconds(50))
 
-        XCTAssertEqual(box.runRepairToolCalls.count, 1)
-        XCTAssertEqual(box.runRepairToolCalls.first?.0.lastPathComponent, "open")
-        XCTAssertEqual(box.terminateCount, 1)
+        await fulfillment(of: [expectation], timeout: 1.0)
+        XCTAssertTrue(box.runRepairToolCalls.isEmpty)
     }
 
     func testShowPermissionAlert_grantedButFailingOpenSettingsUsesURLHandler() {

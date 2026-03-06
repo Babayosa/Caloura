@@ -196,11 +196,16 @@ extension CapturePipeline {
                 do {
                     _ = try await ScreenshotArtifactCoordinator.shared.saveCapture(screenshot)
                     await MainActor.run {
-                        self.appState.setCapturePreviewPhase(
-                            .enrichmentPending,
-                            for: screenshot.id
-                        )
-                        self.addToHistoryWithOCR(screenshot)
+                        let phase = self.appState.previewPhase(for: screenshot.id)
+                        let alreadyEnriched = phase == .enrichmentPending
+                            || phase == .enrichmentComplete
+                        if !alreadyEnriched {
+                            self.appState.setCapturePreviewPhase(
+                                .enrichmentPending,
+                                for: screenshot.id
+                            )
+                            self.addToHistoryWithOCR(screenshot)
+                        }
                         self.appState.statusMessage = "Saved to disk"
                     }
                 } catch {
@@ -234,6 +239,14 @@ extension CapturePipeline {
         case .dismiss:
             QuickAccessOverlay.shared.dismiss()
         }
+    }
+
+    func saveLastCapture() {
+        guard let screenshot = appState.lastScreenshot else {
+            appState.statusMessage = "No screenshot available"
+            return
+        }
+        performQuickAction(.save, for: screenshot)
     }
 
     func copyLastImage() {

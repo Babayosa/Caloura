@@ -3,7 +3,7 @@ options:
   bundleIdPrefix: com.caloura
   deploymentTarget:
     macOS: "26.0"
-  xcodeVersion: "15.0"
+  xcodeVersion: "26.0"
   createIntermediateGroups: true
   defaultConfig: Debug
 
@@ -17,10 +17,9 @@ packages:
 
 settings:
   base:
-    SWIFT_VERSION: "5.9"
-    MACOSX_DEPLOYMENT_TARGET: "26.0"
-    MARKETING_VERSION: "1.1.0"
-    CURRENT_PROJECT_VERSION: "13"
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "2.0.0"
+    CURRENT_PROJECT_VERSION: "15"
     CALOURA_RELEASE_CHANNEL: stable
     SWIFT_STRICT_CONCURRENCY: complete
     ENABLE_USER_SCRIPT_SANDBOXING: YES
@@ -56,8 +55,8 @@ targets:
           CODE_SIGN_IDENTITY: "Developer ID Application"
           CODE_SIGN_STYLE: Manual
           CALOURA_REQUIRE_SIGNED_ENTITLEMENT: YES
-          CALOURA_LICENSE_ENTITLEMENT_URL: ""
-          CALOURA_LICENSE_ENTITLEMENT_PUBLIC_KEY: ""
+          CALOURA_LICENSE_ENTITLEMENT_URL: "https://caloura-license.bigdaddy1858.workers.dev"
+          CALOURA_LICENSE_ENTITLEMENT_PUBLIC_KEY: "zHrtbRn7DB2hCslB0M6MoA6ZDm234OrgY6LPehROwO0="
     dependencies:
       - sdk: AppIntents.framework
       - package: KeyboardShortcuts
@@ -82,6 +81,7 @@ targets:
         CalouraLicenseEntitlementURL: "$(CALOURA_LICENSE_ENTITLEMENT_URL)"
         CalouraLicenseEntitlementPublicKey: "$(CALOURA_LICENSE_ENTITLEMENT_PUBLIC_KEY)"
         SUPublicEDKey: "jvH62SR8OsHYcY9lPGDneNLbOWijs5GGempwmXnEUL8="
+        NSHumanReadableCopyright: "Copyright © 2025 Caloura. All rights reserved."
         SUFeedURL: "https://caloura.app/appcast.xml"
 
   CalouraTests:

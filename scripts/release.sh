@@ -178,14 +178,14 @@ check_minimum_system_version_alignment() {
     local project_min
 
     plist_min="$(read_plist_value "$plist_path" "LSMinimumSystemVersion")"
-    project_min="$(awk -F'"' '/MACOSX_DEPLOYMENT_TARGET:/ {print $2; exit}' "$PROJECT_DIR/project.yml")"
+    project_min="$(awk -F'"' '/deploymentTarget:/{found=1} found && /macOS:/{print $2; exit}' "$PROJECT_DIR/project.yml")"
 
     if [ -z "$plist_min" ]; then
         fail_release "Missing LSMinimumSystemVersion in $plist_path."
     fi
 
     if [ -z "$project_min" ]; then
-        fail_release "Missing MACOSX_DEPLOYMENT_TARGET in project.yml."
+        fail_release "Missing deploymentTarget.macOS in project.yml."
     fi
 
     if [ "$plist_min" != "$project_min" ]; then
@@ -246,7 +246,7 @@ verify_release_environment() {
         fail_release "Developer ID Application signing identity not found in Keychain."
     fi
 
-    if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" --page-size 1 >/dev/null 2>&1; then
+    if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
         fail_release "Notarization profile '$NOTARY_PROFILE' is missing or unusable."
     fi
 
@@ -275,16 +275,22 @@ verify_signed_identity() {
 
 verify_gatekeeper_and_notarization() {
     local app_path="$1"
+    local spctl_output
+    spctl_output="$(mktemp)"
 
-    if ! spctl -a -vv "$app_path" >/tmp/caloura-spctl.txt 2>&1; then
-        cat /tmp/caloura-spctl.txt
+    if ! spctl -a -vv "$app_path" >"$spctl_output" 2>&1; then
+        cat "$spctl_output"
+        rm -f "$spctl_output"
         fail_release "Gatekeeper assessment failed."
     fi
 
-    if ! grep -q "accepted" /tmp/caloura-spctl.txt; then
-        cat /tmp/caloura-spctl.txt
+    if ! grep -q "accepted" "$spctl_output"; then
+        cat "$spctl_output"
+        rm -f "$spctl_output"
         fail_release "Gatekeeper did not accept the app."
     fi
+
+    rm -f "$spctl_output"
 
     xcrun stapler validate "$app_path"
     echo "    Gatekeeper and stapler validation passed"

@@ -265,7 +265,7 @@ final class UITestHostWindowController: NSWindowController {
             space: colorSpace,
             bitmapInfo: bitmapInfo
         ) else {
-            fatalError("Failed to create UI test preview context")
+            return Self.fallbackImage
         }
 
         context.setFillColor(NSColor.windowBackgroundColor.cgColor)
@@ -274,8 +274,21 @@ final class UITestHostWindowController: NSWindowController {
         context.fill(CGRect(x: 12, y: 12, width: width - 24, height: height - 24))
 
         guard let image = context.makeImage() else {
-            fatalError("Failed to create UI test preview image")
+            return Self.fallbackImage
         }
         return image
     }
+
+    private static let fallbackImage: CGImage = {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+        let ctx = CGContext(
+            data: nil, width: 1, height: 1,
+            bitsPerComponent: 8, bytesPerRow: 4,
+            space: colorSpace, bitmapInfo: bitmapInfo
+        )!
+        ctx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        return ctx.makeImage()!
+    }()
 }

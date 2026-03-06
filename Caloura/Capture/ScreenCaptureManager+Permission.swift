@@ -141,20 +141,7 @@ extension ScreenCaptureManager {
         case .grantedButFailing:
             switch permissionDependencies.presentAlert(state) {
             case .restartApp:
-                let bundleURL = Bundle.main.bundleURL
-                Task { @MainActor in
-                    do {
-                        try await permissionDependencies.runRepairTool(
-                            URL(filePath: "/usr/bin/open"),
-                            ["-n", bundleURL.path]
-                        )
-                        permissionDependencies.terminateApplication()
-                    } catch {
-                        let description = error.localizedDescription
-                        logger.warning("Restart relaunch failed: \(description, privacy: .public)")
-                        AppState.shared.statusMessage = "Restart failed: \(description)"
-                    }
-                }
+                relaunchApp()
             case .openSystemSettings:
                 permissionDependencies.openURL(settingsURL)
             case .cancel:

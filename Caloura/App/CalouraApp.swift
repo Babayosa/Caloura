@@ -169,6 +169,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             CapturePipeline.shared.copyLastWithCitation()
         case .copyLastOCRText:
             CapturePipeline.shared.copyLastOCRText()
+        case .saveLastCapture:
+            CapturePipeline.shared.saveLastCapture()
         case .annotateLastCapture:
             handleAnnotateLastCapture()
         case .pinScreenshot:
@@ -272,10 +274,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let status = SMAppService.mainApp.status
         if status == .enabled && !settings.launchAtLogin {
             settings.launchAtLogin = true
+        } else if status == .requiresApproval {
+            // User hasn't decided yet — don't flip the setting
         } else if status != .enabled && settings.launchAtLogin {
             settings.launchAtLogin = false
         }
-        if settings.launchAtLogin {
+        if settings.launchAtLogin && status != .enabled {
             do {
                 try SMAppService.mainApp.register()
             } catch {

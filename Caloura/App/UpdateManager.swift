@@ -84,7 +84,7 @@ protocol UpdateControlling: AnyObject {
 @MainActor
 final class UpdateManager: ObservableObject {
     private let settings: AppSettings
-    private var controller: (any UpdateControlling)!
+    private let controller: any UpdateControlling
     private var delegateHandler: UpdateDelegateHandler?
     private var cancellables: Set<AnyCancellable> = []
 
@@ -166,7 +166,7 @@ final class UpdateManager: ObservableObject {
 
     func finishUpdateCycle(error: Error?) {
         finishUpdateCycle(
-            state: error.map { UpdateStateClassifier.classifyCycleResult(UpdateErrorSnapshot(error: $0)) } ?? nil
+            state: error.flatMap { UpdateStateClassifier.classifyCycleResult(UpdateErrorSnapshot(error: $0)) }
         )
     }
 

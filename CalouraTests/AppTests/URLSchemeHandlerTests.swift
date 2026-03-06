@@ -135,6 +135,11 @@ final class URLSchemeHandlerTests: XCTestCase {
 
     @MainActor
     func testHandle_presetNormalization() {
+        let originalPreset = AppSettings.shared.activePreset
+        addTeardownBlock { @MainActor in
+            AppSettings.shared.activePreset = originalPreset
+        }
+
         let url = URL(string: "caloura://capture/area?preset=lecture-notes")!
         URLSchemeHandler.handle(url)
         XCTAssertEqual(AppSettings.shared.activePreset, "Lecture Notes")

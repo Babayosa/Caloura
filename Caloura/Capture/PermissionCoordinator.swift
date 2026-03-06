@@ -193,6 +193,7 @@ final class PermissionCoordinator: ObservableObject {
     private var isShowingAlert = false
     private var lastBlockingAlertAt: Date?
     private let alertCooldownSeconds: TimeInterval = 45
+    private var cooldownResetTask: Task<Void, Never>?
 
     private enum Keys {
         static let lastWorkingIdentityFingerprint = "permissionLastWorkingIdentityFingerprint"
@@ -394,6 +395,19 @@ final class PermissionCoordinator: ObservableObject {
 
     private func updateCooldownInModel(cooldownActive: Bool) {
         permissionUIModel.isAlertCooldownActive = cooldownActive
+        if cooldownActive {
+            scheduleCooldownReset()
+        }
+    }
+
+    private func scheduleCooldownReset() {
+        cooldownResetTask?.cancel()
+        let seconds = alertCooldownSeconds
+        cooldownResetTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            self?.permissionUIModel.isAlertCooldownActive = false
+        }
     }
 
     private func isIdentityMismatch(_ identity: PermissionIdentity) -> Bool {

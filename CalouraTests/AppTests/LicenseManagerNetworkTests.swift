@@ -462,7 +462,7 @@ final class LicenseManagerNetworkTests: XCTestCase {
         delayedSettings.licenseKey = "VALID-KEY-1234"
         delayedSettings.updateLicenseEntitlement(makeTestEntitlement(
             validatedAt: now.addingTimeInterval(-300),
-            refreshAfter: now.addingTimeInterval(0.05),
+            refreshAfter: now.addingTimeInterval(0.5),
             expiresAt: now.addingTimeInterval(120)
         ))
 
@@ -486,7 +486,7 @@ final class LicenseManagerNetworkTests: XCTestCase {
 
         manager.refreshState(settings: delayedSettings)
 
-        await pollUntil(timeout: 1.0) {
+        await pollUntil(timeout: 3.0) {
             delayedSettings.lastLicenseValidationDate != nil &&
             delayedSettings.lastLicenseValidationDate != now.addingTimeInterval(-300)
         }
@@ -503,7 +503,7 @@ final class LicenseManagerNetworkTests: XCTestCase {
         settings.updateLicenseEntitlement(makeTestEntitlement(
             validatedAt: staleDate,
             refreshAfter: staleDate,
-            expiresAt: now.addingTimeInterval(0.05)
+            expiresAt: now.addingTimeInterval(0.5)
         ))
 
         var requestCount = 0

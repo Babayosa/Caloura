@@ -68,7 +68,7 @@ struct URLSchemeHandler {
                 case "copy-ocr":
                     AppCommandRouter.shared.dispatch(.copyLastOCRText)
                 case "save":
-                    break // Already handled by pipeline if autoSaveToDisk is on
+                    AppCommandRouter.shared.dispatch(.saveLastCapture)
                 default:
                     let msg = "Unexpected post-capture action skipped: \(action)"
                     URLSchemeHandler.logger.warning("\(msg, privacy: .public)")
@@ -96,7 +96,7 @@ struct URLSchemeHandler {
     private static let throttleInterval: TimeInterval = 0.5
 
     /// Timestamp of the last successfully accepted request.
-    static var lastHandledDate: Date?
+    internal(set) static var lastHandledDate: Date?
 
     /// Allowed capture modes for the main mode switch.
     private static let allowedCaptureModes: Set<String> = [

@@ -105,9 +105,9 @@ run_step() {
 
 check_log_for_warnings() {
   local log_file="$1"
-  if rg -n "warning:" "$log_file" >/dev/null; then
+  if grep -n "warning:" "$log_file" >/dev/null; then
     echo "ERROR: warnings found in $(basename "$log_file")"
-    rg -n "warning:" "$log_file"
+    grep -n "warning:" "$log_file"
     exit 1
   fi
 }
@@ -215,7 +215,7 @@ if [[ "$ui_test_exit" -ne 0 ]]; then
     echo "Inspect $UI_TEST_LOG and verify Xcode automation permissions and desktop-session state." >&2
     exit 1
   fi
-  if rg -n "Timed out while enabling automation mode" "$UI_TEST_LOG" >/dev/null; then
+  if grep -n "Timed out while enabling automation mode" "$UI_TEST_LOG" >/dev/null; then
     echo "ERROR: UI smoke tests failed because macOS could not enable automation mode." >&2
     echo "Run scripts/validate_ui_automation_environment.sh from the logged-in desktop session" >&2
     echo "and grant Accessibility access to Xcode plus the Xcode UI-testing helper app." >&2

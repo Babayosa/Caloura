@@ -12,6 +12,7 @@ enum AppCommand: Equatable {
     case copyLastAsMarkdown
     case copyLastWithCitation
     case copyLastOCRText
+    case saveLastCapture
     case annotateLastCapture
     case pinScreenshot
     case beautifyLastCapture
