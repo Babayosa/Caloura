@@ -4,11 +4,13 @@ import XCTest
 @MainActor
 final class PresetManagerTests: XCTestCase {
 
-    private var presetManager: PresetManager!
+    nonisolated(unsafe) private var presetManager: PresetManager!
 
     override func setUp() {
         super.setUp()
-        presetManager = PresetManager.shared
+        presetManager = MainActor.assumeIsolated {
+            PresetManager.shared
+        }
     }
 
     // MARK: - Lookup by name

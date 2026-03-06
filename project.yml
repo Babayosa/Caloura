@@ -21,6 +21,7 @@ settings:
     MACOSX_DEPLOYMENT_TARGET: "26.0"
     MARKETING_VERSION: "1.1.0"
     CURRENT_PROJECT_VERSION: "13"
+    CALOURA_RELEASE_CHANNEL: stable
     SWIFT_STRICT_CONCURRENCY: complete
     ENABLE_USER_SCRIPT_SANDBOXING: YES
 
@@ -30,6 +31,10 @@ targets:
     platform: macOS
     sources:
       - path: Caloura
+    preBuildScripts:
+      - path: scripts/validate_release_build_settings.sh
+        name: Validate Release Build Settings
+        basedOnDependencyAnalysis: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.caloura.app
@@ -41,12 +46,20 @@ targets:
         DEVELOPMENT_TEAM: NG4ML6Q47T
       configs:
         Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: com.caloura.app.debug
           CODE_SIGN_IDENTITY: "Apple Development"
           CODE_SIGN_STYLE: Automatic
+          CALOURA_REQUIRE_SIGNED_ENTITLEMENT: NO
+          CALOURA_LICENSE_ENTITLEMENT_URL: ""
+          CALOURA_LICENSE_ENTITLEMENT_PUBLIC_KEY: ""
         Release:
           CODE_SIGN_IDENTITY: "Developer ID Application"
           CODE_SIGN_STYLE: Manual
+          CALOURA_REQUIRE_SIGNED_ENTITLEMENT: YES
+          CALOURA_LICENSE_ENTITLEMENT_URL: ""
+          CALOURA_LICENSE_ENTITLEMENT_PUBLIC_KEY: ""
     dependencies:
+      - sdk: AppIntents.framework
       - package: KeyboardShortcuts
       - package: Sparkle
     info:
@@ -54,15 +67,20 @@ targets:
       properties:
         CFBundleName: Caloura
         CFBundleDisplayName: Caloura
-        CFBundleIdentifier: com.caloura.app
+        CFBundleIdentifier: "$(PRODUCT_BUNDLE_IDENTIFIER)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundlePackageType: APPL
         CFBundleExecutable: Caloura
+        LSApplicationCategoryType: public.app-category.productivity
         LSMinimumSystemVersion: "26.0"
         LSUIElement: true
         NSScreenCaptureUsageDescription: "Caloura needs screen recording access to capture screenshots."
         NSAccessibilityUsageDescription: "Caloura needs Accessibility access to simulate scrolling for Scroll Capture."
+        CalouraReleaseChannel: "$(CALOURA_RELEASE_CHANNEL)"
+        CalouraRequireSignedEntitlement: "$(CALOURA_REQUIRE_SIGNED_ENTITLEMENT)"
+        CalouraLicenseEntitlementURL: "$(CALOURA_LICENSE_ENTITLEMENT_URL)"
+        CalouraLicenseEntitlementPublicKey: "$(CALOURA_LICENSE_ENTITLEMENT_PUBLIC_KEY)"
         SUPublicEDKey: "jvH62SR8OsHYcY9lPGDneNLbOWijs5GGempwmXnEUL8="
         SUFeedURL: "https://caloura.app/appcast.xml"
 
@@ -72,6 +90,7 @@ targets:
     sources:
       - path: CalouraTests
     dependencies:
+      - sdk: AppIntents.framework
       - target: Caloura
     settings:
       base:
@@ -79,3 +98,50 @@ targets:
         GENERATE_INFOPLIST_FILE: true
         DEVELOPMENT_TEAM: NG4ML6Q47T
         CODE_SIGN_STYLE: Automatic
+
+  CalouraSystemTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: CalouraSystemTests
+      - path: CalouraTests/Helpers
+    dependencies:
+      - sdk: AppIntents.framework
+      - target: Caloura
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.caloura.app.systemtests
+        GENERATE_INFOPLIST_FILE: true
+        DEVELOPMENT_TEAM: NG4ML6Q47T
+        CODE_SIGN_STYLE: Automatic
+
+  CalouraUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: CalouraUITests
+    dependencies:
+      - sdk: AppIntents.framework
+      - target: Caloura
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.caloura.app.uitests
+        GENERATE_INFOPLIST_FILE: true
+        DEVELOPMENT_TEAM: NG4ML6Q47T
+        CODE_SIGN_STYLE: Automatic
+
+schemes:
+  Caloura:
+    build:
+      targets:
+        Caloura: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - name: CalouraTests
+        - name: CalouraSystemTests
+        - name: CalouraUITests
+    archive:
+      config: Release

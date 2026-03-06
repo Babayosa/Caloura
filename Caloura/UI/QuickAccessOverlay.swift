@@ -13,6 +13,10 @@ final class QuickAccessOverlay {
 
     private init() {}
 
+    var debugPanel: NSPanel? {
+        panel
+    }
+
     func show(for screenshot: ProcessedScreenshot) {
         dismiss()
         currentScreenshot = screenshot
@@ -148,7 +152,7 @@ struct QuickAccessOverlayView: View {
         QuickAccessPresentationModel(
             screenshot: screenshot,
             previewPhase: appState.previewPhase(for: screenshot.id),
-            piiResult: appState.lastPIIResult
+            piiResult: appState.piiResult(for: screenshot.id)
         )
     }
 
@@ -189,11 +193,13 @@ struct QuickAccessOverlayView: View {
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
+            .accessibilityIdentifier("quick-access-more")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
         .frame(width: presentation.width, height: 52)
+        .accessibilityIdentifier("quick-access-overlay")
         .onHover { hovering in
             onHoverChanged?(hovering)
         }
@@ -235,6 +241,7 @@ private struct QuickActionButton: View {
         }
         .help(action.title)
         .accessibilityLabel("\(action.title) screenshot")
+        .accessibilityIdentifier("quick-action-\(action.accessibilityID)")
     }
 }
 
@@ -275,6 +282,20 @@ private extension CaptureQuickAction {
         case .beautify: return "sparkles"
         case .redact: return "eye.slash"
         case .dismiss: return "xmark.circle"
+        }
+    }
+
+    var accessibilityID: String {
+        switch self {
+        case .copy: return "copy"
+        case .save: return "save"
+        case .markdown: return "markdown"
+        case .citation: return "citation"
+        case .annotate: return "annotate"
+        case .pin: return "pin"
+        case .beautify: return "beautify"
+        case .redact: return "redact"
+        case .dismiss: return "dismiss"
         }
     }
 }

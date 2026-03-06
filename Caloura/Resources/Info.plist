@@ -9,7 +9,7 @@
 	<key>CFBundleExecutable</key>
 	<string>Caloura</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.caloura.app</string>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -20,6 +20,16 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CalouraLicenseEntitlementPublicKey</key>
+	<string>$(CALOURA_LICENSE_ENTITLEMENT_PUBLIC_KEY)</string>
+	<key>CalouraLicenseEntitlementURL</key>
+	<string>$(CALOURA_LICENSE_ENTITLEMENT_URL)</string>
+	<key>CalouraReleaseChannel</key>
+	<string>$(CALOURA_RELEASE_CHANNEL)</string>
+	<key>CalouraRequireSignedEntitlement</key>
+	<string>$(CALOURA_REQUIRE_SIGNED_ENTITLEMENT)</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>26.0</string>
 	<key>LSUIElement</key>

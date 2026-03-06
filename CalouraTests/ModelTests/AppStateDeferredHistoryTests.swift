@@ -4,8 +4,8 @@ import XCTest
 
 @MainActor
 final class AppStateDeferredHistoryTests: XCTestCase {
-    private var tempRoot: URL!
-    private var historyFileURL: URL!
+    nonisolated(unsafe) private var tempRoot: URL!
+    nonisolated(unsafe) private var historyFileURL: URL!
 
     override func setUp() {
         super.setUp()
@@ -39,17 +39,16 @@ final class AppStateDeferredHistoryTests: XCTestCase {
 
     private func waitUntil(
         timeout: TimeInterval = 2.0,
-        _ predicate: @escaping () -> Bool
-    ) {
-        let expectation = XCTestExpectation(description: "Wait for condition")
-        let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { timer in
+        _ predicate: @escaping @MainActor () -> Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
             if predicate() {
-                timer.invalidate()
-                expectation.fulfill()
+                return
             }
+            try await Task.sleep(for: .milliseconds(50))
         }
-        wait(for: [expectation], timeout: timeout)
-        timer.invalidate()
+        XCTFail("Timed out waiting for condition")
     }
 
     func testLoadsFileBackedEncryptedHistoryAtStartup() throws {
@@ -65,7 +64,7 @@ final class AppStateDeferredHistoryTests: XCTestCase {
         XCTAssertEqual(state.recentScreenshots.first?.fileName, "file-backed.png")
     }
 
-    func testMigratesEncryptedDefaultsHistoryToFileStorage() throws {
+    func testMigratesEncryptedDefaultsHistoryToFileStorage() async throws {
         let defaults = makeDefaults(#function)
         let item = makeItem("defaults-encrypted.png")
         let json = try JSONEncoder().encode([item])
@@ -77,13 +76,13 @@ final class AppStateDeferredHistoryTests: XCTestCase {
         XCTAssertEqual(state.recentScreenshots.count, 1)
         XCTAssertEqual(state.recentScreenshots.first?.fileName, "defaults-encrypted.png")
 
-        waitUntil {
+        try await waitUntil {
             FileManager.default.fileExists(atPath: self.historyFileURL.path) &&
             defaults.object(forKey: "screenshotHistoryEncrypted") == nil
         }
     }
 
-    func testMigratesLegacyPlainHistoryToEncryptedFileStorage() throws {
+    func testMigratesLegacyPlainHistoryToEncryptedFileStorage() async throws {
         let defaults = makeDefaults(#function)
         let item = makeItem("legacy-plain.png")
         let json = try JSONEncoder().encode([item])
@@ -94,7 +93,7 @@ final class AppStateDeferredHistoryTests: XCTestCase {
         XCTAssertEqual(state.recentScreenshots.count, 1)
         XCTAssertEqual(state.recentScreenshots.first?.fileName, "legacy-plain.png")
 
-        waitUntil {
+        try await waitUntil {
             FileManager.default.fileExists(atPath: self.historyFileURL.path) &&
             defaults.object(forKey: "screenshotHistory") == nil
         }
@@ -122,5 +121,23 @@ final class AppStateDeferredHistoryTests: XCTestCase {
         XCTAssertEqual(state.recentScreenshots.first?.fileName, "file-backed.png")
         XCTAssertNil(defaults.object(forKey: "screenshotHistoryEncrypted"))
         XCTAssertNil(defaults.object(forKey: "screenshotHistory"))
+    }
+
+    func testSaveHistoryNow_persistsLatestSnapshot() async throws {
+        let defaults = makeDefaults(#function)
+        let state = AppState(defaults: defaults, historyStoreURL: historyFileURL)
+
+        state.addScreenshot(makeItem("first.png"))
+        state.saveHistoryNow()
+        state.addScreenshot(makeItem("second.png"))
+        state.saveHistoryNow()
+
+        try await waitUntil {
+            guard let decrypted = try? HistoryCrypto.readEncrypted(from: self.historyFileURL),
+                  let items = try? JSONDecoder().decode([ScreenshotItem].self, from: decrypted) else {
+                return false
+            }
+            return items.count == 2 && items.first?.fileName == "second.png"
+        }
     }
 }

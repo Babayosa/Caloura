@@ -1,7 +1,7 @@
 import Combine
-import Sparkle
+@preconcurrency import Sparkle
 
-enum UpdateState: Equatable {
+enum UpdateState: Equatable, Sendable {
     case idle
     case checking
     case updateAvailable(version: String?)
@@ -9,12 +9,67 @@ enum UpdateState: Equatable {
     case failed(errorSummary: String)
 }
 
-private enum SparkleNoUpdateReason: Int {
+enum SparkleNoUpdateReason: Int {
     case unknown = 0
     case onLatestVersion = 1
     case onNewerThanLatestVersion = 2
     case systemIsTooOld = 3
     case systemIsTooNew = 4
+}
+
+struct UpdateErrorSnapshot: Sendable {
+    let domain: String
+    let code: Int
+    let localizedDescription: String
+    let noUpdateReason: Int?
+
+    init(error: Error) {
+        let nsError = error as NSError
+        self.domain = nsError.domain
+        self.code = nsError.code
+        self.localizedDescription = nsError.localizedDescription
+        self.noUpdateReason = (nsError.userInfo[SPUNoUpdateFoundReasonKey] as? NSNumber)?.intValue
+    }
+}
+
+enum UpdateStateClassifier {
+    static func classifyNoUpdate(_ snapshot: UpdateErrorSnapshot) -> UpdateState {
+        guard snapshot.domain == SUSparkleErrorDomain,
+              snapshot.code == 1001 else {
+            return classifyFailure(snapshot)
+        }
+
+        switch snapshot.noUpdateReason {
+        case SparkleNoUpdateReason.onLatestVersion.rawValue,
+             SparkleNoUpdateReason.onNewerThanLatestVersion.rawValue,
+             SparkleNoUpdateReason.unknown.rawValue,
+             nil:
+            return .upToDate
+        case SparkleNoUpdateReason.systemIsTooOld.rawValue:
+            return .failed(errorSummary: "Update requires a newer version of macOS.")
+        case SparkleNoUpdateReason.systemIsTooNew.rawValue:
+            return .failed(errorSummary: "Update metadata does not support this macOS version.")
+        default:
+            return .upToDate
+        }
+    }
+
+    static func classifyFailure(_ snapshot: UpdateErrorSnapshot) -> UpdateState {
+        let message = snapshot.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if message.isEmpty {
+            return .failed(errorSummary: "Update check failed.")
+        }
+        return .failed(errorSummary: message)
+    }
+
+    static func classifyCycleResult(_ snapshot: UpdateErrorSnapshot?) -> UpdateState? {
+        guard let snapshot else { return nil }
+        let noUpdateState = classifyNoUpdate(snapshot)
+        if case .upToDate = noUpdateState {
+            return noUpdateState
+        }
+        return classifyFailure(snapshot)
+    }
 }
 
 @MainActor
@@ -27,43 +82,10 @@ protocol UpdateControlling: AnyObject {
 }
 
 @MainActor
-private final class SparkleUpdateController: UpdateControlling {
-    private let controller: SPUStandardUpdaterController
-
-    init(delegate: SPUUpdaterDelegate) {
-        controller = SPUStandardUpdaterController(
-            startingUpdater: true,
-            updaterDelegate: delegate,
-            userDriverDelegate: nil
-        )
-    }
-
-    var canCheckForUpdates: Bool {
-        controller.updater.canCheckForUpdates
-    }
-
-    var automaticallyChecksForUpdates: Bool {
-        get { controller.updater.automaticallyChecksForUpdates }
-        set { controller.updater.automaticallyChecksForUpdates = newValue }
-    }
-
-    var canCheckForUpdatesPublisher: AnyPublisher<Bool, Never> {
-        controller.updater.publisher(for: \.canCheckForUpdates)
-            .eraseToAnyPublisher()
-    }
-
-    func checkForUpdates() {
-        controller.checkForUpdates(nil)
-    }
-}
-
-@MainActor
 final class UpdateManager: ObservableObject {
-    static let shared = UpdateManager()
-
     private let settings: AppSettings
     private var controller: (any UpdateControlling)!
-    private var delegateHandler: UpdateDelegateHandler? = nil
+    private var delegateHandler: UpdateDelegateHandler?
     private var cancellables: Set<AnyCancellable> = []
 
     @Published var canCheckForUpdates = false
@@ -84,38 +106,14 @@ final class UpdateManager: ObservableObject {
         return summary
     }
 
-    private init() {
-        self.settings = AppSettings.shared
-
-        let delegateHandler = UpdateDelegateHandler(
-            onUpdateFound: { [weak self] version in
-                self?.recordUpdateFound(version: version)
-            },
-            onNoUpdateFound: { [weak self] error in
-                self?.recordNoUpdate(error)
-            },
-            onUpdateDismissed: { [weak self] in
-                self?.recordUpdateDismissed()
-            },
-            onUpdateFailed: { [weak self] error in
-                self?.recordUpdateFailure(error)
-            },
-            onUpdateCycleFinished: { [weak self] error in
-                self?.finishUpdateCycle(error: error)
-            }
-        )
-        self.delegateHandler = delegateHandler
-        self.controller = SparkleUpdateController(delegate: delegateHandler)
-
-        bindController()
-    }
-
     init(
         settings: AppSettings,
-        controller: any UpdateControlling
+        controller: any UpdateControlling,
+        delegateHandler: UpdateDelegateHandler? = nil
     ) {
         self.settings = settings
         self.controller = controller
+        self.delegateHandler = delegateHandler
         bindController()
     }
 
@@ -147,7 +145,11 @@ final class UpdateManager: ObservableObject {
     }
 
     func recordNoUpdate(_ error: Error) {
-        state = Self.classifyNoUpdate(error)
+        recordNoUpdate(Self.classifyNoUpdate(error))
+    }
+
+    func recordNoUpdate(_ state: UpdateState) {
+        self.state = state
     }
 
     func recordUpdateDismissed() {
@@ -155,123 +157,33 @@ final class UpdateManager: ObservableObject {
     }
 
     func recordUpdateFailure(_ error: Error) {
-        state = Self.classifyFailure(error)
+        recordUpdateFailure(Self.classifyFailure(error))
+    }
+
+    func recordUpdateFailure(_ state: UpdateState) {
+        self.state = state
     }
 
     func finishUpdateCycle(error: Error?) {
-        guard let error else {
-            guard case .checking = state else { return }
-            state = .idle
+        finishUpdateCycle(
+            state: error.map { UpdateStateClassifier.classifyCycleResult(UpdateErrorSnapshot(error: $0)) } ?? nil
+        )
+    }
+
+    func finishUpdateCycle(state: UpdateState?) {
+        guard let state else {
+            guard case .checking = self.state else { return }
+            self.state = .idle
             return
         }
-
-        let noUpdateState = Self.classifyNoUpdate(error)
-        if case .upToDate = noUpdateState {
-            state = noUpdateState
-        } else {
-            state = Self.classifyFailure(error)
-        }
+        self.state = state
     }
 
     static func classifyNoUpdate(_ error: Error) -> UpdateState {
-        let nsError = error as NSError
-        guard nsError.domain == SUSparkleErrorDomain,
-              nsError.code == 1001 else {
-            return classifyFailure(error)
-        }
-
-        let reason = (nsError.userInfo[SPUNoUpdateFoundReasonKey] as? NSNumber)?.intValue
-        switch reason {
-        case SparkleNoUpdateReason.onLatestVersion.rawValue,
-             SparkleNoUpdateReason.onNewerThanLatestVersion.rawValue,
-             SparkleNoUpdateReason.unknown.rawValue,
-             nil:
-            return .upToDate
-        case SparkleNoUpdateReason.systemIsTooOld.rawValue:
-            return .failed(errorSummary: "Update requires a newer version of macOS.")
-        case SparkleNoUpdateReason.systemIsTooNew.rawValue:
-            return .failed(errorSummary: "Update metadata does not support this macOS version.")
-        default:
-            return .upToDate
-        }
+        UpdateStateClassifier.classifyNoUpdate(UpdateErrorSnapshot(error: error))
     }
 
     static func classifyFailure(_ error: Error) -> UpdateState {
-        let message = (error as NSError).localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        if message.isEmpty {
-            return .failed(errorSummary: "Update check failed.")
-        }
-        return .failed(errorSummary: message)
-    }
-}
-
-// MARK: - Delegate Handler
-
-private final class UpdateDelegateHandler: NSObject, SPUUpdaterDelegate {
-    let onUpdateFound: @MainActor (String?) -> Void
-    let onNoUpdateFound: @MainActor (Error) -> Void
-    let onUpdateDismissed: @MainActor () -> Void
-    let onUpdateFailed: @MainActor (Error) -> Void
-    let onUpdateCycleFinished: @MainActor (Error?) -> Void
-
-    init(
-        onUpdateFound: @escaping @MainActor (String?) -> Void,
-        onNoUpdateFound: @escaping @MainActor (Error) -> Void,
-        onUpdateDismissed: @escaping @MainActor () -> Void,
-        onUpdateFailed: @escaping @MainActor (Error) -> Void,
-        onUpdateCycleFinished: @escaping @MainActor (Error?) -> Void
-    ) {
-        self.onUpdateFound = onUpdateFound
-        self.onNoUpdateFound = onNoUpdateFound
-        self.onUpdateDismissed = onUpdateDismissed
-        self.onUpdateFailed = onUpdateFailed
-        self.onUpdateCycleFinished = onUpdateCycleFinished
-    }
-
-    nonisolated func updater(
-        _ updater: SPUUpdater,
-        didFindValidUpdate item: SUAppcastItem
-    ) {
-        Task { @MainActor in
-            self.onUpdateFound(item.displayVersionString)
-        }
-    }
-
-    nonisolated func updaterDidNotFindUpdate(
-        _ updater: SPUUpdater,
-        error: any Error
-    ) {
-        Task { @MainActor in
-            self.onNoUpdateFound(error)
-        }
-    }
-
-    nonisolated func updater(
-        _ updater: SPUUpdater,
-        didDismissUpdateAlertPermanently permanently: Bool,
-        for item: SUAppcastItem
-    ) {
-        Task { @MainActor in
-            self.onUpdateDismissed()
-        }
-    }
-
-    nonisolated func updater(
-        _ updater: SPUUpdater,
-        didAbortWithError error: Error
-    ) {
-        Task { @MainActor in
-            self.onUpdateFailed(error)
-        }
-    }
-
-    nonisolated func updater(
-        _ updater: SPUUpdater,
-        didFinishUpdateCycleFor updateCheck: SPUUpdateCheck,
-        error: Error?
-    ) {
-        Task { @MainActor in
-            self.onUpdateCycleFinished(error)
-        }
+        UpdateStateClassifier.classifyFailure(UpdateErrorSnapshot(error: error))
     }
 }

@@ -4,6 +4,9 @@ import XCTest
 
 @MainActor
 final class AppSettingsDeferredKeychainTests: XCTestCase {
+    private final class MigrationCounter: @unchecked Sendable {
+        var value = 0
+    }
 
     private func makeDefaults(_ testName: String) -> UserDefaults {
         let suite = "com.caloura.tests.settings.\(testName)"
@@ -14,13 +17,14 @@ final class AppSettingsDeferredKeychainTests: XCTestCase {
         return defaults
     }
 
-    func testSilentlyMigratesLegacyKeyWhenNoLocalKeyExists() {
+    func testSilentlyMigratesLegacyKeyWhenNoLocalKeyExists() async {
         let defaults = makeDefaults(#function)
 
         let settings = AppSettings(
             defaults: defaults,
             legacyLicenseMigration: { .success("LEGACY-KEY-1234") }
         )
+        await settings.waitForLegacyLicenseMigrationForTesting()
 
         XCTAssertEqual(settings.licenseKey, "LEGACY-KEY-1234")
         XCTAssertFalse(settings.isLicenseActivated)
@@ -29,39 +33,41 @@ final class AppSettingsDeferredKeychainTests: XCTestCase {
         XCTAssertEqual(defaults.bool(forKey: "isLicenseActivated"), false)
     }
 
-    func testSkipsMigrationWhenLocalKeyAlreadyExists() {
+    func testSkipsMigrationWhenLocalKeyAlreadyExists() async {
         let defaults = makeDefaults(#function)
         defaults.set("LOCAL-KEY-9999", forKey: "licenseKey")
         defaults.set(true, forKey: "isLicenseActivated")
 
-        var migrationCalls = 0
+        let migrationCounter = MigrationCounter()
         let settings = AppSettings(
             defaults: defaults,
             legacyLicenseMigration: {
-                migrationCalls += 1
+                migrationCounter.value += 1
                 return .success("LEGACY-KEY-1234")
             }
         )
+        await settings.waitForLegacyLicenseMigrationForTesting()
 
         XCTAssertEqual(settings.licenseKey, "LOCAL-KEY-9999")
         XCTAssertTrue(settings.isLicenseActivated)
-        XCTAssertEqual(migrationCalls, 0)
+        XCTAssertEqual(migrationCounter.value, 0)
     }
 
-    func testMigrationAttemptFlagPreventsRepeatedLegacyReads() {
+    func testMigrationAttemptFlagPreventsRepeatedLegacyReads() async {
         let defaults = makeDefaults(#function)
         defaults.set(true, forKey: "hasAttemptedLegacyLicenseMigration")
 
-        var migrationCalls = 0
+        let migrationCounter = MigrationCounter()
         let settings = AppSettings(
             defaults: defaults,
             legacyLicenseMigration: {
-                migrationCalls += 1
+                migrationCounter.value += 1
                 return .success("LEGACY-KEY-1234")
             }
         )
+        await settings.waitForLegacyLicenseMigrationForTesting()
 
         XCTAssertTrue(settings.licenseKey.isEmpty)
-        XCTAssertEqual(migrationCalls, 0)
+        XCTAssertEqual(migrationCounter.value, 0)
     }
 }

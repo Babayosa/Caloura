@@ -50,10 +50,67 @@ enum ActivationState: Equatable {
     case activationFailed(String)
 }
 
+struct LicenseVerificationConfiguration: Equatable {
+    let entitlementServiceURL: URL?
+    let entitlementPublicKeyBase64: String?
+    let requiresSignedEntitlement: Bool
+    let allowGumroadFallback: Bool
+
+    static func bundleDefault(bundle: Bundle = .main) -> LicenseVerificationConfiguration {
+        let configuredRequiresSigned = normalizedBool(
+            bundle.object(forInfoDictionaryKey: "CalouraRequireSignedEntitlement")
+        )
+#if DEBUG
+        let requiresSigned = configuredRequiresSigned
+        let allowFallback = !configuredRequiresSigned
+#else
+        let requiresSigned = true
+        let allowFallback = false
+#endif
+
+        return LicenseVerificationConfiguration(
+            entitlementServiceURL: normalizedURL(
+                bundle.object(forInfoDictionaryKey: "CalouraLicenseEntitlementURL") as? String
+            ),
+            entitlementPublicKeyBase64: normalizedString(
+                bundle.object(forInfoDictionaryKey: "CalouraLicenseEntitlementPublicKey") as? String
+            ),
+            requiresSignedEntitlement: requiresSigned,
+            allowGumroadFallback: allowFallback
+        )
+    }
+
+    private static func normalizedURL(_ rawValue: String?) -> URL? {
+        guard let normalized = normalizedString(rawValue) else {
+            return nil
+        }
+        return URL(string: normalized)
+    }
+
+    private static func normalizedString(_ rawValue: String?) -> String? {
+        guard let rawValue else { return nil }
+        let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func normalizedBool(_ rawValue: Any?) -> Bool {
+        if let boolValue = rawValue as? Bool {
+            return boolValue
+        }
+        guard let stringValue = rawValue as? String else {
+            return false
+        }
+        switch stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes":
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 @MainActor
 final class LicenseManager: ObservableObject {
-    static let shared = LicenseManager()
-
     private static let gumroadProductID = "bmokl"
     private static let gumroadVerifyURL = URL(string: "https://api.gumroad.com/v2/licenses/verify")!
     static let gumroadPurchaseURL = URL(string: "https://babayosa.gumroad.com/l/bmokl")!
@@ -65,58 +122,22 @@ final class LicenseManager: ObservableObject {
     private let logger = Logger(subsystem: "com.caloura.app", category: "License")
     private let session: URLSession
     private let now: () -> Date
+    private let verificationConfiguration: LicenseVerificationConfiguration
 
     @Published private(set) var activationState: ActivationState = .checking
 
     private var revalidationTask: Task<Void, Never>?
 
-    private static var entitlementServiceURL: URL? {
-        guard let string = Bundle.main.object(
-            forInfoDictionaryKey: "CalouraLicenseEntitlementURL"
-        ) as? String else {
-            return nil
-        }
-        let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return nil }
-        return URL(string: normalized)
-    }
-
-    private static var entitlementPublicKeyBase64: String? {
-        guard let string = Bundle.main.object(
-            forInfoDictionaryKey: "CalouraLicenseEntitlementPublicKey"
-        ) as? String else {
-            return nil
-        }
-        let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized.isEmpty ? nil : normalized
-    }
-
-    private init() {
-        self.session = .shared
-        self.now = Date.init
-        refreshState(settings: AppSettings.shared)
-    }
-
     init(
         settings: AppSettings,
         session: URLSession = .shared,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        verificationConfiguration: LicenseVerificationConfiguration = .bundleDefault()
     ) {
         self.session = session
         self.now = now
+        self.verificationConfiguration = verificationConfiguration
         refreshState(settings: settings)
-    }
-
-    var trialDaysRemaining: Int {
-        trialDaysRemaining(settings: AppSettings.shared)
-    }
-
-    var isTrialExpired: Bool {
-        isTrialExpired(settings: AppSettings.shared)
-    }
-
-    var shouldShowNag: Bool {
-        shouldShowNag(settings: AppSettings.shared)
     }
 
     func trialDaysRemaining(settings: AppSettings) -> Int {
@@ -130,7 +151,8 @@ final class LicenseManager: ObservableObject {
             from: settings.firstLaunchDate,
             to: effectiveNow
         ).day ?? 0
-        return max(0, Self.trialDurationDays - elapsed)
+        let normalizedElapsed = max(0, elapsed)
+        return max(0, min(Self.trialDurationDays, Self.trialDurationDays - normalizedElapsed))
     }
 
     func isTrialExpired(settings: AppSettings) -> Bool {
@@ -142,18 +164,10 @@ final class LicenseManager: ObservableObject {
         isTrialExpired(settings: settings) && !settings.isLicenseActivated
     }
 
-    func refreshState() {
-        refreshState(settings: AppSettings.shared)
-    }
-
     func refreshState(settings: AppSettings) {
         let state = currentLicenseState(settings: settings)
         activationState = activationState(for: state)
         scheduleRevalidationIfNeeded(settings: settings)
-    }
-
-    func activate(licenseKey: String) async {
-        await activate(licenseKey: licenseKey, settings: AppSettings.shared)
     }
 
     func activate(licenseKey: String, settings: AppSettings) async {
@@ -170,6 +184,7 @@ final class LicenseManager: ObservableObject {
             settings.licenseKey = normalizedKey
             settings.updateLicenseEntitlement(entitlement)
             activationState = .licensed
+            scheduleRevalidationIfNeeded(settings: settings)
             logger.info("License activated successfully.")
         case .invalid(let reason):
             settings.updateLicenseEntitlement(nil)
@@ -224,9 +239,34 @@ final class LicenseManager: ObservableObject {
         let now = now()
         guard let entitlement = settings.currentLicenseEntitlement else { return }
 
-        let shouldRevalidate = entitlement.claims.refreshAfter <= now || !entitlement.isCurrentlyValid(at: now)
-        guard shouldRevalidate else { return }
+        if !entitlement.isCurrentlyValid(at: now) {
+            scheduleRevalidation(key: key, settings: settings)
+            return
+        }
 
+        let nextRefreshAt = entitlement.claims.refreshAfter
+        guard nextRefreshAt > now else {
+            scheduleRevalidation(key: key, settings: settings)
+            return
+        }
+
+        revalidationTask = Task { [weak self] in
+            let delay = nextRefreshAt.timeIntervalSince(now)
+            guard delay > 0 else {
+                await self?.revalidateLicense(key: key, settings: settings)
+                return
+            }
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self?.revalidateLicense(key: key, settings: settings)
+        }
+    }
+
+    private func scheduleRevalidation(key: String, settings: AppSettings) {
         revalidationTask = Task { [weak self] in
             await self?.revalidateLicense(key: key, settings: settings)
         }
@@ -239,23 +279,56 @@ final class LicenseManager: ObservableObject {
         case .valid(let entitlement):
             settings.updateLicenseEntitlement(entitlement)
             activationState = .licensed
+            scheduleRevalidationIfNeeded(settings: settings)
             logger.info("License re-validation succeeded.")
         case .invalid:
             logger.info("License re-validation failed. Revoking activation.")
             settings.updateLicenseEntitlement(nil)
             refreshState(settings: settings)
         case .ambiguousResponse:
-            handleDeferredRevalidationFailure(settings: settings, reason: "ambiguous response")
+            handleDeferredRevalidationFailure(
+                key: key,
+                settings: settings,
+                reason: "ambiguous response"
+            )
         case .networkError(let description):
-            handleDeferredRevalidationFailure(settings: settings, reason: description)
+            handleDeferredRevalidationFailure(
+                key: key,
+                settings: settings,
+                reason: description
+            )
         }
     }
 
-    private func handleDeferredRevalidationFailure(settings: AppSettings, reason: String) {
+    private func handleDeferredRevalidationFailure(
+        key: String,
+        settings: AppSettings,
+        reason: String
+    ) {
         let now = now()
-        if settings.currentLicenseEntitlement?.isCurrentlyValid(at: now) == true {
+        if let entitlement = settings.currentLicenseEntitlement,
+           entitlement.isCurrentlyValid(at: now) {
             activationState = .licensed
             logger.info("License re-validation deferred: \(reason, privacy: .public)")
+            let retryAt = min(
+                entitlement.claims.expiresAt,
+                now.addingTimeInterval(Self.revalidationInterval)
+            )
+            revalidationTask?.cancel()
+            revalidationTask = Task { [weak self] in
+                let delay = retryAt.timeIntervalSince(now)
+                guard delay > 0 else {
+                    await self?.revalidateLicense(key: key, settings: settings)
+                    return
+                }
+                do {
+                    try await Task.sleep(for: .seconds(delay))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                await self?.revalidateLicense(key: key, settings: settings)
+            }
             return
         }
 
@@ -267,8 +340,8 @@ final class LicenseManager: ObservableObject {
         key: String,
         existingEntitlement: LicenseEntitlement?
     ) async -> LicenseValidationResult {
-        if let backendURL = Self.entitlementServiceURL,
-           let publicKey = Self.entitlementPublicKeyBase64 {
+        if let backendURL = verificationConfiguration.entitlementServiceURL,
+           let publicKey = verificationConfiguration.entitlementPublicKeyBase64 {
             return await verifyWithSignedBackend(
                 key: key,
                 backendURL: backendURL,
@@ -276,10 +349,22 @@ final class LicenseManager: ObservableObject {
             )
         }
 
+        if verificationConfiguration.requiresSignedEntitlement {
+            logger.error("Signed entitlement verification required but not configured.")
+            return .invalid(reason: "This build requires a configured license entitlement service.")
+        }
+
+#if DEBUG
+        guard verificationConfiguration.allowGumroadFallback else {
+            return .invalid(reason: "Signed license verification is not available in this build.")
+        }
         return await verifyWithGumroadFallback(
             key: key,
             existingEntitlement: existingEntitlement
         )
+#else
+        return .invalid(reason: "This build requires signed license verification.")
+#endif
     }
 
     private func verifyWithSignedBackend(
@@ -309,6 +394,7 @@ final class LicenseManager: ObservableObject {
                   ),
                   let entitlement = Self.decodeSignedEntitlement(
                     envelope.token,
+                    expectedProductID: Self.gumroadProductID,
                     publicKeyBase64: publicKeyBase64,
                     validatedAt: now()
                   ) else {
@@ -321,6 +407,7 @@ final class LicenseManager: ObservableObject {
         }
     }
 
+    #if DEBUG
     private func verifyWithGumroadFallback(
         key: String,
         existingEntitlement: LicenseEntitlement?
@@ -381,6 +468,7 @@ final class LicenseManager: ObservableObject {
             return .networkError(error.localizedDescription)
         }
     }
+    #endif
 
     private func licenseIdentifier(from purchase: [String: Any], key: String) -> String {
         if let id = purchase["id"] as? String, !id.isEmpty {
@@ -405,6 +493,7 @@ final class LicenseManager: ObservableObject {
 
     private static func decodeSignedEntitlement(
         _ token: String,
+        expectedProductID: String,
         publicKeyBase64: String,
         validatedAt: Date
     ) -> LicenseEntitlement? {
@@ -419,6 +508,13 @@ final class LicenseManager: ObservableObject {
 
         guard let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: publicKeyData),
               publicKey.isValidSignature(signature, for: payloadData) else {
+            return nil
+        }
+
+        guard claims.productID == expectedProductID,
+              claims.issuedAt <= claims.refreshAfter,
+              claims.refreshAfter <= claims.expiresAt,
+              claims.expiresAt > validatedAt else {
             return nil
         }
 

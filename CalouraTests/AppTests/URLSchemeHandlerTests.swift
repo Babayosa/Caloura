@@ -6,9 +6,11 @@ final class URLSchemeHandlerTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        // Reset throttle state so each test can fire a URL scheme request
-        // without being rejected by the rate limiter.
-        URLSchemeHandler.lastHandledDate = nil
+        MainActor.assumeIsolated {
+            // Reset throttle state so each test can fire a URL scheme request
+            // without being rejected by the rate limiter.
+            URLSchemeHandler.lastHandledDate = nil
+        }
     }
 
     // MARK: - Parse: Capture Modes
@@ -77,6 +79,7 @@ final class URLSchemeHandlerTests: XCTestCase {
 
     // MARK: - Handle: Command routing
 
+    @MainActor
     func testHandle_historyURL_dispatchesShowHistoryCommand() {
         let expectation = expectation(description: "show history command")
         let observerID = AppCommandRouter.shared.addHandler { command in
@@ -91,6 +94,7 @@ final class URLSchemeHandlerTests: XCTestCase {
         wait(for: [expectation], timeout: 1.0)
     }
 
+    @MainActor
     func testHandle_settingsURL_dispatchesShowSettingsCommand() {
         let expectation = expectation(description: "show settings command")
         let observerID = AppCommandRouter.shared.addHandler { command in
@@ -129,6 +133,7 @@ final class URLSchemeHandlerTests: XCTestCase {
 
     // MARK: - Preset Handling
 
+    @MainActor
     func testHandle_presetNormalization() {
         let url = URL(string: "caloura://capture/area?preset=lecture-notes")!
         URLSchemeHandler.handle(url)

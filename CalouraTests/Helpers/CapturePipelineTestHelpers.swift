@@ -36,6 +36,8 @@ enum CapturePipelineTestHelpers {
         testName: String,
         settings: AppSettings? = nil,
         appState: AppState? = nil,
+        captureManager: ScreenCaptureManaging? = nil,
+        capturePerformanceRecorder: CapturePerformanceRecorder? = nil,
         detectContext: CapturePipeline.DetectContextFn? = nil,
         processImage: CapturePipeline.ProcessImageFn? = nil,
         saveFile: CapturePipeline.SaveFileFn? = nil,
@@ -47,17 +49,27 @@ enum CapturePipelineTestHelpers {
         playSoundAction: CapturePipeline.PlaySoundFn? = nil,
         postNotification: CapturePipeline.PostNotificationFn? = nil,
         presetForCategory: CapturePipeline.PresetForCategoryFn? = nil,
-        presetByName: CapturePipeline.PresetByNameFn? = nil
+        presetByName: CapturePipeline.PresetByNameFn? = nil,
+        selectWindowCapture: CapturePipeline.SelectWindowCaptureFn? = nil,
+        makeAreaCaptureSession: CapturePipeline.MakeAreaCaptureSessionFn? = nil,
+        makeFullscreenCaptureSession: CapturePipeline.MakeFullscreenCaptureSessionFn? = nil,
+        makeWindowCaptureSession: CapturePipeline.MakeWindowCaptureSessionFn? = nil,
+        screenCountProvider: @escaping () -> Int = { NSScreen.screens.count },
+        freezeScreensEnabled: Bool = true,
+        enrichmentCoordinator: CaptureEnrichmentCoordinator = CaptureEnrichmentCoordinator()
     ) -> CapturePipeline {
         let defaults = makeDefaults(testName)
         let testSettings = settings ?? AppSettings(defaults: defaults)
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("pipeline-test-\(testName)-\(UUID().uuidString).json")
         let testAppState = appState ?? AppState(defaults: defaults, historyStoreURL: tempURL)
+        let recorder = capturePerformanceRecorder ?? CapturePerformanceRecorder()
 
         return CapturePipeline(
             settings: testSettings,
             appState: testAppState,
+            captureManager: captureManager,
+            capturePerformanceRecorder: recorder,
             detectContext: detectContext ?? {
                 DetectedContext(appName: "TestApp", windowTitle: "TestWindow", category: .other)
             },
@@ -88,7 +100,14 @@ enum CapturePipelineTestHelpers {
             playSoundAction: playSoundAction ?? { },
             postNotification: postNotification ?? { _ in },
             presetForCategory: presetForCategory ?? { _ in nil },
-            presetByName: presetByName ?? { _ in nil }
+            presetByName: presetByName ?? { _ in nil },
+            selectWindowCapture: selectWindowCapture ?? { _ in .cancelled },
+            makeAreaCaptureSession: makeAreaCaptureSession,
+            makeFullscreenCaptureSession: makeFullscreenCaptureSession,
+            makeWindowCaptureSession: makeWindowCaptureSession,
+            screenCountProvider: screenCountProvider,
+            freezeScreensEnabled: freezeScreensEnabled,
+            enrichmentCoordinator: enrichmentCoordinator
         )
     }
 }

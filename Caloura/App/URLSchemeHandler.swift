@@ -18,11 +18,79 @@ import os.log
 /// ```
 @MainActor
 struct URLSchemeHandler {
+    @MainActor
+    private final class PostCaptureActionObserver {
+        let id = UUID()
+        private let notificationCenter: NotificationCenter
+        private let actions: [String]
+        private var token: NSObjectProtocol?
+        private var timeoutTask: Task<Void, Never>?
+
+        init(
+            actions: [String],
+            notificationCenter: NotificationCenter = .default
+        ) {
+            self.actions = actions
+            self.notificationCenter = notificationCenter
+        }
+
+        func start() {
+            let observerID = id
+            token = notificationCenter.addObserver(
+                forName: .captureCompleted,
+                object: nil,
+                queue: .main
+            ) { _ in
+                MainActor.assumeIsolated {
+                    URLSchemeHandler.handlePostCaptureNotification(id: observerID)
+                }
+            }
+
+            timeoutTask = Task { [observerID] in
+                try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    URLSchemeHandler.cleanupPostCaptureObserver(id: observerID)
+                }
+            }
+        }
+
+        func runActionsAndCleanup() {
+            cleanup()
+            for action in actions {
+                switch action {
+                case "copy":
+                    AppCommandRouter.shared.dispatch(.copyLastImage)
+                case "copy-markdown":
+                    AppCommandRouter.shared.dispatch(.copyLastAsMarkdown)
+                case "copy-citation":
+                    AppCommandRouter.shared.dispatch(.copyLastWithCitation)
+                case "copy-ocr":
+                    AppCommandRouter.shared.dispatch(.copyLastOCRText)
+                case "save":
+                    break // Already handled by pipeline if autoSaveToDisk is on
+                default:
+                    let msg = "Unexpected post-capture action skipped: \(action)"
+                    URLSchemeHandler.logger.warning("\(msg, privacy: .public)")
+                }
+            }
+        }
+
+        func cleanup() {
+            if let token {
+                notificationCenter.removeObserver(token)
+                self.token = nil
+            }
+            timeoutTask?.cancel()
+            timeoutTask = nil
+        }
+    }
 
     private static let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "com.caloura",
         category: "URLSchemeHandler"
     )
+    private static var postCaptureObservers: [UUID: PostCaptureActionObserver] = [:]
 
     /// Minimum interval between accepted URL scheme requests (seconds).
     private static let throttleInterval: TimeInterval = 0.5
@@ -248,60 +316,22 @@ struct URLSchemeHandler {
     /// Schedule post-capture actions to run after the capture completes.
     /// The observer auto-removes after firing or after a 30-second timeout.
     private static func schedulePostCaptureActions(_ actions: [String]) {
-        let nc = NotificationCenter.default
+        let observer = PostCaptureActionObserver(actions: actions)
+        postCaptureObservers[observer.id] = observer
+        observer.start()
+    }
 
-        // All access is on the main thread: observer fires on .main queue,
-        // timeout dispatches to .main, enclosing struct is @MainActor.
-        @MainActor
-        final class TokenHolder {
-            var token: NSObjectProtocol?
-            var timeoutWork: DispatchWorkItem?
+    private static func handlePostCaptureNotification(id: UUID) {
+        guard let observer = postCaptureObservers.removeValue(forKey: id) else {
+            return
         }
-        let holder = TokenHolder()
+        observer.runActionsAndCleanup()
+    }
 
-        let cleanup: @MainActor () -> Void = {
-            if let token = holder.token {
-                nc.removeObserver(token)
-                holder.token = nil
-            }
-            holder.timeoutWork?.cancel()
-            holder.timeoutWork = nil
+    private static func cleanupPostCaptureObserver(id: UUID) {
+        guard let observer = postCaptureObservers.removeValue(forKey: id) else {
+            return
         }
-
-        holder.token = nc.addObserver(
-            forName: .captureCompleted,
-            object: nil,
-            queue: .main
-        ) { _ in
-            Task { @MainActor in
-                cleanup()
-                for action in actions {
-                    switch action {
-                    case "copy":
-                        AppCommandRouter.shared.dispatch(.copyLastImage)
-                    case "copy-markdown":
-                        AppCommandRouter.shared.dispatch(.copyLastAsMarkdown)
-                    case "copy-citation":
-                        AppCommandRouter.shared.dispatch(.copyLastWithCitation)
-                    case "copy-ocr":
-                        AppCommandRouter.shared.dispatch(.copyLastOCRText)
-                    case "save":
-                        break // Already handled by pipeline if autoSaveToDisk is on
-                    default:
-                        // Actions are pre-validated, so this is unreachable.
-                        let msg = "Unexpected post-capture action skipped: \(action)"
-                        logger.warning("\(msg, privacy: .public)")
-                    }
-                }
-            }
-        }
-
-        // Timeout: remove the observer after 30 seconds to prevent leaks
-        // if the capture is cancelled or fails.
-        let timeoutWork = DispatchWorkItem {
-            Task { @MainActor in cleanup() }
-        }
-        holder.timeoutWork = timeoutWork
-        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: timeoutWork)
+        observer.cleanup()
     }
 }

@@ -102,10 +102,9 @@ final class PinnedScreenshotManager {
             object: panel,
             queue: .main
         ) { [weak self] notification in
-            guard let panel = notification.object as? NSPanel else { return }
-            weak var closedPanel = panel
-            Task { @MainActor in
-                guard let self = self, let closedPanel else { return }
+            guard let closedPanel = notification.object as? NSPanel else { return }
+            MainActor.assumeIsolated {
+                guard let self else { return }
                 self.pinnedWindows.removeAll { $0 === closedPanel }
                 self.panelsByKey = self.panelsByKey.filter { $0.value !== closedPanel }
                 if let token = self.observers.removeValue(forKey: closedPanel) {

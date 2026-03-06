@@ -255,6 +255,143 @@ final class CapturePipelineTests: XCTestCase {
         await fulfillment(of: [ocrExpectation], timeout: 5.0)
     }
 
+    func testHistoryWithOCR_preservesEnrichmentForRapidCaptures() async {
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            recognizeText: { cgImage in
+                if cgImage.width == 101 {
+                    try? await Task.sleep(for: .milliseconds(80))
+                }
+                return "text-\(cgImage.width)"
+            }
+        )
+
+        let firstImage = TestImageFactory.makeTestImage(width: 101, height: 100)
+        let secondImage = TestImageFactory.makeTestImage(width: 102, height: 100)
+        let first = CapturePipelineTestHelpers.makeProcessed(cgImage: firstImage)
+        let second = CapturePipelineTestHelpers.makeProcessed(cgImage: secondImage)
+
+        pipeline.addToHistoryWithOCR(first)
+        pipeline.addToHistoryWithOCR(second)
+
+        await pollUntil(timeout: 2.0) {
+            let items = pipeline.appState.recentScreenshots
+            let firstText = items.first(where: { $0.id == first.id })?.ocrText
+            let secondText = items.first(where: { $0.id == second.id })?.ocrText
+            return firstText == "text-101" && secondText == "text-102"
+        }
+
+        XCTAssertEqual(
+            pipeline.appState.recentScreenshots.first(where: { $0.id == first.id })?.ocrText,
+            "text-101"
+        )
+        XCTAssertEqual(
+            pipeline.appState.recentScreenshots.first(where: { $0.id == second.id })?.ocrText,
+            "text-102"
+        )
+    }
+
+    func testHistoryWithOCR_marksFailedPhaseOnOCRFailure() async {
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            recognizeText: { _ in
+                throw NSError(
+                    domain: "CapturePipelineTests",
+                    code: 42,
+                    userInfo: [NSLocalizedDescriptionKey: "ocr boom"]
+                )
+            }
+        )
+        let processed = CapturePipelineTestHelpers.makeProcessed()
+
+        pipeline.addToHistoryWithOCR(processed)
+
+        await pollUntil(timeout: 2.0) {
+            pipeline.appState.previewPhase(for: processed.id) == .enrichmentFailed
+        }
+
+        XCTAssertEqual(
+            pipeline.appState.previewPhase(for: processed.id),
+            .enrichmentFailed
+        )
+    }
+
+    func testCaptureRepeat_usesInjectedCaptureManager() async {
+        let captureManager = FakeScreenCaptureManager()
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            captureManager: captureManager
+        )
+        pipeline.appState.lastCaptureRect = CGRect(x: 10, y: 10, width: 80, height: 60)
+        pipeline.appState.lastCaptureScreen = nil
+
+        pipeline.captureRepeat()
+
+        await pollUntil(timeout: 2.0) {
+            pipeline.appState.lastScreenshot != nil
+        }
+
+        XCTAssertEqual(captureManager.areaCalls, 1)
+        XCTAssertEqual(pipeline.appState.lastScreenshot?.context.mode, .area)
+    }
+
+    func testCaptureDelayed_windowDispatchesAfterCountdown() async {
+        let expectedImage = TestImageFactory.makeTestImage(width: 170, height: 95)
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            selectWindowCapture: { _ in
+                .selected { expectedImage }
+            }
+        )
+
+        pipeline.captureDelayed(seconds: 1, mode: .window)
+
+        await pollUntil(timeout: 3.0) {
+            pipeline.appState.lastScreenshot != nil
+                && !pipeline.appState.isCountingDown
+        }
+
+        XCTAssertEqual(pipeline.appState.lastScreenshot?.cgImage.width, expectedImage.width)
+        XCTAssertEqual(pipeline.appState.lastScreenshot?.context.mode, .window)
+    }
+
+    func testCaptureWindow_selectedPathUsesInjectedCaptureOperation() async {
+        let expectedImage = TestImageFactory.makeTestImage(width: 150, height: 90)
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            selectWindowCapture: { _ in
+                .selected { expectedImage }
+            }
+        )
+
+        pipeline.captureWindow()
+
+        await pollUntil(timeout: 2.0) {
+            pipeline.appState.lastScreenshot != nil
+        }
+
+        XCTAssertEqual(pipeline.appState.lastScreenshot?.cgImage.width, expectedImage.width)
+        XCTAssertEqual(pipeline.appState.lastScreenshot?.context.mode, .window)
+    }
+
+    func testCaptureWindow_failedToStartRoutesPermissionFailure() async {
+        var permissionFailureCalled = false
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            handlePermissionFailure: { permissionFailureCalled = true },
+            selectWindowCapture: { _ in .failedToStart }
+        )
+
+        pipeline.captureWindow()
+
+        await pollUntil(timeout: 2.0) {
+            permissionFailureCalled
+        }
+
+        XCTAssertTrue(permissionFailureCalled)
+        XCTAssertFalse(pipeline.appState.isCapturing)
+    }
+
     // MARK: - autoContextDetection preset routing
 
     func testAutoContext_on_usesCategory() async {
@@ -328,6 +465,35 @@ final class CapturePipelineTests: XCTestCase {
         XCTAssertLessThan(
             quickAccessOrder, saveOrder,
             "showQuickAccess (\(quickAccessOrder)) must fire before saveFile (\(saveOrder))"
+        )
+    }
+
+    func testQuickAccess_firesBeforeClipboardCopy() async {
+        var sequence = 0
+        var quickAccessOrder = -1
+        var clipboardOrder = -1
+
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            copyToClipboard: { _, _ in
+                sequence += 1
+                clipboardOrder = sequence
+            },
+            showQuickAccess: { _ in
+                sequence += 1
+                quickAccessOrder = sequence
+            }
+        )
+        pipeline.settings.autoCopyToClipboard = true
+
+        let img = testImage()
+        await pipeline.performCapture(mode: .area) { img }
+
+        XCTAssertGreaterThan(quickAccessOrder, 0, "showQuickAccess should be called")
+        XCTAssertGreaterThan(clipboardOrder, 0, "copyToClipboard should be called")
+        XCTAssertLessThan(
+            quickAccessOrder, clipboardOrder,
+            "showQuickAccess (\(quickAccessOrder)) must fire before copyToClipboard (\(clipboardOrder))"
         )
     }
 

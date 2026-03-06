@@ -3,7 +3,7 @@ import SwiftUI
 import os.log
 
 private enum HistoryThumbnailCache {
-    static let shared: NSCache<NSString, NSImage> = {
+    nonisolated(unsafe) static let shared: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
         cache.countLimit = 200
         cache.totalCostLimit = 50 * 1024 * 1024
@@ -15,8 +15,8 @@ private let historyLogger = Logger(subsystem: "com.caloura.app", category: "Hist
 
 private enum HistoryThumbnailMetrics {
     private static let lock = NSLock()
-    private static var requests = 0
-    private static var hits = 0
+    nonisolated(unsafe) private static var requests = 0
+    nonisolated(unsafe) private static var hits = 0
     private static let reportInterval = 50
 
     static func recordRequest(cacheHit: Bool) {

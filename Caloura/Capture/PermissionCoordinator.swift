@@ -3,6 +3,29 @@ import Foundation
 import os.log
 import Security
 
+private struct SecRequirementHandle {
+    let requirement: SecRequirement
+
+    init?(rawValue: Any) {
+        let requirementRef = rawValue as CFTypeRef
+        guard CFGetTypeID(requirementRef) == SecRequirementGetTypeID() else {
+            return nil
+        }
+        // The CoreFoundation type ID guard establishes the concrete Security type here.
+        // swiftlint:disable:next force_cast
+        self.requirement = requirementRef as! SecRequirement
+    }
+
+    func stringValue() -> String? {
+        var requirementCFString: CFString?
+        let status = SecRequirementCopyString(requirement, SecCSFlags(), &requirementCFString)
+        guard status == errSecSuccess else {
+            return nil
+        }
+        return requirementCFString as String?
+    }
+}
+
 enum PermissionStatus: Equatable {
     case unknown
     case grantedWorking
@@ -112,15 +135,7 @@ struct PermissionIdentity: Equatable {
                 guard let requirementValue = info[kSecCodeInfoDesignatedRequirement as String] else {
                     return nil
                 }
-                let requirementRef = requirementValue as CFTypeRef
-                guard CFGetTypeID(requirementRef) == SecRequirementGetTypeID() else {
-                    return nil
-                }
-                let secRequirement = unsafeBitCast(requirementRef, to: SecRequirement.self)
-                var requirementCFString: CFString?
-                let reqStatus = SecRequirementCopyString(secRequirement, SecCSFlags(), &requirementCFString)
-                guard reqStatus == errSecSuccess else { return nil }
-                return requirementCFString as String?
+                return SecRequirementHandle(rawValue: requirementValue)?.stringValue()
             }()
 
             let signingType: String? = {
@@ -153,7 +168,7 @@ final class PermissionCoordinator: ObservableObject {
     typealias InteractiveCheck = () async -> Bool
     typealias AlertPresenter = (ScreenCaptureManager.PermissionState) async -> Void
     typealias PermissionRequester = () -> Bool
-    typealias IdentityProvider = () -> PermissionIdentity
+    typealias IdentityProvider = () async -> PermissionIdentity
     typealias StatusMessageSink = (String) -> Void
     typealias NowProvider = () -> Date
     typealias RepairCheck = () async -> Bool
@@ -190,7 +205,7 @@ final class PermissionCoordinator: ObservableObject {
         self.interactiveCheck = { await ScreenCaptureManager.shared.validateSCKAccessUserInitiated() }
         self.alertPresenter = { state in ScreenCaptureManager.shared.showPermissionAlert(for: state) }
         self.permissionRequester = { ScreenCaptureManager.shared.requestPermission() }
-        self.identityProvider = { PermissionIdentity.current() }
+        self.identityProvider = { await PermissionIdentityProvider.shared.currentIdentity() }
         self.statusMessageSink = { AppState.shared.statusMessage = $0 }
         self.now = Date.init
         self.repairSCKAccess = { await ScreenCaptureManager.shared.repairSCKAccess() }
@@ -226,8 +241,8 @@ final class PermissionCoordinator: ObservableObject {
 
     /// Perform a non-interactive permission check and update the published UI model.
     @discardableResult
-    func refreshPassiveStatus() -> PermissionStatus {
-        let identity = identityProvider()
+    func refreshPassiveStatus() async -> PermissionStatus {
+        let identity = await identityProvider()
         let cgGranted = passiveCheck()
         let execPath = identity.executablePath
         let signingType = identity.signingIdentityType
@@ -251,7 +266,7 @@ final class PermissionCoordinator: ObservableObject {
     /// Automatically attempts replayd repair if SCK fails but CG is granted.
     @discardableResult
     func runUserInitiatedValidation() async -> PermissionStatus {
-        let identity = identityProvider()
+        let identity = await identityProvider()
         let cgGranted = passiveCheck()
         logger.info("interactive_check_start cg_granted=\(cgGranted, privacy: .public)")
 
@@ -301,8 +316,8 @@ final class PermissionCoordinator: ObservableObject {
     /// Handle a capture failure due to missing permission, showing an alert if not rate-limited.
     /// Silently attempts replayd repair first when CG is granted.
     func handleCapturePermissionFailure() async {
-        let identity = identityProvider()
-        let status = refreshPassiveStatus()
+        let identity = await identityProvider()
+        let status = await refreshPassiveStatus()
 
         // If CG is granted, attempt silent repair before showing any alert
         if status != .denied {
@@ -353,8 +368,8 @@ final class PermissionCoordinator: ObservableObject {
     }
 
     /// Record that the signature-mismatch banner has been shown for the current identity.
-    func markCurrentMismatchBannerShown() {
-        let identity = identityProvider()
+    func markCurrentMismatchBannerShown() async {
+        let identity = await identityProvider()
         defaults.set(identity.fingerprint, forKey: Keys.lastShownMismatchIdentityFingerprint)
         if permissionUIModel.status == .signatureMismatch {
             permissionUIModel.shouldShowSignatureMismatchBanner = false

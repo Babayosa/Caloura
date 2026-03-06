@@ -37,21 +37,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        if UITestLaunchContext.isEnabled { return }
+
         // Skip the first activation — applicationDidFinishLaunching already checks.
         if isInitialLaunch {
             isInitialLaunch = false
             return
         }
-        let status = PermissionCoordinator.shared.refreshPassiveStatus()
-        AppState.shared.hasScreenRecordingPermission = status != .denied
-        if status != .denied {
-            Task { @MainActor in
+        Task { @MainActor in
+            let status = await PermissionCoordinator.shared.refreshPassiveStatus()
+            AppState.shared.hasScreenRecordingPermission = status != .denied
+            if status != .denied {
                 await ScreenCaptureManager.shared.prewarmWindowShareableContent()
             }
         }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if UITestLaunchContext.isEnabled {
+            cleanupStaleTempFiles()
+            NSApp.setActivationPolicy(.regular)
+            setupCommandHandlers()
+            UITestHostWindowController.shared.show()
+            return
+        }
+
         if AppMover.moveToApplicationsFolderIfNeeded() { return }
 
         cleanupStaleTempFiles()
@@ -68,8 +78,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             andEventID: AEEventID(kAEGetURL)
         )
 
-        // Ensure save directory exists
-        try? FileOrganizer.ensureBaseDirectory(AppSettings.shared.saveDirectory)
+        do {
+            try FileOrganizer.ensureBaseDirectory(AppSettings.shared.saveDirectory)
+        } catch {
+            let message = "Save directory unavailable: \(error.localizedDescription)"
+            appLaunchLogger.error("\(message, privacy: .public)")
+            AppState.shared.statusMessage = message
+        }
 
         // Sync launch-at-login state with system
         syncLaunchAtLoginState()
@@ -80,39 +95,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Check passive screen recording status (non-interactive) and handle onboarding.
         let permissionCheckStart = CFAbsoluteTimeGetCurrent()
-        let passiveStatus = PermissionCoordinator.shared.refreshPassiveStatus()
-        AppState.shared.hasScreenRecordingPermission = passiveStatus != .denied
-        if passiveStatus != .denied {
-            Task { @MainActor in
+        Task { @MainActor [onboardingController] in
+            let passiveStatus = await PermissionCoordinator.shared.refreshPassiveStatus()
+            AppState.shared.hasScreenRecordingPermission = passiveStatus != .denied
+            if passiveStatus != .denied {
                 await ScreenCaptureManager.shared.prewarmWindowShareableContent()
             }
-        }
 
-        if !AppSettings.shared.hasCompletedOnboarding {
-            // First launch — always show setup guide
-            onboardingController.showIfNeeded(settings: AppSettings.shared)
-        } else if passiveStatus == .denied {
-            // Returning user with denied permission can be guided via onboarding.
-            onboardingController.show(settings: AppSettings.shared)
-        } else if passiveStatus != .grantedWorking {
-            // Returning user with broken permission — try silent auto-repair
-            Task { @MainActor [onboardingController] in
+            if !AppSettings.shared.hasCompletedOnboarding {
+                onboardingController.showIfNeeded(settings: AppSettings.shared)
+            } else if passiveStatus == .denied {
+                onboardingController.show(settings: AppSettings.shared)
+            } else if passiveStatus != .grantedWorking {
                 let status = await PermissionCoordinator.shared.runUserInitiatedValidation()
                 if status != .grantedWorking {
                     onboardingController.show(settings: AppSettings.shared)
                 }
             }
+
+            let permissionDuration = (CFAbsoluteTimeGetCurrent() - permissionCheckStart) * 1000
+            let totalLaunchDuration = (CFAbsoluteTimeGetCurrent() - launchStart) * 1000
+            appLaunchLogger.debug(
+                "Passive permission diagnostics completed in \(permissionDuration, privacy: .public) ms"
+            )
+            appLaunchLogger.info("Launch flow ready in \(totalLaunchDuration, privacy: .public) ms")
         }
 
         // Show nag once per launch if trial expired and unlicensed
         if AppSettings.shared.hasCompletedOnboarding {
             nagController.showIfNeeded()
         }
-
-        let permissionDuration = (CFAbsoluteTimeGetCurrent() - permissionCheckStart) * 1000
-        let totalLaunchDuration = (CFAbsoluteTimeGetCurrent() - launchStart) * 1000
-        appLaunchLogger.debug("Passive permission diagnostics completed in \(permissionDuration, privacy: .public) ms")
-        appLaunchLogger.info("Launch flow ready in \(totalLaunchDuration, privacy: .public) ms")
     }
 
     @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
@@ -216,7 +228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleRedactLastCapture() {
         guard let screenshot = AppState.shared.lastScreenshot else { return }
-        let pii = AppState.shared.lastPIIResult
+        let pii = AppState.shared.piiResult(for: screenshot.id)
         if let pii, !pii.detections.isEmpty {
             RedactionReviewController.shared.show(
                 screenshot: screenshot,

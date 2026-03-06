@@ -4,6 +4,40 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 09: Release hardening continuation
+**Status:** In Progress  
+**Branch:** codex/task-09-release-hardening-continuation  
+**Changes:**
+- Eliminated the remaining Xcode test warning bar by refactoring XCTest lifecycle isolation in UI, capture-manager, URL-scheme, and signed-license backend tests
+- Confirmed a clean warning-free `xcodebuild test` log and kept `swift build`, `swiftlint lint --quiet`, `swift test`, `xcodegen generate`, `xcodebuild build`, and `xcodebuild test` green
+- Pushed the canonical `scripts/release_ready.sh --guard-only` flow through local validation, coverage, UI automation preflight, and dedicated UI smoke tests until it stopped at the expected Release entitlement-config guard
+- Removed the remaining repo-local `unsafeBitCast` sites in AX / Security CF bridge wrappers after runtime type-ID checks
+- Fixed a real manual scroll-capture race where `Finish` could finalize before the last settled viewport was accepted, which had surfaced as an Xcode-only flaky synthetic test
+
+**Decisions Made:**
+- Treat warning-free Xcode build/test logs as a hard local release invariant, not just a cleanup goal
+- Keep moving the repo forward past the local gate even when the next blockers are external release-environment inputs (Release entitlement config, notary profile, live appcast parity)
+- Treat Xcode-only synthetic test flakes as product bugs until proven otherwise; the manual scroll finish race was fixed in the engine instead of weakening the assertion
+
+---
+
+## Task 08: Release Readiness Hardening + Re-Audit
+**Status:** Complete  
+**Branch:** codex/task-08-release-readiness  
+**Changes:**
+- Cleared the remaining app-scheme Xcode warning bar and kept `swift build`, `swift test`, `xcodegen generate`, `xcodebuild build`, and `xcodebuild test` green
+- Added `CalouraSystemTests` plus system-level checks for area/fullscreen entry cues, window picker visibility, compact quick-access width, and permission-repair onboarding entry
+- Added `scripts/release_ready.sh` as a single release-preflight entrypoint and updated `scripts/release.sh` to archive against an explicit macOS destination
+- Hardened release-critical correctness paths: ordered history persistence revisions, collision-safe artifact naming, clamped future trial dates with scheduled license revalidation, transient-safe embedding-store loads, explicit window picker startup failure handling, and app category metadata
+- Collected fresh release evidence: warning-free Xcode logs, strict perf-gate output, live Sparkle appcast mismatch confirmation, and a full release-script run that now fails only at missing notary credentials on this machine
+
+**Decisions Made:**
+- Treat zero app-scheme build/test warnings as a hard local gate, while leaving broader SwiftLint style debt as tracked technical debt
+- Make `release_ready.sh` default to the full packaging/notarization path, with an explicit `--guard-only` escape hatch for local guard runs
+- Fix in-repo release blockers immediately and leave external release-ops issues (live appcast parity and notary credentials) as explicit ship blockers in the re-audit
+
+---
+
 ## Task 07: Capture UX + Engine Hardening
 **Status:** Complete  
 **Branch:** codex/task-07-capture-hardening  

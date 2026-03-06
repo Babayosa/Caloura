@@ -72,11 +72,11 @@ extension CapturePipeline {
     }
 
     func performWindowCapture(
-        filter: SCContentFilter,
+        capture: @escaping @MainActor () async throws -> CGImage,
         performanceSession: CapturePerformanceRecorder.Session? = nil
     ) async {
         await performCapture(mode: .window, performanceSession: performanceSession) {
-            try await self.captureManager.captureWindow(filter: filter)
+            try await capture()
         }
     }
 
@@ -91,11 +91,9 @@ extension CapturePipeline {
         let performanceSession = capturePerformanceRecorder.beginSession(mode: .area)
         entryLogger.debug("Capture entry: request received")
 
-        let coordinator = AreaCaptureSessionCoordinator(
-            session: performanceSession,
-            performanceRecorder: capturePerformanceRecorder,
-            cursorController: CaptureCursorController(),
-            onSelection: { [weak self] rect, screen, frozenImage in
+        let coordinator = makeAreaCaptureSession(
+            performanceSession,
+            { [weak self] (rect: CGRect, screen: NSScreen, frozenImage: CGImage?) in
                 guard let self = self else { return }
                 guard self.captureSessionID == sessionID else { return }
                 self.overlayWindows = []
@@ -117,7 +115,7 @@ extension CapturePipeline {
                     )
                 }
             },
-            onCancel: { [weak self] in
+            { [weak self] in
                 guard let self = self else { return }
                 guard self.captureSessionID == sessionID else { return }
                 self.overlayWindows = []
@@ -125,7 +123,7 @@ extension CapturePipeline {
                 self.appState.isCapturing = false
                 self.capturePerformanceRecorder.finishSession(performanceSession)
             },
-            onFirstInteraction: { [weak self] in
+            { [weak self] in
                 guard let self = self, !self.firstMouseDownLogged else { return }
                 self.firstMouseDownLogged = true
                 let duration = self.elapsedMilliseconds(since: entryStart)
@@ -153,67 +151,21 @@ extension CapturePipeline {
             milliseconds: overlayVisibleDuration
         )
 
+        guard freezeScreensEnabled else { return }
+
         Task { [weak self, weak coordinator] in
             guard let self = self else { return }
             let frozenImages = await self.freezeScreens(entryStart: entryStart)
             await MainActor.run {
                 guard self.captureSessionID == sessionID,
-                      self.areaCaptureSession === coordinator else {
+                      self.isSameObject(
+                        self.areaCaptureSession as AnyObject?,
+                        coordinator as AnyObject?
+                      ) else {
                     return
                 }
                 coordinator?.updateFrozenImages(frozenImages)
             }
-        }
-    }
-
-    private func freezeScreens(
-        entryStart: CFAbsoluteTime
-    ) async -> [NSScreen: CGImage] {
-        let freezeStart = CFAbsoluteTimeGetCurrent()
-        let frozenImages = await captureAllScreens()
-        let freezeDuration = self.elapsedMilliseconds(since: freezeStart)
-        let screenCount = frozenImages.count
-        logger.debug(
-            "Freeze pre-capture in \(freezeDuration, privacy: .public) ms (\(screenCount) screens)"
-        )
-        self.recordMetric(
-            stage: .freezeSnapshot, milliseconds: freezeDuration
-        )
-        return frozenImages
-    }
-
-    /// Capture screens for freeze mode. For multi-monitor, we freeze only the
-    /// active screen to reduce latency; other screens fall back to live capture.
-    func captureAllScreens() async -> [NSScreen: CGImage] {
-        let screens = NSScreen.screens
-
-        // Single screen: no need for TaskGroup overhead
-        if screens.count == 1, let screen = screens.first {
-            if let image = try? await captureManager.captureFullScreen(
-                screen: screen
-            ) {
-                return [screen: image]
-            }
-            return [:]
-        }
-
-        // Multi-monitor: capture only the active screen to minimize delay.
-        guard let activeScreen = screenForMouseLocation(in: screens)
-                ?? NSScreen.main ?? screens.first else {
-            return [:]
-        }
-        if let image = try? await captureManager.captureFullScreen(
-            screen: activeScreen
-        ) {
-            return [activeScreen: image]
-        }
-        return [:]
-    }
-
-    func screenForMouseLocation(in screens: [NSScreen]) -> NSScreen? {
-        let mouseLocation = NSEvent.mouseLocation
-        return screens.first { screen in
-            NSMouseInRect(mouseLocation, screen.frame, false)
         }
     }
 
@@ -222,12 +174,10 @@ extension CapturePipeline {
         appState.isCapturing = true
         let performanceSession = capturePerformanceRecorder.beginSession(mode: .fullscreen)
 
-        if NSScreen.screens.count > 1 {
-            let coordinator = FullscreenCaptureSessionCoordinator(
-                session: performanceSession,
-                performanceRecorder: capturePerformanceRecorder,
-                cursorController: CaptureCursorController(),
-                onSelection: { [weak self] selectedScreen in
+        if screenCountProvider() > 1 {
+            let coordinator = makeFullscreenCaptureSession(
+                performanceSession,
+                { [weak self] (selectedScreen: NSScreen) in
                     guard let self = self else { return }
                     self.screenOverlays = []
                     self.fullscreenCaptureSession = nil
@@ -237,7 +187,7 @@ extension CapturePipeline {
                         performanceSession: performanceSession
                     )
                 },
-                onCancel: { [weak self] in
+                { [weak self] in
                     guard let self = self else { return }
                     self.screenOverlays = []
                     self.fullscreenCaptureSession = nil
@@ -265,25 +215,27 @@ extension CapturePipeline {
         let performanceSession = capturePerformanceRecorder.beginSession(mode: .window)
 
         Task {
-            let coordinator = WindowCaptureSessionCoordinator(
-                session: performanceSession,
-                performanceRecorder: capturePerformanceRecorder,
-                captureManager: captureManager,
-                pickWindow: { onPresented in
-                    await WindowPickerManager.shared.pickWindow(
-                        onPresented: onPresented
-                    )
-                }
+            let coordinator = makeWindowCaptureSession(
+                performanceSession,
+                { [captureManager] in
+                    await captureManager.prewarmWindowShareableContent()
+                },
+                selectWindowCapture
             )
-            guard let filter = await coordinator.pick() else {
+            switch await coordinator.pick() {
+            case .selected(let captureOperation):
+                await performWindowCapture(
+                    capture: captureOperation,
+                    performanceSession: performanceSession
+                )
+            case .cancelled:
                 appState.isCapturing = false
                 capturePerformanceRecorder.finishSession(performanceSession)
-                return
+            case .failedToStart:
+                appState.isCapturing = false
+                capturePerformanceRecorder.finishSession(performanceSession)
+                await handlePermissionFailure()
             }
-            await performWindowCapture(
-                filter: filter,
-                performanceSession: performanceSession
-            )
         }
     }
 
@@ -363,145 +315,6 @@ extension CapturePipeline {
         }
     }
 
-    // MARK: Scroll Capture
-
-    func captureScroll() {
-        guard !appState.isCapturing else { return }
-        appState.isCapturing = true
-        captureSessionID &+= 1
-
-        Task {
-            let entryStart = CFAbsoluteTimeGetCurrent()
-            entryLogger.debug("Scroll capture entry: request received")
-            let frozenImages = await freezeScreens(entryStart: entryStart)
-            showScrollAreaOverlays(
-                frozenImages: frozenImages, entryStart: entryStart
-            )
-        }
-    }
-
-    private func showScrollAreaOverlays(
-        frozenImages: [NSScreen: CGImage],
-        entryStart: CFAbsoluteTime
-    ) {
-        firstMouseDownLogged = false
-        let sessionID = captureSessionID
-
-        overlayWindows = CaptureOverlayWindow.showOnAllScreens(
-            frozenImages: frozenImages,
-            onRegionSelected: { [weak self] rect, screen in
-                guard let self = self else { return }
-                Task { @MainActor in
-                    guard self.captureSessionID == sessionID else { return }
-                    self.overlayWindows = []
-                    self.appState.lastCaptureRect = rect
-                    self.appState.lastCaptureScreen = screen
-                    await self.performScrollCapture(
-                        rect: rect, screen: screen
-                    )
-                }
-            },
-            onCancelled: { [weak self] in
-                guard let self = self else { return }
-                Task { @MainActor in
-                    guard self.captureSessionID == sessionID else { return }
-                    self.overlayWindows = []
-                    self.appState.isCapturing = false
-                }
-            },
-            onFirstMouseDown: { [weak self] in
-                guard let self = self, !self.firstMouseDownLogged else { return }
-                self.firstMouseDownLogged = true
-                let duration = self.elapsedMilliseconds(since: entryStart)
-                entryLogger.info(
-                    "Scroll capture entry: first mouseDown at \(duration, privacy: .public) ms"
-                )
-                self.recordMetric(
-                    stage: .firstMouseDown, milliseconds: duration
-                )
-            }
-        )
-    }
-
-    func performScrollCapture(rect: CGRect, screen: NSScreen) async {
-        // Brief delay to let overlay dismiss and frontmost app restore
-        try? await Task.sleep(nanoseconds: 200_000_000)
-
-        guard AccessibilityPermissionChecker.isGranted() else {
-            let alert = NSAlert()
-            alert.messageText = "Accessibility Permission Required"
-            alert.informativeText = "Scroll Capture needs Accessibility access to "
-                + "simulate scrolling. Please grant access in System Settings."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Open System Settings")
-            alert.addButton(withTitle: "Cancel")
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
-                AccessibilityPermissionChecker.openSystemSettings()
-            }
-            appState.isCapturing = false
-            return
-        }
-
-        let config = ScrollCaptureEngine.Config(
-            maxHeightPx: settings.scrollMaxHeight,
-            scrollToTop: settings.scrollToTop,
-            allowManualFallback: true,
-            preferredDirection: .auto,
-            modeBias: .automaticPreferred
-        )
-
-        let sessionCoordinator = ScrollCaptureSessionCoordinator(
-            rect: rect,
-            screen: screen
-        )
-
-        let captureManager = self.captureManager
-        let captureFrameFn: (CGRect, NSScreen) async throws -> CGImage = { rect, scr in
-            try await captureManager.captureArea(rect: rect, screen: scr)
-        }
-
-        let engine = ScrollCaptureEngine()
-        let task = Task {
-            await engine.capture(
-                region: rect,
-                screen: screen,
-                config: config,
-                control: sessionCoordinator.control,
-                captureFrame: captureFrameFn,
-                onProgress: { progress in
-                    sessionCoordinator.update(progress)
-                }
-            )
-        }
-        scrollCaptureTask = task
-        sessionCoordinator.bind(task: task)
-
-        let result = await task.value
-        sessionCoordinator.dismiss()
-
-        switch result {
-        case .success(let output):
-            if output.terminationReason == .manualFinished {
-                appState.statusMessage = "Manual scroll capture finished"
-            } else if output.terminationReason == .maxHeightReached {
-                appState.statusMessage = "Scroll capture reached the max height"
-            }
-            await performCapture(mode: .scroll) { output.image }
-        case .cancelled:
-            appState.statusMessage = "Scroll capture cancelled"
-            appState.isCapturing = false
-        case .failed(CaptureError.noPermission):
-            appState.isCapturing = false
-            await PermissionCoordinator.shared.handleCapturePermissionFailure()
-        case .failed(let error):
-            let desc = error.localizedDescription
-            logger.error("Scroll capture failed: \(desc, privacy: .public)")
-            appState.statusMessage = "Scroll capture failed: \(desc)"
-            appState.isCapturing = false
-        }
-    }
-
     /// Cancel an in-progress delayed capture countdown.
     func cancelDelayedCapture() {
         delayedCaptureTask?.cancel()
@@ -511,46 +324,5 @@ extension CapturePipeline {
         appState.isCapturing = false
         appState.statusMessage = "Countdown cancelled"
         CountdownOverlay.shared.dismiss()
-    }
-}
-
-@MainActor
-private final class ScrollCaptureSessionCoordinator {
-    let control = ScrollCaptureControl()
-
-    private let overlay = ScrollProgressOverlay()
-    private var task: Task<ScrollCaptureEngine.Result, Never>?
-
-    init(rect: CGRect, screen: NSScreen) {
-        overlay.show(
-            near: rect,
-            screen: screen,
-            onCancel: { [weak self] in
-                self?.task?.cancel()
-            },
-            onSwitchToManual: { [control] in
-                Task {
-                    await control.requestManual()
-                }
-            },
-            onFinish: { [control] in
-                Task {
-                    await control.requestFinish()
-                }
-            }
-        )
-    }
-
-    func bind(task: Task<ScrollCaptureEngine.Result, Never>) {
-        self.task = task
-    }
-
-    func update(_ progress: ScrollCaptureProgress) {
-        overlay.update(progress)
-    }
-
-    func dismiss() {
-        overlay.dismiss()
-        task = nil
     }
 }

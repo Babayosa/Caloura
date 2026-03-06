@@ -105,9 +105,11 @@ final class EmbeddingStore: @unchecked Sendable {
                 clear()
                 return
             }
-            lock.lock()
-            entries = decoded.entries
-            lock.unlock()
+            replaceEntries(with: decoded.entries)
+        } catch let error as HistoryCryptoError {
+            let message = error.localizedDescription
+            embeddingStoreLogger.error("Failed to load embeddings: \(message, privacy: .public)")
+            resetInMemory()
         } catch {
             let message = error.localizedDescription
             embeddingStoreLogger.error("Failed to load embeddings: \(message, privacy: .public)")
@@ -116,9 +118,7 @@ final class EmbeddingStore: @unchecked Sendable {
     }
 
     func clear() {
-        lock.lock()
-        entries.removeAll()
-        lock.unlock()
+        resetInMemory()
         do {
             try FileManager.default.removeItem(at: storeURL)
         } catch CocoaError.fileNoSuchFile {
@@ -141,5 +141,15 @@ final class EmbeddingStore: @unchecked Sendable {
         let found = entries.contains { $0.screenshotID == screenshotID }
         lock.unlock()
         return found
+    }
+
+    private func replaceEntries(with entries: [EmbeddingEntry]) {
+        lock.lock()
+        self.entries = entries
+        lock.unlock()
+    }
+
+    private func resetInMemory() {
+        replaceEntries(with: [])
     }
 }

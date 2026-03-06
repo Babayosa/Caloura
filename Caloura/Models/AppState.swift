@@ -4,6 +4,44 @@ import SwiftUI
 
 private let appStateLogger = Logger(subsystem: "com.caloura.app", category: "AppState")
 
+private struct UserDefaultsHandle: @unchecked Sendable {
+    let defaults: UserDefaults
+}
+
+private actor HistoryPersistenceWorker {
+    private let defaultsHandle: UserDefaultsHandle
+    private let historyDefaultsKey: String
+    private let legacyHistoryDefaultsKey: String
+    private var latestRevisionRequested: UInt64 = 0
+
+    init(
+        defaultsHandle: UserDefaultsHandle,
+        historyDefaultsKey: String,
+        legacyHistoryDefaultsKey: String
+    ) {
+        self.defaultsHandle = defaultsHandle
+        self.historyDefaultsKey = historyDefaultsKey
+        self.legacyHistoryDefaultsKey = legacyHistoryDefaultsKey
+    }
+
+    func persistHistory(_ encodedData: Data, to historyFileURL: URL, revision: UInt64) {
+        guard revision >= latestRevisionRequested else {
+            return
+        }
+        latestRevisionRequested = revision
+        do {
+            try HistoryCrypto.writeEncrypted(encodedData, to: historyFileURL)
+            AppState.purgeHistoryDefaults(
+                in: defaultsHandle.defaults,
+                historyDefaultsKey: historyDefaultsKey,
+                legacyHistoryDefaultsKey: legacyHistoryDefaultsKey
+            )
+        } catch {
+            appStateLogger.error("Failed to persist screenshot history: \(error.localizedDescription)")
+        }
+    }
+}
+
 @MainActor
 final class AppState: ObservableObject {
     static let shared = AppState()
@@ -35,15 +73,24 @@ final class AppState: ObservableObject {
     private let legacyHistoryDefaultsKey = "screenshotHistory"
     private let defaults: UserDefaults
     private let historyFileURL: URL
+    private let historyPersistence: HistoryPersistenceWorker
+    private var previewPhasesByScreenshotID: [UUID: CapturePreviewPhase] = [:]
+    private var piiResultsByScreenshotID: [UUID: PIIDetectionResult] = [:]
 
     // Debounce save operations to avoid hammering disk writes.
     private var saveTask: Task<Void, Never>?
     private let saveDebounceInterval: UInt64 = 500_000_000 // 500ms
     private var lastScreenshotTimer: Timer?
+    private var historyRevision: UInt64 = 0
 
     init(defaults: UserDefaults = .standard, historyStoreURL: URL? = nil) {
         self.defaults = defaults
         self.historyFileURL = historyStoreURL ?? Self.defaultHistoryFileURL()
+        self.historyPersistence = HistoryPersistenceWorker(
+            defaultsHandle: UserDefaultsHandle(defaults: defaults),
+            historyDefaultsKey: "screenshotHistoryEncrypted",
+            legacyHistoryDefaultsKey: "screenshotHistory"
+        )
         loadHistory()
         embeddingStore.load()
         auditStoragePermissions()
@@ -94,6 +141,11 @@ final class AppState: ObservableObject {
 
     func clearHistory() {
         recentScreenshots.removeAll()
+        previewPhasesByScreenshotID.removeAll()
+        piiResultsByScreenshotID.removeAll()
+        lastCapturePreviewPhase = .rawPreviewReady
+        lastCapturePreviewScreenshotID = nil
+        lastPIIResult = nil
         embeddingStore.clear()
         saveHistoryNow()
     }
@@ -102,15 +154,22 @@ final class AppState: ObservableObject {
         _ phase: CapturePreviewPhase,
         for screenshotID: UUID
     ) {
+        previewPhasesByScreenshotID[screenshotID] = phase
         lastCapturePreviewScreenshotID = screenshotID
         lastCapturePreviewPhase = phase
     }
 
     func previewPhase(for screenshotID: UUID) -> CapturePreviewPhase {
-        guard lastCapturePreviewScreenshotID == screenshotID else {
-            return .rawPreviewReady
-        }
-        return lastCapturePreviewPhase
+        previewPhasesByScreenshotID[screenshotID] ?? .rawPreviewReady
+    }
+
+    func setPIIResult(_ result: PIIDetectionResult) {
+        piiResultsByScreenshotID[result.screenshotID] = result
+        lastPIIResult = result
+    }
+
+    func piiResult(for screenshotID: UUID) -> PIIDetectionResult? {
+        piiResultsByScreenshotID[screenshotID]
     }
 
     /// Schedule a debounced save (coalesces rapid changes).
@@ -135,26 +194,25 @@ final class AppState: ObservableObject {
 
         // Copy array to avoid data races on detached thread.
         let itemsCopy = Array(recentScreenshots)
+        historyRevision &+= 1
+        let revision = historyRevision
+        let encodedData: Data
+        do {
+            encodedData = try JSONEncoder().encode(itemsCopy)
+        } catch {
+            appStateLogger.error("Failed to encode screenshot history: \(error.localizedDescription)")
+            return
+        }
+
         let historyFileURL = self.historyFileURL
-        let defaults = self.defaults
-        let historyDefaultsKey = self.historyDefaultsKey
-        let legacyHistoryDefaultsKey = self.legacyHistoryDefaultsKey
+        let historyPersistence = self.historyPersistence
 
-        Task.detached(priority: .utility) {
-            do {
-                let data = try JSONEncoder().encode(itemsCopy)
-                try HistoryCrypto.writeEncrypted(data, to: historyFileURL)
-
-                // Migration cleanup: once file-backed persistence succeeds,
-                // remove legacy defaults blobs.
-                Self.purgeHistoryDefaults(
-                    in: defaults,
-                    historyDefaultsKey: historyDefaultsKey,
-                    legacyHistoryDefaultsKey: legacyHistoryDefaultsKey
-                )
-            } catch {
-                appStateLogger.error("Failed to persist screenshot history: \(error.localizedDescription)")
-            }
+        Task(priority: .utility) {
+            await historyPersistence.persistHistory(
+                encodedData,
+                to: historyFileURL,
+                revision: revision
+            )
         }
     }
 
@@ -285,7 +343,7 @@ final class AppState: ObservableObject {
         )
     }
 
-    nonisolated private static func purgeHistoryDefaults(
+    nonisolated fileprivate static func purgeHistoryDefaults(
         in defaults: UserDefaults,
         historyDefaultsKey: String,
         legacyHistoryDefaultsKey: String
@@ -301,7 +359,18 @@ final class AppState: ObservableObject {
         guard !removed.isEmpty else { return }
 
         for item in removed {
+            previewPhasesByScreenshotID[item.id] = nil
+            piiResultsByScreenshotID[item.id] = nil
             embeddingStore.remove(screenshotID: item.id)
+        }
+        if let lastCapturePreviewScreenshotID,
+           previewPhasesByScreenshotID[lastCapturePreviewScreenshotID] == nil {
+            self.lastCapturePreviewScreenshotID = nil
+            self.lastCapturePreviewPhase = .rawPreviewReady
+        }
+        if let lastPIIResult,
+           piiResultsByScreenshotID[lastPIIResult.screenshotID] == nil {
+            self.lastPIIResult = nil
         }
         embeddingStore.save()
     }

@@ -3,6 +3,8 @@ import Carbon.HIToolbox
 import QuartzCore
 
 final class RegionSelectionView: NSView {
+    static let hintText = "Drag to select  \u{00B7}  ESC to cancel"
+
     var onRegionSelected: ((CGRect) -> Void)?
     var onCancelled: (() -> Void)?
     var onFirstMouseDown: (() -> Void)?
@@ -35,6 +37,14 @@ final class RegionSelectionView: NSView {
     private let hintFont = NSFont.systemFont(ofSize: 13, weight: .medium)
     private let labelPadding: CGFloat = 6
     private let hintPadding: CGFloat = 10
+
+    var debugHintVisible: Bool {
+        !hintContainer.isHidden
+    }
+
+    var debugHintText: String {
+        Self.hintText
+    }
 
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -107,7 +117,7 @@ final class RegionSelectionView: NSView {
         hintContainer.isHidden = false
         root.addSublayer(hintContainer)
 
-        hintTextLayer.string = "Drag to select  \u{00B7}  ESC to cancel"
+        hintTextLayer.string = Self.hintText
         hintTextLayer.font = hintFont
         hintTextLayer.fontSize = hintFont.pointSize
         hintTextLayer.foregroundColor = NSColor.white.withAlphaComponent(0.8).cgColor
@@ -254,7 +264,7 @@ final class RegionSelectionView: NSView {
     }
 
     private func layoutHintLabel() {
-        let text = "Drag to select  \u{00B7}  ESC to cancel"
+        let text = Self.hintText
         let textSize = (text as NSString).size(
             withAttributes: [.font: hintFont]
         )

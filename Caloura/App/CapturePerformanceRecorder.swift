@@ -19,6 +19,7 @@ final class CapturePerformanceRecorder {
         case pickerVisibleCold = "picker_visible_cold"
         case firstInteraction = "first_interaction"
         case screenshotDuration = "screenshot_duration"
+        case previewPresentationDuration = "preview_presentation_duration"
         case rawPreviewVisible = "raw_preview_visible"
         case saveComplete = "save_complete"
         case clipboardComplete = "clipboard_complete"

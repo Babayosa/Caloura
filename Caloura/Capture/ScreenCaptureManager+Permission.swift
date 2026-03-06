@@ -11,7 +11,7 @@ extension ScreenCaptureManager {
 
     // MARK: - Permission
 
-    enum PermissionState {
+    enum PermissionState: Sendable {
         case neverGranted
         case grantedButFailing
     }
@@ -19,7 +19,7 @@ extension ScreenCaptureManager {
     /// Quick check using CoreGraphics — no prompt, but may not reflect
     /// SCK status on Sequoia.
     func checkPermission() -> Bool {
-        let result = CGPreflightScreenCaptureAccess()
+        let result = permissionDependencies.cgPreflight()
         logger.info("CGPreflightScreenCaptureAccess: \(result)")
         return result
     }
@@ -32,7 +32,7 @@ extension ScreenCaptureManager {
     /// Request screen recording permission via CoreGraphics.
     /// Only call from explicit user action.
     func requestPermission() -> Bool {
-        CGRequestScreenCaptureAccess()
+        permissionDependencies.cgRequest()
     }
 
     /// Quick single-attempt SCK check for passive status updates
@@ -41,10 +41,9 @@ extension ScreenCaptureManager {
     /// SCK entirely.
     func checkSCKAccess() async -> Bool {
         do {
-            let content = try await SCShareableContent
-                .excludingDesktopWindows(true, onScreenWindowsOnly: true)
-            let displayCount = content.displays.count
-            let windowCount = content.windows.count
+            let counts = try await permissionDependencies.sckAccessProbe()
+            let displayCount = counts.displayCount
+            let windowCount = counts.windowCount
             logger.info(
                 "SCK check: authorized (\(displayCount) displays, \(windowCount) windows)"
             )
@@ -71,16 +70,13 @@ extension ScreenCaptureManager {
     func repairSCKAccess() async -> Bool {
         logger.info("Attempting replayd restart")
         do {
-            try await Task.detached {
-                let process = Process()
-                process.executableURL = URL(filePath: "/bin/launchctl")
-                process.arguments = [
+            try await permissionDependencies.runRepairTool(
+                URL(filePath: "/bin/launchctl"),
+                [
                     "kickstart", "-k",
                     "gui/\(getuid())/com.apple.replayd"
                 ]
-                try process.run()
-                process.waitUntilExit()
-            }.value
+            )
         } catch {
             let desc = error.localizedDescription
             logger.warning("replayd restart failed: \(desc)")
@@ -95,13 +91,10 @@ extension ScreenCaptureManager {
         let bundleID = Bundle.main.bundleIdentifier ?? "com.caloura.app"
         logger.info("Resetting TCC ScreenCapture entry for \(bundleID)")
         do {
-            try await Task.detached {
-                let process = Process()
-                process.executableURL = URL(filePath: "/usr/bin/tccutil")
-                process.arguments = ["reset", "ScreenCapture", bundleID]
-                try process.run()
-                process.waitUntilExit()
-            }.value
+            try await permissionDependencies.runRepairTool(
+                URL(filePath: "/usr/bin/tccutil"),
+                ["reset", "ScreenCapture", bundleID]
+            )
         } catch {
             let desc = error.localizedDescription
             logger.warning("TCC reset failed: \(desc)")
@@ -112,14 +105,17 @@ extension ScreenCaptureManager {
     func relaunchApp() {
         let bundleURL = Bundle.main.bundleURL
         logger.info("Relaunching app from \(bundleURL.path)")
-        let config = NSWorkspace.OpenConfiguration()
-        config.createsNewApplicationInstance = true
-        NSWorkspace.shared.openApplication(
-            at: bundleURL,
-            configuration: config
-        ) { _, _ in }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            NSApp.terminate(nil)
+        Task { @MainActor in
+            do {
+                try await permissionDependencies.relaunchApplication(bundleURL)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.permissionDependencies.terminateApplication()
+                }
+            } catch {
+                let description = error.localizedDescription
+                logger.warning("Relaunch failed: \(description, privacy: .public)")
+                AppState.shared.statusMessage = "Restart failed: \(description)"
+            }
         }
     }
 
@@ -128,61 +124,41 @@ extension ScreenCaptureManager {
         for state: PermissionState
     ) {
 
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        NSApp.activate()
-
         let settingsURLString = "x-apple.systempreferences:"
             + "com.apple.preference.security?Privacy_ScreenCapture"
+        guard let settingsURL = URL(string: settingsURLString) else {
+            return
+        }
 
         switch state {
         case .neverGranted:
-            alert.messageText = "Screen Recording Permission Required"
-            alert.informativeText =
-                "Caloura needs screen recording access to capture "
-                + "screenshots.\n\n"
-                + "1. Click \"Open System Settings\" below\n"
-                + "2. Find Caloura in the list and toggle it ON\n"
-                + "3. You may need to quit and reopen Caloura "
-                + "after granting access"
-            alert.addButton(withTitle: "Open System Settings")
-            alert.addButton(withTitle: "Cancel")
-
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
-                if let url = URL(string: settingsURLString) {
-                    NSWorkspace.shared.open(url)
-                }
+            switch permissionDependencies.presentAlert(state) {
+            case .openSystemSettings:
+                permissionDependencies.openURL(settingsURL)
+            case .cancel, .restartApp:
+                break
             }
-
         case .grantedButFailing:
-            alert.messageText = "Screen Recording Permission Issue"
-            alert.informativeText =
-                "Caloura has screen recording permission, but macOS "
-                + "is not allowing captures. This can happen after an "
-                + "app update or system change.\n\n"
-                + "Restarting Caloura usually fixes this. If not, try "
-                + "toggling the permission off and on in "
-                + "System Settings."
-            alert.addButton(withTitle: "Restart Caloura")
-            alert.addButton(withTitle: "Open System Settings")
-            alert.addButton(withTitle: "Cancel")
-
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
-                // Relaunch the app
-                let url = Bundle.main.bundleURL
-                let task = Process()
-                task.executableURL = URL(
-                    fileURLWithPath: "/usr/bin/open"
-                )
-                task.arguments = ["-n", url.path]
-                try? task.run()
-                NSApp.terminate(nil)
-            } else if response == .alertSecondButtonReturn {
-                if let url = URL(string: settingsURLString) {
-                    NSWorkspace.shared.open(url)
+            switch permissionDependencies.presentAlert(state) {
+            case .restartApp:
+                let bundleURL = Bundle.main.bundleURL
+                Task { @MainActor in
+                    do {
+                        try await permissionDependencies.runRepairTool(
+                            URL(filePath: "/usr/bin/open"),
+                            ["-n", bundleURL.path]
+                        )
+                        permissionDependencies.terminateApplication()
+                    } catch {
+                        let description = error.localizedDescription
+                        logger.warning("Restart relaunch failed: \(description, privacy: .public)")
+                        AppState.shared.statusMessage = "Restart failed: \(description)"
+                    }
                 }
+            case .openSystemSettings:
+                permissionDependencies.openURL(settingsURL)
+            case .cancel:
+                break
             }
         }
     }

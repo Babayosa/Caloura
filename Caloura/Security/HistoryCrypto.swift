@@ -34,10 +34,10 @@ enum HistoryCrypto {
     nonisolated private static let keychainService = (Bundle.main.bundleIdentifier ?? "com.caloura.app")
         + ".security"
     private static let keyQueue = DispatchQueue(label: "com.caloura.historycrypto.key")
-    private static var cachedKey: SymmetricKey?
+    nonisolated(unsafe) private static var cachedKey: SymmetricKey?
     #if DEBUG
-    private static var securityDirectoryOverride: URL?
-    private static var keychainItemOverride: (service: String, account: String)?
+    nonisolated(unsafe) private static var securityDirectoryOverride: URL?
+    nonisolated(unsafe) private static var keychainItemOverride: (service: String, account: String)?
     #endif
     private static let currentKeyVersion: UInt8 = 1
     // AES-GCM nonce (12) + tag (16) = 28 bytes minimum for a valid sealed box

@@ -323,6 +323,36 @@ final class FileOrganizerTests: XCTestCase {
         XCTAssertTrue(fileURL.lastPathComponent.hasSuffix(".jpeg"))
     }
 
+    func testSave_smartFileNameCollision_appendsUniqueSuffix() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let context = CaptureContext(
+            mode: .area,
+            sourceAppName: "TestApp",
+            timestamp: makeDate(hour: 11, minute: 0, second: 0)
+        )
+        let screenshot = makeProcessedScreenshot(context: context)
+
+        let firstURL = try await FileOrganizer.save(
+            cgImage: screenshot.cgImage,
+            context: screenshot.context,
+            baseDirectory: tempDir.path,
+            smartFileName: "release-notes"
+        )
+        let secondURL = try await FileOrganizer.save(
+            cgImage: screenshot.cgImage,
+            context: screenshot.context,
+            baseDirectory: tempDir.path,
+            smartFileName: "release-notes"
+        )
+
+        XCTAssertNotEqual(firstURL.lastPathComponent, secondURL.lastPathComponent)
+        XCTAssertEqual(firstURL.lastPathComponent, "release-notes.png")
+        XCTAssertEqual(secondURL.lastPathComponent, "release-notes-2.png")
+    }
+
     // MARK: - Symlink Escape
 
     func testSave_symlinkEscape_throws() async throws {

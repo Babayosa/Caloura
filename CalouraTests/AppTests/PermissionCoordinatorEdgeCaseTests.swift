@@ -7,7 +7,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
 
     // MARK: - refreshPassiveStatus repeated calls
 
-    func testRepeatedRefreshPassiveStatus_stableResult() {
+    func testRepeatedRefreshPassiveStatus_stableResult() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let coordinator = PermissionCoordinator(
             defaults: defaults,
@@ -23,7 +23,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         // Call refreshPassiveStatus many times in rapid succession
         var results: [PermissionStatus] = []
         for _ in 0..<20 {
-            let status = coordinator.refreshPassiveStatus()
+            let status = await coordinator.refreshPassiveStatus()
             results.append(status)
         }
 
@@ -37,7 +37,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         }
     }
 
-    func testRepeatedRefreshPassiveStatus_deniedIsStable() {
+    func testRepeatedRefreshPassiveStatus_deniedIsStable() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let coordinator = PermissionCoordinator(
             defaults: defaults,
@@ -51,7 +51,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         )
 
         for _ in 0..<20 {
-            let status = coordinator.refreshPassiveStatus()
+            let status = await coordinator.refreshPassiveStatus()
             XCTAssertEqual(status, .denied)
         }
 
@@ -63,7 +63,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
 
     // MARK: - refreshPassiveStatus does not crash
 
-    func testRefreshPassiveStatus_doesNotCrashWithGranted() {
+    func testRefreshPassiveStatus_doesNotCrashWithGranted() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let coordinator = PermissionCoordinator(
             defaults: defaults,
@@ -76,14 +76,14 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 12_000) }
         )
 
-        let status = coordinator.refreshPassiveStatus()
+        let status = await coordinator.refreshPassiveStatus()
         // Should return a valid status without crashing
         XCTAssertNotEqual(status, .unknown)
     }
 
     // MARK: - UI model consistency after repeated calls
 
-    func testUIModelConsistency_afterRepeatedRefreshCalls() {
+    func testUIModelConsistency_afterRepeatedRefreshCalls() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         var callCount = 0
         let coordinator = PermissionCoordinator(
@@ -99,7 +99,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
 
         // Rapid-fire calls should not cause inconsistent state
         for _ in 0..<10 {
-            coordinator.refreshPassiveStatus()
+            _ = await coordinator.refreshPassiveStatus()
         }
 
         let model = coordinator.permissionUIModel
@@ -114,7 +114,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
 
     // MARK: - Mismatch detection stability
 
-    func testMismatchDetection_repeatedCalls_stableBanner() {
+    func testMismatchDetection_repeatedCalls_stableBanner() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let identity = PermissionTestHelpers.makeIdentity("mismatch-stable")
         defaults.set(
@@ -134,7 +134,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         )
 
         // First call should detect mismatch
-        let first = coordinator.refreshPassiveStatus()
+        let first = await coordinator.refreshPassiveStatus()
         XCTAssertEqual(first, .signatureMismatch)
         XCTAssertTrue(
             coordinator.permissionUIModel
@@ -143,7 +143,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
 
         // Subsequent calls should remain stable
         for _ in 0..<10 {
-            let status = coordinator.refreshPassiveStatus()
+            let status = await coordinator.refreshPassiveStatus()
             XCTAssertEqual(status, .signatureMismatch)
             XCTAssertTrue(
                 coordinator.permissionUIModel

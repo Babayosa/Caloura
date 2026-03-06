@@ -16,13 +16,23 @@ struct AnnotationCoordTransform {
         let canvasAspect = canvasSize.width / canvasSize.height
 
         if imageAspect > canvasAspect {
-            let w = canvasSize.width
-            let h = w / imageAspect
-            return CGRect(x: 0, y: (canvasSize.height - h) / 2, width: w, height: h)
+            let fittedWidth = canvasSize.width
+            let fittedHeight = fittedWidth / imageAspect
+            return CGRect(
+                x: 0,
+                y: (canvasSize.height - fittedHeight) / 2,
+                width: fittedWidth,
+                height: fittedHeight
+            )
         } else {
-            let h = canvasSize.height
-            let w = h * imageAspect
-            return CGRect(x: (canvasSize.width - w) / 2, y: 0, width: w, height: h)
+            let fittedHeight = canvasSize.height
+            let fittedWidth = fittedHeight * imageAspect
+            return CGRect(
+                x: (canvasSize.width - fittedWidth) / 2,
+                y: 0,
+                width: fittedWidth,
+                height: fittedHeight
+            )
         }
     }
 
@@ -282,7 +292,7 @@ struct AnnotationOverlayView: View {
 // MARK: - Preference Key
 
 private struct CanvasSizeKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
+    static let defaultValue: CGSize = .zero
     static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
 }
 

@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class PermissionCoordinatorTests: XCTestCase {
 
-    func testRefreshPassiveStatusDeniedWhenCGNotGranted() {
+    func testRefreshPassiveStatusDeniedWhenCGNotGranted() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let coordinator = PermissionCoordinator(
             defaults: defaults,
@@ -18,13 +18,13 @@ final class PermissionCoordinatorTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 1_000) }
         )
 
-        let status = coordinator.refreshPassiveStatus()
+        let status = await coordinator.refreshPassiveStatus()
 
         XCTAssertEqual(status, .denied)
         XCTAssertEqual(coordinator.permissionUIModel.status, .denied)
     }
 
-    func testMismatchDetectionAndBannerSuppression() {
+    func testMismatchDetectionAndBannerSuppression() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let identity = PermissionTestHelpers.makeIdentity("mismatch")
         defaults.set("different-fingerprint", forKey: "permissionLastWorkingIdentityFingerprint")
@@ -40,12 +40,12 @@ final class PermissionCoordinatorTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 2_000) }
         )
 
-        let firstStatus = coordinator.refreshPassiveStatus()
+        let firstStatus = await coordinator.refreshPassiveStatus()
         XCTAssertEqual(firstStatus, .signatureMismatch)
         XCTAssertTrue(coordinator.permissionUIModel.shouldShowSignatureMismatchBanner)
 
-        coordinator.markCurrentMismatchBannerShown()
-        _ = coordinator.refreshPassiveStatus()
+        await coordinator.markCurrentMismatchBannerShown()
+        _ = await coordinator.refreshPassiveStatus()
         XCTAssertFalse(coordinator.permissionUIModel.shouldShowSignatureMismatchBanner)
     }
 
@@ -110,7 +110,7 @@ final class PermissionCoordinatorTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 4_100) }
         )
 
-        let mismatchStatus = mismatchCoordinator.refreshPassiveStatus()
+        let mismatchStatus = await mismatchCoordinator.refreshPassiveStatus()
         XCTAssertEqual(mismatchStatus, .signatureMismatch)
     }
 

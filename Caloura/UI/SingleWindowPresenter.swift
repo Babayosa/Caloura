@@ -72,20 +72,15 @@ final class SingleWindowPresenter<Content: View> {
 
         self.window = newWindow
 
-        var observerToken: NSObjectProtocol?
-        observerToken = NotificationCenter.default.addObserver(
+        closeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: newWindow,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            if let token = observerToken {
-                NotificationCenter.default.removeObserver(token)
+            MainActor.assumeIsolated {
+                self?.handleWindowWillClose()
             }
-            self.closeObserver = nil
-            self.window = nil
         }
-        self.closeObserver = observerToken
 
         return true
     }
@@ -97,5 +92,13 @@ final class SingleWindowPresenter<Content: View> {
     func bringToFront() {
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate()
+    }
+
+    private func handleWindowWillClose() {
+        if let token = closeObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+        closeObserver = nil
+        window = nil
     }
 }

@@ -125,7 +125,9 @@ extension OnboardingView {
             .multilineTextAlignment(.center)
             .padding(.horizontal, 4)
             .onAppear {
-                permissionCoordinator.markCurrentMismatchBannerShown()
+                Task { @MainActor in
+                    await permissionCoordinator.markCurrentMismatchBannerShown()
+                }
             }
     }
 

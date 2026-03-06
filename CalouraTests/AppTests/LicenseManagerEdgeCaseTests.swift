@@ -4,38 +4,65 @@ import XCTest
 @MainActor
 final class LicenseManagerEdgeCaseTests: XCTestCase {
 
-    private var settings: AppSettings!
-    private var license: LicenseManager!
+    nonisolated(unsafe) private var settings: AppSettings!
+    nonisolated(unsafe) private var license: LicenseManager!
 
-    private var savedFirstLaunchDate: Date!
-    private var savedLicenseKey: String!
-    private var savedEntitlement: LicenseEntitlement?
-    private var savedLastValidationDate: Date?
+    nonisolated(unsafe) private var savedFirstLaunchDate: Date!
+    nonisolated(unsafe) private var savedLicenseKey: String!
+    nonisolated(unsafe) private var savedEntitlement: LicenseEntitlement?
+    nonisolated(unsafe) private var savedLastValidationDate: Date?
+    nonisolated(unsafe) private var savedFurthestDateSeen: Date?
 
     override func setUp() {
         super.setUp()
-        settings = AppSettings.shared
+        let settings = MainActor.assumeIsolated {
+            AppSettings.shared
+        }
+        self.settings = settings
+        let snapshot = MainActor.assumeIsolated {
+            (
+                settings.firstLaunchDate,
+                settings.licenseKey,
+                settings.currentLicenseEntitlement,
+                settings.lastLicenseValidationDate,
+                settings.furthestDateSeen
+            )
+        }
+        savedFirstLaunchDate = snapshot.0
+        savedLicenseKey = snapshot.1
+        savedEntitlement = snapshot.2
+        savedLastValidationDate = snapshot.3
+        savedFurthestDateSeen = snapshot.4
 
-        // Save original values
-        savedFirstLaunchDate = settings.firstLaunchDate
-        savedLicenseKey = settings.licenseKey
-        savedEntitlement = settings.currentLicenseEntitlement
-        savedLastValidationDate = settings.lastLicenseValidationDate
+        MainActor.assumeIsolated {
+            settings.licenseKey = ""
+            settings.updateLicenseEntitlement(nil)
+            settings.lastLicenseValidationDate = nil
+            settings.furthestDateSeen = nil
+        }
 
-        // Reset to unlicensed state
-        settings.licenseKey = ""
-        settings.updateLicenseEntitlement(nil)
-        settings.lastLicenseValidationDate = nil
-
-        license = LicenseManager(settings: settings)
+        self.license = MainActor.assumeIsolated {
+            LicenseManager(settings: settings)
+        }
     }
 
     override func tearDown() {
-        // Restore original values
-        settings.firstLaunchDate = savedFirstLaunchDate
-        settings.licenseKey = savedLicenseKey
-        settings.updateLicenseEntitlement(savedEntitlement)
-        settings.lastLicenseValidationDate = savedLastValidationDate
+        guard let settings else {
+            super.tearDown()
+            return
+        }
+        let restoredFirstLaunchDate: Date = savedFirstLaunchDate
+        let restoredLicenseKey: String = savedLicenseKey
+        let restoredEntitlement = savedEntitlement
+        let restoredLastValidationDate = savedLastValidationDate
+        let restoredFurthestDateSeen = savedFurthestDateSeen
+        MainActor.assumeIsolated {
+            settings.firstLaunchDate = restoredFirstLaunchDate
+            settings.licenseKey = restoredLicenseKey
+            settings.updateLicenseEntitlement(restoredEntitlement)
+            settings.lastLicenseValidationDate = restoredLastValidationDate
+            settings.furthestDateSeen = restoredFurthestDateSeen
+        }
         super.tearDown()
     }
 
@@ -101,16 +128,11 @@ final class LicenseManagerEdgeCaseTests: XCTestCase {
     // MARK: - Future firstLaunchDate
 
     func testTrialDaysRemaining_futureDate_clampedTo7() {
-        // If firstLaunchDate is in the future, elapsed is negative,
-        // so remaining = max(0, 7 - negative) which exceeds 7.
-        // The implementation returns max(0, 7 - elapsed) directly,
-        // so a future date yields > 7.
-        // Verify it is at least 7 (not negative or zero).
         settings.firstLaunchDate = Calendar.current.date(
             byAdding: .day, value: 5, to: Date()
         )!
         let days = license.trialDaysRemaining(settings: settings)
-        XCTAssertGreaterThanOrEqual(days, 7)
+        XCTAssertEqual(days, 7)
     }
 
     func testIsTrialExpired_futureDate() {

@@ -1,7 +1,6 @@
 import XCTest
 @testable import Caloura
 
-@MainActor
 final class ScreenCaptureManagerTests: XCTestCase {
 
     // Create a fresh instance for each test to avoid shared state.
@@ -11,7 +10,7 @@ final class ScreenCaptureManagerTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        sut = ScreenCaptureManager()
+        sut = MainActor.assumeIsolated { ScreenCaptureManager() }
     }
 
     override func tearDown() {
@@ -21,12 +20,14 @@ final class ScreenCaptureManagerTests: XCTestCase {
 
     // MARK: - Initial state
 
+    @MainActor
     func testSCKFailed_initiallyFalse() {
         XCTAssertFalse(sut.sckFailed, "sckFailed should be false on a fresh instance")
     }
 
     // MARK: - resetSCKState
 
+    @MainActor
     func testResetSCKState_setsSckFailedToFalse() {
         // Force sckFailed to true via the public property
         sut.sckFailed = true
@@ -40,6 +41,7 @@ final class ScreenCaptureManagerTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testResetSCKState_calledMultipleTimes_remainsFalse() {
         sut.sckFailed = true
 
@@ -53,6 +55,7 @@ final class ScreenCaptureManagerTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testResetSCKState_whenAlreadyFalse_remainsFalse() {
         XCTAssertFalse(sut.sckFailed)
 
@@ -66,6 +69,7 @@ final class ScreenCaptureManagerTests: XCTestCase {
 
     // MARK: - captureArea rejects degenerate rects
 
+    @MainActor
     func testCaptureArea_zeroWidthRect_throws() async {
         let rect = CGRect(x: 0, y: 0, width: 0, height: 100)
 
@@ -85,6 +89,7 @@ final class ScreenCaptureManagerTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testCaptureArea_zeroHeightRect_throws() async {
         let rect = CGRect(x: 0, y: 0, width: 100, height: 0)
 
@@ -99,6 +104,7 @@ final class ScreenCaptureManagerTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testCaptureArea_zeroWidthAndHeight_throws() async {
         let rect = CGRect(x: 50, y: 50, width: 0, height: 0)
 
@@ -115,6 +121,7 @@ final class ScreenCaptureManagerTests: XCTestCase {
 
     // MARK: - CaptureError descriptions
 
+    @MainActor
     func testCaptureError_noPermission_hasDescription() {
         let error = CaptureError.noPermission
         XCTAssertNotNil(error.errorDescription)
@@ -124,12 +131,14 @@ final class ScreenCaptureManagerTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testCaptureError_noDisplay_hasDescription() {
         let error = CaptureError.noDisplay
         XCTAssertNotNil(error.errorDescription)
         XCTAssertTrue(error.errorDescription!.contains("display"))
     }
 
+    @MainActor
     func testCaptureError_captureFailed_includesReason() {
         let error = CaptureError.captureFailed("test reason")
         XCTAssertNotNil(error.errorDescription)
@@ -139,6 +148,7 @@ final class ScreenCaptureManagerTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testCaptureError_cancelled_hasDescription() {
         let error = CaptureError.cancelled
         XCTAssertNotNil(error.errorDescription)
@@ -147,6 +157,7 @@ final class ScreenCaptureManagerTests: XCTestCase {
 
     // MARK: - display-space rect conversion
 
+    @MainActor
     func testCaptureRectInDisplaySpace_mapsLocalSelectionToGlobalDisplaySpace() throws {
         let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
         let resolved = try sut.resolveScreen(screen)
@@ -168,6 +179,7 @@ final class ScreenCaptureManagerTests: XCTestCase {
         XCTAssertEqual(converted, expected)
     }
 
+    @MainActor
     func testFullscreenRectInDisplaySpace_matchesDisplayBounds() throws {
         let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
         let resolved = try sut.resolveScreen(screen)

@@ -3,7 +3,7 @@ import os.log
 
 @MainActor
 final class AppSettings: ObservableObject {
-    typealias LegacyLicenseMigration = () -> LegacyKeychainReadResult
+    typealias LegacyLicenseMigration = @Sendable () -> LegacyKeychainReadResult
 
     static let shared = AppSettings()
     nonisolated private static let keychainService = Bundle.main.bundleIdentifier ?? "com.caloura.app"
@@ -15,6 +15,7 @@ final class AppSettings: ObservableObject {
     // Debounce settings saves to avoid hammering UserDefaults.
     private var saveTask: Task<Void, Never>?
     private let saveDebounceInterval: UInt64 = 300_000_000 // 300ms
+    private var legacyMigrationTask: Task<Void, Never>?
 
     private enum Keys {
         static let saveDirectory = "saveDirectory"
@@ -174,6 +175,13 @@ final class AppSettings: ObservableObject {
         KeychainHelper.readLegacyStringNonInteractive(service: keychainService, account: Keys.licenseKey)
     }
 
+    private enum LegacyLicenseMigrationOutcome: Sendable {
+        case notFound
+        case migrated(String)
+        case interactionRequired
+        case failure(OSStatus)
+    }
+
     // MARK: - Debounced Save
 
     private func debouncedSave() {
@@ -319,41 +327,82 @@ final class AppSettings: ObservableObject {
     }
 
     /// Best-effort migration path for legacy keychain-backed license keys.
-    /// This is non-interactive and never shows authentication UI.
+    /// This is non-interactive, runs off-main, and never shows authentication UI.
     func migrateLegacyLicenseSilentlyIfAvailable() {
         guard !defaults.bool(forKey: Keys.hasAttemptedLegacyLicenseMigration) else {
             return
         }
-        defer {
-            defaults.set(true, forKey: Keys.hasAttemptedLegacyLicenseMigration)
-        }
-
         guard licenseKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            defaults.set(true, forKey: Keys.hasAttemptedLegacyLicenseMigration)
             return
         }
 
-        switch legacyLicenseMigration() {
+        defaults.set(true, forKey: Keys.hasAttemptedLegacyLicenseMigration)
+
+        let legacyLicenseMigration = self.legacyLicenseMigration
+        legacyMigrationTask?.cancel()
+        legacyMigrationTask = Task.detached(priority: .utility) { [weak self] in
+            let outcome = Self.performLegacyLicenseMigration(legacyLicenseMigration)
+            guard !Task.isCancelled else { return }
+            await self?.applyLegacyLicenseMigrationOutcome(outcome)
+        }
+    }
+
+    nonisolated private static func performLegacyLicenseMigration(
+        _ migration: @escaping LegacyLicenseMigration
+    ) -> LegacyLicenseMigrationOutcome {
+        switch migration() {
         case .success(let migratedKey):
             let normalized = migratedKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !normalized.isEmpty else { return }
+            guard !normalized.isEmpty else {
+                return .notFound
+            }
+            KeychainHelper.deleteLegacyItem(service: keychainService, account: Keys.licenseKey)
+            return .migrated(normalized)
+        case .notFound:
+            return .notFound
+        case .interactionRequired:
+            return .interactionRequired
+        case .failure(let status):
+            return .failure(status)
+        }
+    }
+
+    private func applyLegacyLicenseMigrationOutcome(_ outcome: LegacyLicenseMigrationOutcome) {
+        switch outcome {
+        case .migrated(let normalized):
             licenseKey = normalized
             migrateLegacyActivationStateIfNeeded()
-            KeychainHelper.deleteLegacyItem(service: Self.keychainService, account: Keys.licenseKey)
             logger.info("Migrated legacy license key without prompting user.")
-        case .notFound:
-            break
         case .interactionRequired:
             logger.info("Skipped legacy license migration: keychain interaction required.")
         case .failure(let status):
             logger.error("Failed legacy license migration read: status=\(status)")
+        case .notFound:
+            break
         }
     }
 
+    #if DEBUG
+    func waitForLegacyLicenseMigrationForTesting() async {
+        await legacyMigrationTask?.value
+    }
+    #endif
+
     // MARK: - Init
 
+    convenience init(defaults: UserDefaults = .standard) {
+        self.init(
+            defaults: defaults,
+            legacyLicenseMigration: {
+                AppSettings.defaultLegacyLicenseMigration()
+            }
+        )
+    }
+
     init(
-        defaults: UserDefaults = .standard,
-        legacyLicenseMigration: @escaping LegacyLicenseMigration = AppSettings.defaultLegacyLicenseMigration
+        defaults: UserDefaults,
+        legacyLicenseMigration: @escaping LegacyLicenseMigration
     ) {
         self.defaults = defaults
         self.legacyLicenseMigration = legacyLicenseMigration

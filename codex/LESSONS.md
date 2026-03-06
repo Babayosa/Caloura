@@ -30,6 +30,33 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: SwiftPM target-path builds can compile new files immediately, but the checked-in Xcode project will not see them until regeneration.
 - **Example**: `swift test` compiled `AppCommand.swift`, but `xcodebuild build` failed until `xcodegen generate` added the file to the app target.
 
+### Release preflight must exercise the real packaging path
+- **Rule**: A release-readiness script must run the full archive/export/sign/notarize flow by default. Guard-only metadata checks are useful, but they are not sufficient for a release decision.
+- **Context**: Local validations can all pass while the real release still fails on export, signing identity drift, missing notarization credentials, or packaging-only warnings.
+- **Example**: `scripts/release_ready.sh` now defaults to the full `scripts/release.sh` path, with `--guard-only` as an explicit escape hatch for local guard runs.
+
+### XCTest lifecycle overrides should stay nonisolated
+- **Rule**: Keep `XCTestCase` lifecycle overrides nonisolated and isolate only the work inside them.
+- **Context**: Annotating `setUp` / `tearDown` overrides with `@MainActor` triggers Swift 6 override-isolation warnings even when the tested objects are main-actor bound.
+- **Example**: `CalouraUITests`, `ScreenCaptureManagerTests`, and `LicenseManagerSignedBackendTests` now use nonisolated lifecycle overrides plus `MainActor.assumeIsolated` for the specific setup state they need.
+
+### Return actor-isolated test state instead of mutating `self` inside actor closures
+- **Rule**: When using `MainActor.assumeIsolated` in test setup, return the prepared values and assign them afterward.
+- **Context**: Capturing and mutating test-case properties inside the actor closure can trigger “sending self risks causing data races” warnings in Xcode test builds.
+- **Example**: `CalouraUITests.setUpWithError()` now returns `(XCUIApplication, XCUIElement)` from the actor closure and assigns both properties after the closure exits.
+
+### Type-ID-guarded CF bridges do not need `unsafeBitCast`
+- **Rule**: After validating a CoreFoundation type with its runtime type ID, prefer a normal forced cast over `unsafeBitCast`.
+- **Context**: The runtime type check already establishes the expected CF type, so `unsafeBitCast` adds no value and increases the apparent crash surface in audits.
+- **Example**: `AXElementHandle`, `AXValueHandle`, and `SecRequirementHandle` now use `as!` after `CFGetTypeID(...)` guards instead of `unsafeBitCast(...)`.
+
+## Capture / Scroll
+
+### Manual scroll capture should accept one final settled frame on Finish
+- **Rule**: When the user finishes a manual scroll capture, run one last settle-and-accept pass before finalizing.
+- **Context**: Manual finish can race the final viewport change; ending immediately after the finish signal can drop the user’s last settled scroll position and create flaky or truncated output.
+- **Example**: `ScrollCaptureEngine.runManualCapture(...)` now performs a final manual settle when `Finish` is requested and appends that frame if it produces meaningful new content.
+
 ## Capture / UX
 
 ### Area capture feedback must not wait on frozen screenshots
@@ -53,3 +80,15 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Rule**: Band-matching logic for scroll registration must reduce band height and band count when the remaining overlap gets small.
 - **Context**: Fixed band windows work in the middle of a long feed but fail on the last partial frame, which is where separator lines and premature bottom detection show up.
 - **Example**: `ScrollCaptureHelpers.meanBandDifference(...)` now derives `bandHeight` and `effectiveBandCount` from `usableHeight` so near-bottom frame pairs still produce a valid displacement estimate.
+
+## Persistence / Data Integrity
+
+### Async history saves need monotonic revisions
+- **Rule**: When main-actor state snapshots are persisted via background tasks, tag each snapshot with a monotonic revision and drop stale revisions on the writer side.
+- **Context**: Actor serialization alone does not prevent older snapshots from arriving after newer ones if they are enqueued from separate tasks.
+- **Example**: `AppState.saveHistoryNow()` now increments `historyRevision`, and `HistoryPersistenceWorker` skips any revision older than the latest one already requested.
+
+### Smart filenames still need uniqueness at write time
+- **Rule**: Human-friendly or AI-generated filenames must be uniqued at save time, even if the base filename generation logic is deterministic.
+- **Context**: Reusing the same smart title for multiple captures will otherwise overwrite earlier artifacts despite having “better” names.
+- **Example**: `FileOrganizer.save(...)` now resolves `release-notes.png`, `release-notes-2.png`, and so on before writing the file to disk.

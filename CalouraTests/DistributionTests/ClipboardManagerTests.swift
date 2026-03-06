@@ -4,17 +4,23 @@ import XCTest
 @MainActor
 final class ClipboardManagerTests: XCTestCase {
 
-    private var testPasteboard: NSPasteboard!
+    nonisolated(unsafe) private var testPasteboard: NSPasteboard!
 
     override func setUp() {
         super.setUp()
-        testPasteboard = NSPasteboard(name: NSPasteboard.Name("com.caloura.test.\(UUID().uuidString)"))
-        ClipboardManager.pasteboardOverride = testPasteboard
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("com.caloura.test.\(UUID().uuidString)"))
+        self.testPasteboard = pasteboard
+        MainActor.assumeIsolated {
+            ClipboardManager.pasteboardOverride = pasteboard
+        }
     }
 
     override func tearDown() {
-        ClipboardManager.pasteboardOverride = nil
-        testPasteboard.releaseGlobally()
+        let pasteboard: NSPasteboard = testPasteboard
+        MainActor.assumeIsolated {
+            ClipboardManager.pasteboardOverride = nil
+        }
+        pasteboard.releaseGlobally()
         testPasteboard = nil
         super.tearDown()
     }

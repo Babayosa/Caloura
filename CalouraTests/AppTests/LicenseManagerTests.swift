@@ -4,38 +4,65 @@ import XCTest
 @MainActor
 final class LicenseManagerTests: XCTestCase {
 
-    private var settings: AppSettings!
-    private var license: LicenseManager!
+    nonisolated(unsafe) private var settings: AppSettings!
+    nonisolated(unsafe) private var license: LicenseManager!
 
-    private var savedFirstLaunchDate: Date!
-    private var savedLicenseKey: String!
-    private var savedEntitlement: LicenseEntitlement?
-    private var savedLastValidationDate: Date?
+    nonisolated(unsafe) private var savedFirstLaunchDate: Date!
+    nonisolated(unsafe) private var savedLicenseKey: String!
+    nonisolated(unsafe) private var savedEntitlement: LicenseEntitlement?
+    nonisolated(unsafe) private var savedLastValidationDate: Date?
+    nonisolated(unsafe) private var savedFurthestDateSeen: Date?
 
     override func setUp() {
         super.setUp()
-        settings = AppSettings.shared
+        let settings = MainActor.assumeIsolated {
+            AppSettings.shared
+        }
+        self.settings = settings
+        let snapshot = MainActor.assumeIsolated {
+            (
+                settings.firstLaunchDate,
+                settings.licenseKey,
+                settings.currentLicenseEntitlement,
+                settings.lastLicenseValidationDate,
+                settings.furthestDateSeen
+            )
+        }
+        savedFirstLaunchDate = snapshot.0
+        savedLicenseKey = snapshot.1
+        savedEntitlement = snapshot.2
+        savedLastValidationDate = snapshot.3
+        savedFurthestDateSeen = snapshot.4
 
-        // Save original values
-        savedFirstLaunchDate = settings.firstLaunchDate
-        savedLicenseKey = settings.licenseKey
-        savedEntitlement = settings.currentLicenseEntitlement
-        savedLastValidationDate = settings.lastLicenseValidationDate
+        MainActor.assumeIsolated {
+            settings.licenseKey = ""
+            settings.updateLicenseEntitlement(nil)
+            settings.lastLicenseValidationDate = nil
+            settings.furthestDateSeen = nil
+        }
 
-        // Reset to unlicensed state
-        settings.licenseKey = ""
-        settings.updateLicenseEntitlement(nil)
-        settings.lastLicenseValidationDate = nil
-
-        license = LicenseManager(settings: settings)
+        self.license = MainActor.assumeIsolated {
+            LicenseManager(settings: settings)
+        }
     }
 
     override func tearDown() {
-        // Restore original values
-        settings.firstLaunchDate = savedFirstLaunchDate
-        settings.licenseKey = savedLicenseKey
-        settings.updateLicenseEntitlement(savedEntitlement)
-        settings.lastLicenseValidationDate = savedLastValidationDate
+        guard let settings else {
+            super.tearDown()
+            return
+        }
+        let restoredFirstLaunchDate: Date = savedFirstLaunchDate
+        let restoredLicenseKey: String = savedLicenseKey
+        let restoredEntitlement = savedEntitlement
+        let restoredLastValidationDate = savedLastValidationDate
+        let restoredFurthestDateSeen = savedFurthestDateSeen
+        MainActor.assumeIsolated {
+            settings.firstLaunchDate = restoredFirstLaunchDate
+            settings.licenseKey = restoredLicenseKey
+            settings.updateLicenseEntitlement(restoredEntitlement)
+            settings.lastLicenseValidationDate = restoredLastValidationDate
+            settings.furthestDateSeen = restoredFurthestDateSeen
+        }
         super.tearDown()
     }
 
@@ -125,5 +152,119 @@ final class LicenseManagerTests: XCTestCase {
         settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -8, to: Date())!
         license.refreshState(settings: settings)
         XCTAssertEqual(license.activationState, .expired)
+    }
+
+    func testActivate_emptyKey_setsActivationFailed() async {
+        await license.activate(licenseKey: "   ", settings: settings)
+
+        XCTAssertEqual(license.activationState, .activationFailed("Enter a license key."))
+        XCTAssertFalse(settings.isLicenseActivated)
+    }
+
+    func testRefreshState_validEntitlementWinsOverExpiredTrial() {
+        settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -30, to: Date())!
+        settings.licenseKey = "VALID-KEY-1234"
+        settings.updateLicenseEntitlement(makeTestEntitlement())
+
+        license.refreshState(settings: settings)
+
+        XCTAssertEqual(license.activationState, .licensed)
+    }
+
+    func testRefreshState_expiredEntitlementFallsBackToTrial() {
+        let now = Date()
+        settings.firstLaunchDate = now
+        settings.licenseKey = "VALID-KEY-1234"
+        settings.updateLicenseEntitlement(
+            LicenseEntitlement(
+                claims: LicenseEntitlementClaims(
+                    productID: "bmokl",
+                    licenseID: "expired",
+                    issuedAt: now.addingTimeInterval(-600),
+                    refreshAfter: now.addingTimeInterval(-300),
+                    expiresAt: now.addingTimeInterval(-1),
+                    featureFlags: [:]
+                ),
+                source: .signedBackend,
+                token: "token",
+                signature: Data(),
+                validatedAt: now.addingTimeInterval(-600)
+            )
+        )
+
+        license.refreshState(settings: settings)
+
+        XCTAssertEqual(license.activationState, .trial(daysRemaining: 7))
+    }
+
+    func testTrialDaysRemaining_usesFurthestDateSeenToPreventClockRollback() {
+        let now = Date()
+        settings.firstLaunchDate = Calendar.current.date(byAdding: .day, value: -4, to: now)!
+        settings.furthestDateSeen = Calendar.current.date(byAdding: .day, value: 2, to: now)
+
+        let days = license.trialDaysRemaining(settings: settings)
+
+        XCTAssertEqual(days, 1)
+        XCTAssertEqual(settings.furthestDateSeen, Calendar.current.date(byAdding: .day, value: 2, to: now))
+    }
+
+    func testBundleDefault_trimsConfigValuesAndParsesTruthiness() throws {
+        let bundle = try makeTestBundle(infoDictionary: [
+            "CalouraRequireSignedEntitlement": " yes ",
+            "CalouraLicenseEntitlementURL": "  https://license.caloura.test/verify  ",
+            "CalouraLicenseEntitlementPublicKey": "  test-public-key  "
+        ])
+
+        let configuration = LicenseVerificationConfiguration.bundleDefault(bundle: bundle)
+
+        XCTAssertEqual(
+            configuration.entitlementServiceURL,
+            URL(string: "https://license.caloura.test/verify")
+        )
+        XCTAssertEqual(configuration.entitlementPublicKeyBase64, "test-public-key")
+        XCTAssertTrue(configuration.requiresSignedEntitlement)
+        XCTAssertFalse(configuration.allowGumroadFallback)
+    }
+
+    func testBundleDefault_blankOrInvalidValuesNormalizeToNilAndFalse() throws {
+        let bundle = try makeTestBundle(infoDictionary: [
+            "CalouraRequireSignedEntitlement": ["unexpected"],
+            "CalouraLicenseEntitlementURL": "   ",
+            "CalouraLicenseEntitlementPublicKey": "\n\t"
+        ])
+
+        let configuration = LicenseVerificationConfiguration.bundleDefault(bundle: bundle)
+
+        XCTAssertNil(configuration.entitlementServiceURL)
+        XCTAssertNil(configuration.entitlementPublicKeyBase64)
+        XCTAssertFalse(configuration.requiresSignedEntitlement)
+        XCTAssertTrue(configuration.allowGumroadFallback)
+    }
+
+    private func makeTestBundle(infoDictionary: [String: Any]) throws -> Bundle {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("caloura-license-tests-\(UUID().uuidString)")
+        let bundleURL = rootURL.appendingPathComponent("LicenseTest.bundle")
+        let contentsURL = bundleURL.appendingPathComponent("Contents")
+        try FileManager.default.createDirectory(at: contentsURL, withIntermediateDirectories: true)
+
+        let plistURL = contentsURL.appendingPathComponent("Info.plist")
+        let plist = infoDictionary.merging([
+            "CFBundleIdentifier": "com.caloura.tests.license.bundle.\(UUID().uuidString)",
+            "CFBundleName": "LicenseTestBundle",
+            "CFBundlePackageType": "BNDL"
+        ]) { current, _ in current }
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: plist,
+            format: .xml,
+            options: 0
+        )
+        try data.write(to: plistURL)
+
+        guard let bundle = Bundle(url: bundleURL) else {
+            XCTFail("Failed to create test bundle")
+            throw NSError(domain: "LicenseManagerTests", code: 1)
+        }
+        return bundle
     }
 }

@@ -138,29 +138,68 @@ struct ScrollCaptureEngineTests {
         let detector = FakeViewportDetector(mode: .manualFallback)
         let control = ScrollCaptureControl()
         let engine = makeEngine(surface: surface, detector: detector, settleDelayNanos: 2_000_000)
+        let finishController = ManualFinishController()
+        let timeoutController = CaptureTimeoutController()
 
-        Task {
+        let scrollTask = Task {
             for offset in stride(from: 20, through: surface.maxOffset, by: 20) {
                 try? await Task.sleep(nanoseconds: 120_000_000)
                 surface.setOffset(offset)
             }
-            try? await Task.sleep(nanoseconds: 120_000_000)
+            try? await Task.sleep(nanoseconds: 250_000_000)
             surface.setOffset(surface.maxOffset)
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            await control.requestFinish()
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            await finishController.requestFinishIfNeeded(control: control)
         }
 
-        let result = await engine.capture(
-            region: surface.region,
-            geometry: surface.geometry,
-            config: .init(maxHeightPx: 2_000, scrollToTop: false, allowManualFallback: true),
-            control: control,
-            captureFrame: { _ in surface.capture() },
-            onProgress: { _ in }
-        )
+        let captureTask = Task {
+            await engine.capture(
+                region: surface.region,
+                geometry: surface.geometry,
+                config: .init(maxHeightPx: 2_000, scrollToTop: false, allowManualFallback: true),
+                control: control,
+                captureFrame: { _ in surface.capture() },
+                onProgress: { _ in }
+            )
+        }
 
+        let timeoutTask = Task {
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            await timeoutController.recordTimeout()
+            captureTask.cancel()
+        }
+
+        let result = await captureTask.value
+        timeoutTask.cancel()
+        _ = await scrollTask.result
+
+        #expect(await timeoutController.didTimeout == false)
         let output = try requireSuccess(result)
         try expectImagesEqual(output.image, surface.expectedImage())
+    }
+
+    @Test("Manual displacement refinement preserves exact near-bottom placement")
+    func manualDisplacementRefinementPreservesExactNearBottomPlacement() throws {
+        let surface = SyntheticScrollSurface(
+            width: 120,
+            viewportHeight: 150,
+            contentHeight: 430
+        )
+
+        surface.setOffset(surface.maxOffset - 20)
+        let previous = try #require(ScrollCaptureHelpers.prepareFrame(surface.capture()))
+
+        surface.setOffset(surface.maxOffset)
+        let current = try #require(ScrollCaptureHelpers.prepareFrame(surface.capture()))
+
+        let estimate = ScrollCaptureHelpers.estimateDisplacement(
+            previous: previous,
+            current: current,
+            options: .manual(expectedDisplacement: 20, stickyHeaderHeight: 0, unstableBands: [])
+        )
+
+        #expect(estimate.displacement == 20)
+        #expect(estimate.isMeaningful)
     }
 
     @Test("Max-height termination returns a partial image with explicit reason")
@@ -229,7 +268,7 @@ private func makeEngine(
     )
 }
 
-private struct FakeViewportDetector: ScrollViewportDetecting {
+private struct FakeViewportDetector: ScrollViewportDetecting, Sendable {
     enum Mode {
         case automatic
         case manualFallback
@@ -270,7 +309,7 @@ private struct FakeViewportDetector: ScrollViewportDetecting {
     }
 }
 
-private final class FakeScrollDriver: ScrollDriving {
+private final class FakeScrollDriver: ScrollDriving, @unchecked Sendable {
     private let surface: SyntheticScrollSurface
 
     init(surface: SyntheticScrollSurface) {
@@ -284,7 +323,7 @@ private final class FakeScrollDriver: ScrollDriving {
     func finishGesture() {}
 }
 
-private struct ImmediateSettler: ScrollSettling {
+private struct ImmediateSettler: ScrollSettling, Sendable {
     let delayNanos: UInt64
 
     func settle(
@@ -331,7 +370,7 @@ private struct ImmediateSettler: ScrollSettling {
     }
 }
 
-private struct TestDisplacementEstimator: ScrollDisplacementEstimating {
+private struct TestDisplacementEstimator: ScrollDisplacementEstimating, Sendable {
     func estimate(
         previous: ScrollCaptureHelpers.PreparedFrame,
         current: ScrollCaptureHelpers.PreparedFrame,
@@ -345,7 +384,7 @@ private struct TestDisplacementEstimator: ScrollDisplacementEstimating {
     }
 }
 
-private struct TestStitcher: ScrollStitching {
+private struct TestStitcher: ScrollStitching, Sendable {
     func stitch(
         frames: [ScrollCaptureFrame],
         maxCanvasHeight: Int
@@ -356,7 +395,7 @@ private struct TestStitcher: ScrollStitching {
 
 // MARK: - Synthetic Surface
 
-private final class SyntheticScrollSurface {
+private final class SyntheticScrollSurface: @unchecked Sendable {
     let width: Int
     let viewportHeight: Int
     let contentHeight: Int
@@ -555,4 +594,22 @@ private func countHeaderMatches(_ image: CGImage, headerHeight: Int) -> Int {
         matches += 1
     }
     return matches
+}
+
+private actor ManualFinishController {
+    private var didRequestFinish = false
+
+    func requestFinishIfNeeded(control: ScrollCaptureControl) async {
+        guard !didRequestFinish else { return }
+        didRequestFinish = true
+        await control.requestFinish()
+    }
+}
+
+private actor CaptureTimeoutController {
+    private(set) var didTimeout = false
+
+    func recordTimeout() {
+        didTimeout = true
+    }
 }

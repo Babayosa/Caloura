@@ -5,6 +5,54 @@ import os.log
 private let logger = Logger(subsystem: "com.caloura.app", category: "ScrollCapture")
 // swiftlint:disable file_length type_body_length function_body_length function_parameter_count cyclomatic_complexity line_length
 
+struct AXElementHandle: @unchecked Sendable {
+    let element: AXUIElement
+
+    init(element: AXUIElement) {
+        self.element = element
+    }
+
+    init?(attributeValue: AnyObject?) {
+        guard let attributeValue,
+              CFGetTypeID(attributeValue) == AXUIElementGetTypeID() else {
+            return nil
+        }
+        // The CoreFoundation type ID guard establishes the concrete AX type here.
+        // swiftlint:disable:next force_cast
+        self.element = attributeValue as! AXUIElement
+    }
+}
+
+struct AXValueHandle: @unchecked Sendable {
+    let value: AXValue
+
+    init?(attributeValue: AnyObject?) {
+        guard let attributeValue,
+              CFGetTypeID(attributeValue) == AXValueGetTypeID() else {
+            return nil
+        }
+        // The CoreFoundation type ID guard establishes the concrete AX type here.
+        // swiftlint:disable:next force_cast
+        self.value = attributeValue as! AXValue
+    }
+
+    func cgPoint() -> CGPoint? {
+        var point = CGPoint.zero
+        guard AXValueGetValue(value, .cgPoint, &point) else {
+            return nil
+        }
+        return point
+    }
+
+    func cgSize() -> CGSize? {
+        var size = CGSize.zero
+        guard AXValueGetValue(value, .cgSize, &size) else {
+            return nil
+        }
+        return size
+    }
+}
+
 enum ScrollCapturePreferredDirection: String, Sendable {
     case auto
     case down
@@ -91,7 +139,7 @@ actor ScrollCaptureControl {
     }
 }
 
-struct ScrollDisplacementOptions {
+struct ScrollDisplacementOptions: Sendable {
     let expectedDisplacement: Int?
     let allowedDelta: Int
     let stickyHeaderHeight: Int
@@ -152,8 +200,8 @@ struct ScrollDisplacementOptions {
     }
 }
 
-struct ScrollDisplacementEstimate {
-    enum Method: String {
+struct ScrollDisplacementEstimate: Sendable {
+    enum Method: String, Sendable {
         case bandMatch
         case vision
         case none
@@ -171,12 +219,12 @@ struct ScrollDisplacementEstimate {
     }
 }
 
-struct ScrollFramePlacement {
+struct ScrollFramePlacement: Sendable {
     let originY: Int
     let displacementFromPrevious: Int
 }
 
-struct ScrollCaptureFrame {
+struct ScrollCaptureFrame: Sendable {
     let preparedFrame: ScrollCaptureHelpers.PreparedFrame
     let placement: ScrollFramePlacement
     let unstableBands: IndexSet
@@ -190,19 +238,19 @@ struct ScrollCaptureFrame {
     var estimatedBottom: Int { placement.originY + preparedFrame.height }
 }
 
-struct ScrollStitchResult {
+struct ScrollStitchResult: @unchecked Sendable {
     let image: CGImage
     let seamRepairCount: Int
 }
 
-struct ScrollSettledFrame {
+struct ScrollSettledFrame: Sendable {
     let preparedFrame: ScrollCaptureHelpers.PreparedFrame
     let unstableBands: IndexSet
     let stabilized: Bool
     let probeCount: Int
 }
 
-struct ScrollScreenGeometry {
+struct ScrollScreenGeometry: Sendable {
     let frame: CGRect
     let scale: CGFloat
     let primaryScreenHeight: CGFloat
@@ -212,33 +260,33 @@ struct ScrollScreenGeometry {
     }
 }
 
-struct ScrollCaptureViewport {
+struct ScrollCaptureViewport: Sendable {
     let captureRect: CGRect
     let confidence: Double
     let usedAutoDetectedViewport: Bool
-    let scrollElement: AXUIElement?
-    let verticalScrollBar: AXUIElement?
+    let scrollElement: AXElementHandle?
+    let verticalScrollBar: AXElementHandle?
 }
 
-struct ScrollViewportDetection {
+struct ScrollViewportDetection: Sendable {
     let detectedViewport: ScrollCaptureViewport?
     let fallbackRect: CGRect
     let isAmbiguous: Bool
 }
 
-protocol ScrollViewportDetecting {
+protocol ScrollViewportDetecting: Sendable {
     func detectViewport(
         in region: CGRect,
         geometry: ScrollScreenGeometry
     ) -> ScrollViewportDetection
 }
 
-protocol ScrollDriving: AnyObject {
+protocol ScrollDriving: AnyObject, Sendable {
     func scroll(by pixels: Int)
     func finishGesture()
 }
 
-protocol ScrollSettling {
+protocol ScrollSettling: Sendable {
     func settle(
         region: CGRect,
         captureFrame: @escaping @Sendable (CGRect) async throws -> CGImage,
@@ -250,7 +298,7 @@ protocol ScrollSettling {
     ) async throws -> ScrollSettledFrame?
 }
 
-protocol ScrollDisplacementEstimating {
+protocol ScrollDisplacementEstimating: Sendable {
     func estimate(
         previous: ScrollCaptureHelpers.PreparedFrame,
         current: ScrollCaptureHelpers.PreparedFrame,
@@ -258,7 +306,7 @@ protocol ScrollDisplacementEstimating {
     ) -> ScrollDisplacementEstimate
 }
 
-protocol ScrollStitching {
+protocol ScrollStitching: Sendable {
     func stitch(
         frames: [ScrollCaptureFrame],
         maxCanvasHeight: Int
@@ -344,39 +392,6 @@ actor ScrollCaptureEngine {
 
     func capture(
         region: CGRect,
-        screen: NSScreen,
-        config: Config,
-        control: ScrollCaptureControl = ScrollCaptureControl(),
-        captureFrame: @escaping @Sendable (CGRect, NSScreen) async throws -> CGImage,
-        onProgress: @MainActor @Sendable (ScrollCaptureProgress) -> Void
-    ) async -> Result {
-        let geometry = await MainActor.run { () -> ScrollScreenGeometry in
-            ScrollScreenGeometry(
-                frame: screen.frame,
-                scale: screen.backingScaleFactor,
-                primaryScreenHeight: NSScreen.screens.first?.frame.height ?? screen.frame.height
-            )
-        }
-
-        let appName = await MainActor.run {
-            NSWorkspace.shared.frontmostApplication?.localizedName
-        }
-
-        return await capture(
-            region: region,
-            geometry: geometry,
-            config: config,
-            control: control,
-            targetAppName: appName,
-            captureFrame: { rect in
-                try await captureFrame(rect, screen)
-            },
-            onProgress: onProgress
-        )
-    }
-
-    func capture(
-        region: CGRect,
         geometry: ScrollScreenGeometry,
         config: Config,
         control: ScrollCaptureControl = ScrollCaptureControl(),
@@ -385,6 +400,11 @@ actor ScrollCaptureEngine {
         onProgress: @MainActor @Sendable (ScrollCaptureProgress) -> Void
     ) async -> Result {
         var diagnostics = ScrollCaptureDiagnostics(targetAppName: targetAppName)
+        let viewportDetector = self.viewportDetector
+        let scrollDriver = self.scrollDriver
+        let settling = self.settling
+        let displacementEstimator = self.displacementEstimator
+        let stitcher = self.stitcher
         await sendProgress(
             phase: .preparing,
             mode: config.modeBias == .manualPreferred ? .manual : .automatic,
@@ -421,7 +441,10 @@ actor ScrollCaptureEngine {
                     allowManualSwitch: config.allowManualFallback,
                     onProgress: onProgress
                 )
-                try await scrollToTopIfNeeded(scrollBar: lockedViewport.verticalScrollBar)
+                try await scrollToTopIfNeeded(
+                    scrollBar: lockedViewport.verticalScrollBar,
+                    scrollDriver: scrollDriver
+                )
             }
 
             guard let firstPrepared = try await prepareCapturedFrame(
@@ -457,10 +480,12 @@ actor ScrollCaptureEngine {
             if mode == .automatic {
                 let calibration = try await calibrateDirection(
                     viewport: lockedViewport,
-                    geometry: geometry,
                     baselineFrame: firstPrepared,
                     currentDirection: scrollDirection,
                     captureFrame: captureFrame,
+                    scrollDriver: scrollDriver,
+                    settling: settling,
+                    displacementEstimator: displacementEstimator,
                     onProgress: onProgress,
                     diagnostics: &diagnostics,
                     config: config
@@ -480,11 +505,13 @@ actor ScrollCaptureEngine {
                 let automaticResult = try await runAutomaticCapture(
                     frames: &frames,
                     viewport: lockedViewport,
-                    geometry: geometry,
                     config: config,
                     control: control,
                     scrollDirection: scrollDirection,
                     captureFrame: captureFrame,
+                    scrollDriver: scrollDriver,
+                    settling: settling,
+                    displacementEstimator: displacementEstimator,
                     onProgress: onProgress,
                     diagnostics: &diagnostics
                 )
@@ -502,6 +529,8 @@ actor ScrollCaptureEngine {
                         config: config,
                         control: control,
                         captureFrame: captureFrame,
+                        settling: settling,
+                        displacementEstimator: displacementEstimator,
                         onProgress: onProgress,
                         diagnostics: &diagnostics
                     )
@@ -513,6 +542,8 @@ actor ScrollCaptureEngine {
                     config: config,
                     control: control,
                     captureFrame: captureFrame,
+                    settling: settling,
+                    displacementEstimator: displacementEstimator,
                     onProgress: onProgress,
                     diagnostics: &diagnostics
                 )
@@ -541,7 +572,10 @@ actor ScrollCaptureEngine {
             if frames.count == 1 {
                 finalImage = firstFrame.image
             } else {
-                let stitched = try stitcher.stitch(frames: frames, maxCanvasHeight: config.maxHeightPx)
+                let stitched = try stitcher.stitch(
+                    frames: frames,
+                    maxCanvasHeight: config.maxHeightPx
+                )
                 diagnostics.seamRepairCount = stitched.seamRepairCount
                 finalImage = stitched.image
             }
@@ -635,10 +669,12 @@ actor ScrollCaptureEngine {
 
     private func calibrateDirection(
         viewport: ScrollCaptureViewport,
-        geometry: ScrollScreenGeometry,
         baselineFrame: ScrollCaptureHelpers.PreparedFrame,
         currentDirection: Int,
         captureFrame: @escaping @Sendable (CGRect) async throws -> CGImage,
+        scrollDriver: any ScrollDriving,
+        settling: any ScrollSettling,
+        displacementEstimator: any ScrollDisplacementEstimating,
         onProgress: @MainActor @Sendable (ScrollCaptureProgress) -> Void,
         diagnostics: inout ScrollCaptureDiagnostics,
         config: Config
@@ -700,7 +736,6 @@ actor ScrollCaptureEngine {
         }
 
         diagnostics.stepCount += 1
-        _ = geometry
         return (returnedBaseline, finalDirection)
     }
 
@@ -712,11 +747,13 @@ actor ScrollCaptureEngine {
     private func runAutomaticCapture(
         frames: inout [ScrollCaptureFrame],
         viewport: ScrollCaptureViewport,
-        geometry: ScrollScreenGeometry,
         config: Config,
         control: ScrollCaptureControl,
         scrollDirection: Int,
         captureFrame: @escaping @Sendable (CGRect) async throws -> CGImage,
+        scrollDriver: any ScrollDriving,
+        settling: any ScrollSettling,
+        displacementEstimator: any ScrollDisplacementEstimating,
         onProgress: @MainActor @Sendable (ScrollCaptureProgress) -> Void,
         diagnostics: inout ScrollCaptureDiagnostics
     ) async throws -> AutomaticCaptureResult {
@@ -913,6 +950,8 @@ actor ScrollCaptureEngine {
         config: Config,
         control: ScrollCaptureControl,
         captureFrame: @escaping @Sendable (CGRect) async throws -> CGImage,
+        settling: any ScrollSettling,
+        displacementEstimator: any ScrollDisplacementEstimating,
         onProgress: @MainActor @Sendable (ScrollCaptureProgress) -> Void,
         diagnostics: inout ScrollCaptureDiagnostics
     ) async throws -> ScrollTerminationReason {
@@ -921,6 +960,27 @@ actor ScrollCaptureEngine {
             try Task.checkCancellation()
 
             if await control.isFinishRequested() {
+                if let previousFrame = frames.last,
+                   let settled = try await settling.settle(
+                       region: viewport.captureRect,
+                       captureFrame: captureFrame,
+                       previousAcceptedFrame: previousFrame.preparedFrame,
+                       expectedDisplacement: expectedDisplacement,
+                       stickyHeaderHeight: previousFrame.stickyHeaderHeight,
+                       mode: .manual,
+                       displacementEstimator: displacementEstimator
+                   ),
+                   let accepted = makeManualAcceptedFrame(
+                       previousFrame: previousFrame,
+                       settled: settled,
+                       frames: frames,
+                       expectedDisplacement: expectedDisplacement,
+                       displacementEstimator: displacementEstimator
+                   ) {
+                    frames.append(accepted.frame)
+                    diagnostics.acceptedFrameCount = frames.count
+                    diagnostics.stepCount += 1
+                }
                 return .manualFinished
             }
 
@@ -950,45 +1010,65 @@ actor ScrollCaptureEngine {
                 continue
             }
 
-            let estimate = displacementEstimator.estimate(
-                previous: previousFrame.preparedFrame,
-                current: settled.preparedFrame,
-                options: .manual(
-                    expectedDisplacement: expectedDisplacement,
-                    stickyHeaderHeight: previousFrame.stickyHeaderHeight,
-                    unstableBands: settled.unstableBands
-                )
-            )
-
-            if !estimate.isMeaningful {
+            guard let accepted = makeManualAcceptedFrame(
+                previousFrame: previousFrame,
+                settled: settled,
+                frames: frames,
+                expectedDisplacement: expectedDisplacement,
+                displacementEstimator: displacementEstimator
+            ) else {
                 continue
             }
 
-            let stickyHeaderHeight = max(
-                previousFrame.stickyHeaderHeight,
-                ScrollCaptureHelpers.detectStickyHeaderHeight(
-                    frames: frames.map(\.preparedFrame) + [settled.preparedFrame]
-                )
-            )
-            let accepted = ScrollCaptureFrame(
-                preparedFrame: settled.preparedFrame,
-                placement: ScrollFramePlacement(
-                    originY: previousFrame.originY + estimate.absoluteDisplacement,
-                    displacementFromPrevious: estimate.absoluteDisplacement
-                ),
-                unstableBands: settled.unstableBands,
-                stickyHeaderHeight: stickyHeaderHeight,
-                displacementConfidence: estimate.confidence
-            )
-            frames.append(accepted)
-            expectedDisplacement = estimate.absoluteDisplacement
+            frames.append(accepted.frame)
+            expectedDisplacement = accepted.displacement
             diagnostics.acceptedFrameCount = frames.count
             diagnostics.stepCount += 1
 
-            if accepted.estimatedBottom >= config.maxHeightPx {
+            if accepted.frame.estimatedBottom >= config.maxHeightPx {
                 return .maxHeightReached
             }
         }
+    }
+
+    private func makeManualAcceptedFrame(
+        previousFrame: ScrollCaptureFrame,
+        settled: ScrollSettledFrame,
+        frames: [ScrollCaptureFrame],
+        expectedDisplacement: Int?,
+        displacementEstimator: any ScrollDisplacementEstimating
+    ) -> (frame: ScrollCaptureFrame, displacement: Int)? {
+        let estimate = displacementEstimator.estimate(
+            previous: previousFrame.preparedFrame,
+            current: settled.preparedFrame,
+            options: .manual(
+                expectedDisplacement: expectedDisplacement,
+                stickyHeaderHeight: previousFrame.stickyHeaderHeight,
+                unstableBands: settled.unstableBands
+            )
+        )
+
+        guard estimate.isMeaningful else {
+            return nil
+        }
+
+        let stickyHeaderHeight = max(
+            previousFrame.stickyHeaderHeight,
+            ScrollCaptureHelpers.detectStickyHeaderHeight(
+                frames: frames.map(\.preparedFrame) + [settled.preparedFrame]
+            )
+        )
+        let accepted = ScrollCaptureFrame(
+            preparedFrame: settled.preparedFrame,
+            placement: ScrollFramePlacement(
+                originY: previousFrame.originY + estimate.absoluteDisplacement,
+                displacementFromPrevious: estimate.absoluteDisplacement
+            ),
+            unstableBands: settled.unstableBands,
+            stickyHeaderHeight: stickyHeaderHeight,
+            displacementConfidence: estimate.confidence
+        )
+        return (accepted, estimate.absoluteDisplacement)
     }
 
     // MARK: - Progress
@@ -1017,8 +1097,8 @@ actor ScrollCaptureEngine {
 
     // MARK: - AX Utilities
 
-    private func axScrollValue(_ scrollBar: AXUIElement) -> Double {
-        guard let value = axAttribute(scrollBar, kAXValueAttribute) as? NSNumber else {
+    private func axScrollValue(_ scrollBar: AXElementHandle) -> Double {
+        guard let value = axAttribute(scrollBar.element, kAXValueAttribute) as? NSNumber else {
             return 0
         }
         return value.doubleValue
@@ -1030,7 +1110,10 @@ actor ScrollCaptureEngine {
         return result == .success ? value : nil
     }
 
-    private func scrollToTopIfNeeded(scrollBar: AXUIElement?) async throws {
+    private func scrollToTopIfNeeded(
+        scrollBar: AXElementHandle?,
+        scrollDriver: any ScrollDriving
+    ) async throws {
         guard let scrollBar else {
             return
         }
@@ -1052,443 +1135,6 @@ actor ScrollCaptureEngine {
         case .auto, .down:
             return -1
         }
-    }
-}
-
-// MARK: - Default Implementations
-
-private struct DefaultViewportDetector: ScrollViewportDetecting {
-    private struct Candidate {
-        let element: AXUIElement
-        let frame: CGRect
-        let role: String
-        let verticalScrollBar: AXUIElement?
-        let supportsValue: Bool
-        let hitCount: Int
-        let confidence: Double
-    }
-
-    func detectViewport(
-        in region: CGRect,
-        geometry: ScrollScreenGeometry
-    ) -> ScrollViewportDetection {
-        let fallbackRect = ScrollCaptureHelpers.pixelAlignedRect(
-            region,
-            scale: geometry.scale,
-            within: geometry.localBounds
-        )
-        let systemWide = AXUIElementCreateSystemWide()
-        let probeFractions: [CGFloat] = [0.2, 0.5, 0.8]
-        var accumulators: [String: CandidateAccumulator] = [:]
-
-        for yFraction in probeFractions {
-            for xFraction in probeFractions {
-                let localPoint = CGPoint(
-                    x: region.minX + region.width * xFraction,
-                    y: region.minY + region.height * yFraction
-                )
-                let globalX = geometry.frame.origin.x + localPoint.x
-                let globalY = geometry.primaryScreenHeight - (geometry.frame.origin.y + localPoint.y)
-
-                var elementRef: AXUIElement?
-                let result = AXUIElementCopyElementAtPosition(
-                    systemWide,
-                    Float(globalX),
-                    Float(globalY),
-                    &elementRef
-                )
-                guard result == .success, let elementRef else { continue }
-
-                walkAncestors(from: elementRef, region: region, geometry: geometry) { candidate in
-                    let key = candidate.identifier
-                    var accumulator = accumulators[key] ?? CandidateAccumulator(
-                        identifier: key,
-                        element: candidate.element,
-                        frame: candidate.frame,
-                        role: candidate.role,
-                        verticalScrollBar: candidate.verticalScrollBar,
-                        supportsValue: candidate.supportsValue,
-                        hitCount: 0
-                    )
-                    accumulator.hitCount += 1
-                    accumulators[key] = accumulator
-                }
-            }
-        }
-
-        let candidates = accumulators.values
-            .compactMap { accumulator in
-                scoreCandidate(accumulator, region: region)
-            }
-            .sorted { lhs, rhs in
-                lhs.confidence > rhs.confidence
-            }
-
-        guard let best = candidates.first else {
-            return ScrollViewportDetection(
-                detectedViewport: nil,
-                fallbackRect: fallbackRect,
-                isAmbiguous: false
-            )
-        }
-
-        let ambiguous = candidates.count > 1
-            && best.confidence >= 0.55
-            && candidates[1].confidence >= 0.55
-            && abs(best.confidence - candidates[1].confidence) < 0.08
-
-        guard best.confidence >= 0.55, !ambiguous else {
-            return ScrollViewportDetection(
-                detectedViewport: nil,
-                fallbackRect: fallbackRect,
-                isAmbiguous: ambiguous
-            )
-        }
-
-        let aligned = ScrollCaptureHelpers.pixelAlignedRect(
-            best.frame,
-            scale: geometry.scale,
-            within: geometry.localBounds
-        )
-
-        return ScrollViewportDetection(
-            detectedViewport: ScrollCaptureViewport(
-                captureRect: aligned,
-                confidence: best.confidence,
-                usedAutoDetectedViewport: true,
-                scrollElement: best.element,
-                verticalScrollBar: best.verticalScrollBar
-            ),
-            fallbackRect: fallbackRect,
-            isAmbiguous: false
-        )
-    }
-
-    private struct CandidateAccumulator {
-        let identifier: String
-        let element: AXUIElement
-        let frame: CGRect
-        let role: String
-        let verticalScrollBar: AXUIElement?
-        let supportsValue: Bool
-        var hitCount: Int
-    }
-
-    private struct AncestorCandidate {
-        let identifier: String
-        let element: AXUIElement
-        let frame: CGRect
-        let role: String
-        let verticalScrollBar: AXUIElement?
-        let supportsValue: Bool
-    }
-
-    private func walkAncestors(
-        from element: AXUIElement,
-        region: CGRect,
-        geometry: ScrollScreenGeometry,
-        visit: (AncestorCandidate) -> Void
-    ) {
-        var current: AXUIElement? = element
-        for _ in 0..<12 {
-            guard let resolvedCurrent = current else { break }
-            guard let frame = localFrame(for: resolvedCurrent, geometry: geometry) else {
-                current = elementAttribute(resolvedCurrent, kAXParentAttribute)
-                continue
-            }
-
-            let role = (attribute(resolvedCurrent, kAXRoleAttribute) as? String) ?? ""
-            let verticalScrollBar = elementAttribute(resolvedCurrent, kAXVerticalScrollBarAttribute)
-            let supportsValue = attribute(resolvedCurrent, kAXValueAttribute) != nil
-            let intersection = frame.intersection(region)
-
-            if !intersection.isNull && frame.width >= 40 && frame.height >= 40 {
-                var pid: pid_t = 0
-                AXUIElementGetPid(resolvedCurrent, &pid)
-                let identifier = "\(pid)-\(CFHash(resolvedCurrent))"
-                visit(
-                    AncestorCandidate(
-                        identifier: identifier,
-                        element: resolvedCurrent,
-                        frame: frame,
-                        role: role,
-                        verticalScrollBar: verticalScrollBar,
-                        supportsValue: supportsValue
-                    )
-                )
-            }
-
-            current = elementAttribute(resolvedCurrent, kAXParentAttribute)
-        }
-    }
-
-    private func scoreCandidate(_ candidate: CandidateAccumulator, region: CGRect) -> Candidate? {
-        let roleScore: Double
-        switch candidate.role {
-        case "AXWebArea":
-            roleScore = 0.36
-        case "AXScrollArea":
-            roleScore = 0.34
-        case "AXList":
-            roleScore = 0.30
-        case "AXOutline":
-            roleScore = 0.28
-        case "AXTable":
-            roleScore = 0.28
-        default:
-            roleScore = 0.08
-        }
-
-        let selectionArea = max(1.0, region.width * region.height)
-        let intersection = candidate.frame.intersection(region)
-        let intersectionRatio = max(0, min(1, (intersection.width * intersection.height) / selectionArea))
-        let coverageScore = min(0.25, Double(candidate.hitCount) / 9.0 * 0.25)
-        let scrollScore = (candidate.verticalScrollBar != nil || candidate.supportsValue) ? 0.14 : 0
-        let centerScore = candidate.frame.contains(CGPoint(x: region.midX, y: region.midY)) ? 0.05 : 0
-        let confidence = min(1.0, roleScore + intersectionRatio * 0.25 + coverageScore + scrollScore + centerScore)
-
-        return Candidate(
-            element: candidate.element,
-            frame: candidate.frame,
-            role: candidate.role,
-            verticalScrollBar: candidate.verticalScrollBar,
-            supportsValue: candidate.supportsValue,
-            hitCount: candidate.hitCount,
-            confidence: confidence
-        )
-    }
-
-    private func attribute(_ element: AXUIElement, _ attribute: String) -> AnyObject? {
-        var value: AnyObject?
-        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
-        return result == .success ? value : nil
-    }
-
-    private func elementAttribute(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
-        var value: AnyObject?
-        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
-        guard result == .success, let value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
-            return nil
-        }
-        return unsafeBitCast(value, to: AXUIElement.self)
-    }
-
-    private func localFrame(
-        for element: AXUIElement,
-        geometry: ScrollScreenGeometry
-    ) -> CGRect? {
-        guard let position = cgPointAttribute(element, kAXPositionAttribute),
-              let size = cgSizeAttribute(element, kAXSizeAttribute) else {
-            return nil
-        }
-
-        return convertGlobalTopLeftRectToLocal(
-            CGRect(origin: position, size: size),
-            geometry: geometry
-        )
-    }
-
-    private func convertGlobalTopLeftRectToLocal(
-        _ rect: CGRect,
-        geometry: ScrollScreenGeometry
-    ) -> CGRect {
-        let localX = rect.origin.x - geometry.frame.origin.x
-        let appKitY = geometry.primaryScreenHeight - (rect.origin.y + rect.height)
-        let localY = appKitY - geometry.frame.origin.y
-        return CGRect(x: localX, y: localY, width: rect.width, height: rect.height)
-    }
-
-    private func cgPointAttribute(_ element: AXUIElement, _ attribute: String) -> CGPoint? {
-        var value: AnyObject?
-        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
-        guard result == .success,
-              let axValue = value,
-              CFGetTypeID(axValue) == AXValueGetTypeID() else {
-            return nil
-        }
-
-        var point = CGPoint.zero
-        let typedValue = unsafeBitCast(axValue, to: AXValue.self)
-        guard AXValueGetValue(typedValue, .cgPoint, &point) else { return nil }
-        return point
-    }
-
-    private func cgSizeAttribute(_ element: AXUIElement, _ attribute: String) -> CGSize? {
-        var value: AnyObject?
-        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
-        guard result == .success,
-              let axValue = value,
-              CFGetTypeID(axValue) == AXValueGetTypeID() else {
-            return nil
-        }
-
-        var size = CGSize.zero
-        let typedValue = unsafeBitCast(axValue, to: AXValue.self)
-        guard AXValueGetValue(typedValue, .cgSize, &size) else { return nil }
-        return size
-    }
-
-}
-
-private final class DefaultScrollDriver: ScrollDriving {
-    private var hasStartedScroll = false
-
-    func scroll(by pixels: Int) {
-        guard let event = CGEvent(
-            scrollWheelEvent2Source: nil,
-            units: .pixel,
-            wheelCount: 1,
-            wheel1: Int32(pixels),
-            wheel2: 0,
-            wheel3: 0
-        ) else {
-            return
-        }
-
-        event.setIntegerValueField(
-            .scrollWheelEventScrollPhase,
-            value: hasStartedScroll ? 2 : 1
-        )
-        event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: 0)
-        event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
-        hasStartedScroll = true
-        event.post(tap: .cghidEventTap)
-    }
-
-    func finishGesture() {
-        guard hasStartedScroll,
-              let event = CGEvent(
-                scrollWheelEvent2Source: nil,
-                units: .pixel,
-                wheelCount: 1,
-                wheel1: 0,
-                wheel2: 0,
-                wheel3: 0
-              ) else {
-            hasStartedScroll = false
-            return
-        }
-
-        event.setIntegerValueField(.scrollWheelEventScrollPhase, value: 4)
-        event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: 0)
-        event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
-        event.post(tap: .cghidEventTap)
-        hasStartedScroll = false
-    }
-}
-
-private struct DefaultScrollSettling: ScrollSettling {
-    private let initialDelayNanos: UInt64
-    private let probeDelayNanos: UInt64
-    private let maxProbes: Int
-
-    init(
-        initialDelayNanos: UInt64 = 120_000_000,
-        probeDelayNanos: UInt64 = 40_000_000,
-        maxProbes: Int = 6
-    ) {
-        self.initialDelayNanos = initialDelayNanos
-        self.probeDelayNanos = probeDelayNanos
-        self.maxProbes = maxProbes
-    }
-
-    func settle(
-        region: CGRect,
-        captureFrame: @escaping @Sendable (CGRect) async throws -> CGImage,
-        previousAcceptedFrame: ScrollCaptureHelpers.PreparedFrame?,
-        expectedDisplacement: Int?,
-        stickyHeaderHeight: Int,
-        mode: ScrollCaptureMode,
-        displacementEstimator: any ScrollDisplacementEstimating
-    ) async throws -> ScrollSettledFrame? {
-        let startDelay = mode == .manual ? 80_000_000 : initialDelayNanos
-        try await Task.sleep(nanoseconds: startDelay)
-
-        var probes: [ScrollCaptureHelpers.PreparedFrame] = []
-        var lastProbe: ScrollCaptureHelpers.PreparedFrame?
-
-        for probeIndex in 0..<maxProbes {
-            try Task.checkCancellation()
-            let image = try await captureFrame(region)
-            guard let prepared = ScrollCaptureHelpers.prepareFrame(image) else {
-                continue
-            }
-
-            if mode == .manual,
-               probeIndex == 0,
-               let previousAcceptedFrame {
-                let movement = displacementEstimator.estimate(
-                    previous: previousAcceptedFrame,
-                    current: prepared,
-                    options: .manual(
-                        expectedDisplacement: expectedDisplacement,
-                        stickyHeaderHeight: stickyHeaderHeight,
-                        unstableBands: []
-                    )
-                )
-                if !movement.isMeaningful {
-                    return nil
-                }
-            }
-
-            probes.append(prepared)
-
-            if let lastProbe {
-                let stability = displacementEstimator.estimate(
-                    previous: lastProbe,
-                    current: prepared,
-                    options: .probeStability()
-                )
-                let hashSimilarity = ScrollCaptureHelpers.hashSimilarity(lastProbe, prepared)
-                if stability.absoluteDisplacement <= 1 && hashSimilarity >= 0.95 {
-                    return ScrollSettledFrame(
-                        preparedFrame: prepared,
-                        unstableBands: ScrollCaptureHelpers.detectUnstableBands(probes: probes),
-                        stabilized: true,
-                        probeCount: probes.count
-                    )
-                }
-            }
-
-            lastProbe = prepared
-            if probeIndex + 1 < maxProbes {
-                try await Task.sleep(nanoseconds: probeDelayNanos)
-            }
-        }
-
-        guard let lastProbe else { return nil }
-        return ScrollSettledFrame(
-            preparedFrame: lastProbe,
-            unstableBands: ScrollCaptureHelpers.detectUnstableBands(probes: probes),
-            stabilized: false,
-            probeCount: probes.count
-        )
-    }
-}
-
-private struct DefaultScrollDisplacementEstimator: ScrollDisplacementEstimating {
-    func estimate(
-        previous: ScrollCaptureHelpers.PreparedFrame,
-        current: ScrollCaptureHelpers.PreparedFrame,
-        options: ScrollDisplacementOptions
-    ) -> ScrollDisplacementEstimate {
-        ScrollCaptureHelpers.estimateDisplacement(
-            previous: previous,
-            current: current,
-            options: options
-        )
-    }
-}
-
-private struct DefaultScrollStitcher: ScrollStitching {
-    func stitch(
-        frames: [ScrollCaptureFrame],
-        maxCanvasHeight: Int
-    ) throws -> ScrollStitchResult {
-        try ScrollCaptureHelpers.stitch(
-            frames: frames,
-            maxCanvasHeight: maxCanvasHeight
-        )
     }
 }
 

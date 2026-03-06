@@ -79,6 +79,123 @@ final class UpdateManagerTests: XCTestCase {
 
         XCTAssertEqual(manager.state, .failed(errorSummary: "The appcast could not be loaded."))
     }
+
+    func testControllerPublisher_updatesCanCheckForUpdates() async {
+        let controller = MockUpdateController()
+        let manager = UpdateManager(settings: makeSettings(#function), controller: controller)
+
+        controller.setCanCheckForUpdates(false)
+        await waitForMainQueuePropagation()
+
+        XCTAssertFalse(manager.canCheckForUpdates)
+    }
+
+    func testSettingsChange_updatesAutomaticCheckPreferenceOnController() async {
+        let settings = makeSettings(#function)
+        let controller = MockUpdateController()
+        let manager = UpdateManager(settings: settings, controller: controller)
+
+        settings.checkForUpdatesAutomatically = false
+        await waitForMainQueuePropagation()
+
+        XCTAssertEqual(manager.state, .idle)
+        XCTAssertFalse(controller.automaticallyChecksForUpdates)
+    }
+
+    func testRecordNoUpdate_unknownReason_setsUpToDate() {
+        let manager = UpdateManager(settings: makeSettings(#function), controller: MockUpdateController())
+        let error = NSError(domain: SUSparkleErrorDomain, code: 1001, userInfo: [:])
+
+        manager.recordNoUpdate(error)
+
+        XCTAssertEqual(manager.state, .upToDate)
+    }
+
+    func testRecordNoUpdate_systemTooNew_setsFailure() {
+        let manager = UpdateManager(settings: makeSettings(#function), controller: MockUpdateController())
+        let error = NSError(
+            domain: SUSparkleErrorDomain,
+            code: 1001,
+            userInfo: [SPUNoUpdateFoundReasonKey: 4]
+        )
+
+        manager.recordNoUpdate(error)
+
+        XCTAssertEqual(
+            manager.state,
+            .failed(errorSummary: "Update metadata does not support this macOS version.")
+        )
+    }
+
+    func testRecordUpdateDismissed_setsIdleState() {
+        let manager = UpdateManager(settings: makeSettings(#function), controller: MockUpdateController())
+        manager.recordUpdateFound(version: "2.0")
+
+        manager.recordUpdateDismissed()
+
+        XCTAssertEqual(manager.state, .idle)
+    }
+
+    func testFinishUpdateCycle_nilWhileChecking_setsIdle() {
+        let manager = UpdateManager(settings: makeSettings(#function), controller: MockUpdateController())
+        manager.checkForUpdates()
+
+        manager.finishUpdateCycle(state: nil)
+
+        XCTAssertEqual(manager.state, .idle)
+    }
+
+    func testFinishUpdateCycle_nilWhileIdle_keepsIdle() {
+        let manager = UpdateManager(settings: makeSettings(#function), controller: MockUpdateController())
+
+        manager.finishUpdateCycle(state: nil)
+
+        XCTAssertEqual(manager.state, .idle)
+    }
+
+    func testFinishUpdateCycle_errorMapsToUpToDate() {
+        let manager = UpdateManager(settings: makeSettings(#function), controller: MockUpdateController())
+        let error = NSError(
+            domain: SUSparkleErrorDomain,
+            code: 1001,
+            userInfo: [SPUNoUpdateFoundReasonKey: 1]
+        )
+
+        manager.finishUpdateCycle(error: error)
+
+        XCTAssertEqual(manager.state, .upToDate)
+    }
+
+    func testFinishUpdateCycle_errorMapsToFailure() {
+        let manager = UpdateManager(settings: makeSettings(#function), controller: MockUpdateController())
+        let error = NSError(
+            domain: "network",
+            code: -1,
+            userInfo: [NSLocalizedDescriptionKey: "offline"]
+        )
+
+        manager.finishUpdateCycle(error: error)
+
+        XCTAssertEqual(manager.state, .failed(errorSummary: "offline"))
+    }
+
+    func testComputedPropertiesReflectCurrentState() {
+        let manager = UpdateManager(settings: makeSettings(#function), controller: MockUpdateController())
+        manager.recordUpdateFound(version: "3.1")
+
+        XCTAssertTrue(manager.updateAvailable)
+        XCTAssertEqual(manager.updateVersion, "3.1")
+        XCTAssertNil(manager.errorSummary)
+
+        manager.recordUpdateFailure(.failed(errorSummary: "bad feed"))
+
+        XCTAssertFalse(manager.updateAvailable)
+        XCTAssertEqual(manager.errorSummary, "bad feed")
+    }
+
+    private func waitForMainQueuePropagation() async {
+        try? await Task.sleep(for: .milliseconds(20))
+    }
 }
 
 @MainActor
@@ -97,5 +214,9 @@ private final class MockUpdateController: UpdateControlling {
 
     func checkForUpdates() {
         checkForUpdatesCallCount += 1
+    }
+
+    func setCanCheckForUpdates(_ value: Bool) {
+        canCheckSubject.send(value)
     }
 }

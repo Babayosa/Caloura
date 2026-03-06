@@ -19,18 +19,37 @@ final class CapturePipeline: ObservableObject {
     typealias SaveFileFn = (ProcessedScreenshot, String, String?, String) async throws -> URL
     typealias PersistArtifactFn = (ProcessedScreenshot, CapturePreset) async throws -> Void
     typealias CopyToClipboardFn = (ProcessedScreenshot, CopyMode) async throws -> Void
-    typealias RecognizeTextFn = (CGImage) async throws -> String
+    typealias RecognizeTextFn = @Sendable (CGImage) async throws -> String
     typealias HandlePermissionFailureFn = @MainActor () async -> Void
     typealias ShowQuickAccessFn = (ProcessedScreenshot) -> Void
     typealias PlaySoundFn = () -> Void
     typealias PostNotificationFn = (Notification.Name) -> Void
     typealias PresetForCategoryFn = (AppCategory) -> CapturePreset?
     typealias PresetByNameFn = (String) -> CapturePreset?
+    typealias SelectWindowCaptureFn = @MainActor (
+        @escaping @MainActor () -> Void
+    ) async -> WindowCaptureSessionCoordinator.SelectionResult
+    typealias MakeAreaCaptureSessionFn = @MainActor (
+        CapturePerformanceRecorder.Session,
+        @escaping AreaCaptureSessionCoordinator.SelectionHandler,
+        @escaping AreaCaptureSessionCoordinator.CancelHandler,
+        AreaCaptureSessionCoordinator.EventHandler?
+    ) -> any AreaCaptureSessionHandling
+    typealias MakeFullscreenCaptureSessionFn = @MainActor (
+        CapturePerformanceRecorder.Session,
+        @escaping FullscreenCaptureSessionCoordinator.SelectionHandler,
+        @escaping FullscreenCaptureSessionCoordinator.CancelHandler
+    ) -> any FullscreenCaptureSessionHandling
+    typealias MakeWindowCaptureSessionFn = @MainActor (
+        CapturePerformanceRecorder.Session,
+        @escaping @MainActor () async -> Void,
+        @escaping SelectWindowCaptureFn
+    ) -> any WindowCaptureSessionHandling
 
     // MARK: - Dependencies
 
-    let captureManager = ScreenCaptureManager.shared
-    let capturePerformanceRecorder = CapturePerformanceRecorder.shared
+    let captureManager: ScreenCaptureManaging
+    let capturePerformanceRecorder: CapturePerformanceRecorder
     let settings: AppSettings
     let appState: AppState
     private let detectContext: DetectContextFn
@@ -39,22 +58,28 @@ final class CapturePipeline: ObservableObject {
     private let persistArtifact: PersistArtifactFn
     private let copyToClipboard: CopyToClipboardFn
     private let recognizeText: RecognizeTextFn
-    private let handlePermissionFailure: HandlePermissionFailureFn
+    let handlePermissionFailure: HandlePermissionFailureFn
     private let showQuickAccess: ShowQuickAccessFn
     private let playSoundAction: PlaySoundFn
     private let postNotification: PostNotificationFn
     private let presetForCategory: PresetForCategoryFn
     private let presetByName: PresetByNameFn
+    let selectWindowCapture: SelectWindowCaptureFn
+    let makeAreaCaptureSession: MakeAreaCaptureSessionFn
+    let makeFullscreenCaptureSession: MakeFullscreenCaptureSessionFn
+    let makeWindowCaptureSession: MakeWindowCaptureSessionFn
+    let screenCountProvider: () -> Int
+    let freezeScreensEnabled: Bool
+    private let enrichmentCoordinator: CaptureEnrichmentCoordinator
 
     // MARK: - Mutable State
 
     var overlayWindows: [CaptureOverlayWindow] = []
     var screenOverlays: [ScreenSelectionOverlayWindow] = []
-    var areaCaptureSession: AreaCaptureSessionCoordinator?
-    var fullscreenCaptureSession: FullscreenCaptureSessionCoordinator?
+    var areaCaptureSession: (any AreaCaptureSessionHandling)?
+    var fullscreenCaptureSession: (any FullscreenCaptureSessionHandling)?
     var delayedCaptureTask: Task<Void, Never>?
     var scrollCaptureTask: Task<ScrollCaptureEngine.Result, Never>?
-    private var ocrTask: Task<Void, Never>?
     /// Tracks whether the first mouseDown metric has been logged for the current capture session.
     var firstMouseDownLogged = false
     /// Monotonic counter to detect stale overlay callbacks from a previous capture session.
@@ -67,6 +92,9 @@ final class CapturePipeline: ObservableObject {
     // MARK: - Init (Production)
 
     private init() {
+        let performanceRecorder = CapturePerformanceRecorder.shared
+        self.captureManager = ScreenCaptureManager.shared
+        self.capturePerformanceRecorder = performanceRecorder
         self.settings = AppSettings.shared
         self.appState = AppState.shared
         let presetMgr = PresetManager.shared
@@ -121,6 +149,52 @@ final class CapturePipeline: ObservableObject {
         self.presetByName = { name in
             presetMgr.preset(named: name)
         }
+        self.selectWindowCapture = { onPresented in
+            let result = await WindowPickerManager.shared.pickWindow(onPresented: onPresented)
+            switch result {
+            case .selected(let filter):
+                return .selected {
+                    try await ScreenCaptureManager.shared.captureWindow(filter: filter)
+                }
+            case .cancelled:
+                return .cancelled
+            case .failedToStart:
+                return .failedToStart
+            }
+        }
+        self.makeAreaCaptureSession = { session, onSelection, onCancel, onFirstInteraction in
+            AreaCaptureSessionCoordinator(
+                session: session,
+                performanceRecorder: performanceRecorder,
+                cursorController: CaptureCursorController(),
+                onSelection: onSelection,
+                onCancel: onCancel,
+                onFirstInteraction: onFirstInteraction
+            )
+        }
+        self.makeFullscreenCaptureSession = { session, onSelection, onCancel in
+            FullscreenCaptureSessionCoordinator(
+                session: session,
+                performanceRecorder: performanceRecorder,
+                cursorController: CaptureCursorController(),
+                onSelection: onSelection,
+                onCancel: onCancel
+            )
+        }
+        self.makeWindowCaptureSession = { session, prewarmContent, selectWindowCapture in
+            WindowCaptureSessionCoordinator(
+                session: session,
+                performanceRecorder: performanceRecorder,
+                hasWarmContent: ScreenCaptureManager.shared.hasWarmWindowShareableContent,
+                prewarmContent: {
+                    await prewarmContent()
+                },
+                pickWindow: selectWindowCapture
+            )
+        }
+        self.screenCountProvider = { NSScreen.screens.count }
+        self.freezeScreensEnabled = true
+        self.enrichmentCoordinator = CaptureEnrichmentCoordinator()
     }
 
     // MARK: - Init (Testing)
@@ -128,6 +202,8 @@ final class CapturePipeline: ObservableObject {
     init(
         settings: AppSettings,
         appState: AppState,
+        captureManager: ScreenCaptureManaging?,
+        capturePerformanceRecorder: CapturePerformanceRecorder,
         detectContext: @escaping DetectContextFn,
         processImage: @escaping ProcessImageFn,
         saveFile: @escaping SaveFileFn,
@@ -139,8 +215,18 @@ final class CapturePipeline: ObservableObject {
         playSoundAction: @escaping PlaySoundFn,
         postNotification: @escaping PostNotificationFn,
         presetForCategory: @escaping PresetForCategoryFn,
-        presetByName: @escaping PresetByNameFn
+        presetByName: @escaping PresetByNameFn,
+        selectWindowCapture: @escaping SelectWindowCaptureFn = { _ in .cancelled },
+        makeAreaCaptureSession: MakeAreaCaptureSessionFn? = nil,
+        makeFullscreenCaptureSession: MakeFullscreenCaptureSessionFn? = nil,
+        makeWindowCaptureSession: MakeWindowCaptureSessionFn? = nil,
+        screenCountProvider: @escaping () -> Int = { NSScreen.screens.count },
+        freezeScreensEnabled: Bool = true,
+        enrichmentCoordinator: CaptureEnrichmentCoordinator = CaptureEnrichmentCoordinator()
     ) {
+        let resolvedCaptureManager = captureManager ?? ScreenCaptureManager.shared
+        self.captureManager = resolvedCaptureManager
+        self.capturePerformanceRecorder = capturePerformanceRecorder
         self.settings = settings
         self.appState = appState
         self.detectContext = detectContext
@@ -155,10 +241,49 @@ final class CapturePipeline: ObservableObject {
         self.postNotification = postNotification
         self.presetForCategory = presetForCategory
         self.presetByName = presetByName
+        self.selectWindowCapture = selectWindowCapture
+        self.makeAreaCaptureSession = makeAreaCaptureSession ?? { session, onSelection, onCancel, onFirstInteraction in
+            AreaCaptureSessionCoordinator(
+                session: session,
+                performanceRecorder: capturePerformanceRecorder,
+                cursorController: CaptureCursorController(),
+                onSelection: onSelection,
+                onCancel: onCancel,
+                onFirstInteraction: onFirstInteraction
+            )
+        }
+        self.makeFullscreenCaptureSession = makeFullscreenCaptureSession ?? { session, onSelection, onCancel in
+            FullscreenCaptureSessionCoordinator(
+                session: session,
+                performanceRecorder: capturePerformanceRecorder,
+                cursorController: CaptureCursorController(),
+                onSelection: onSelection,
+                onCancel: onCancel
+            )
+        }
+        self.makeWindowCaptureSession = makeWindowCaptureSession ?? { session, prewarmContent, selectWindowCapture in
+            WindowCaptureSessionCoordinator(
+                session: session,
+                performanceRecorder: capturePerformanceRecorder,
+                hasWarmContent: resolvedCaptureManager.hasWarmWindowShareableContent,
+                prewarmContent: {
+                    await prewarmContent()
+                },
+                pickWindow: selectWindowCapture
+            )
+        }
+        self.screenCountProvider = screenCountProvider
+        self.freezeScreensEnabled = freezeScreensEnabled
+        self.enrichmentCoordinator = enrichmentCoordinator
     }
 
     func elapsedMilliseconds(since start: CFAbsoluteTime) -> Double {
         (CFAbsoluteTimeGetCurrent() - start) * 1000.0
+    }
+
+    func isSameObject(_ lhs: AnyObject?, _ rhs: AnyObject?) -> Bool {
+        guard let lhs, let rhs else { return false }
+        return ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
     }
 
     // MARK: - Pipeline
@@ -201,14 +326,17 @@ final class CapturePipeline: ObservableObject {
                 hasDeferredEnrichment ? .enrichmentPending : .rawPreviewReady,
                 for: processed.id
             )
-
-            await distributeCapture(
-                processed,
-                preset: preset,
-                performanceSession: performanceSession
-            )
+            let previewStart = CFAbsoluteTimeGetCurrent()
+            appState.lastScreenshot = processed
+            appState.statusMessage = "Captured!"
             showQuickAccess(processed)
+            let previewDuration = elapsedMilliseconds(since: previewStart)
             if let performanceSession {
+                capturePerformanceRecorder.recordDuration(
+                    .previewPresentationDuration,
+                    milliseconds: previewDuration,
+                    in: performanceSession
+                )
                 capturePerformanceRecorder.mark(.rawPreviewVisible, in: performanceSession)
             }
             postNotification(.captureCompleted)
@@ -218,6 +346,11 @@ final class CapturePipeline: ObservableObject {
                 "Capture pipeline finished in \(totalDuration, privacy: .public) ms"
             )
             recordMetric(stage: .total, milliseconds: totalDuration)
+            await distributeCapture(
+                processed,
+                preset: preset,
+                performanceSession: performanceSession
+            )
 
             if settings.autoSaveToDisk {
                 Task { @MainActor [weak self] in
@@ -356,9 +489,6 @@ final class CapturePipeline: ObservableObject {
         if settings.playCaptureSound {
             playSoundAction()
         }
-
-        appState.lastScreenshot = processed
-        appState.statusMessage = "Captured!"
     }
 
     // MARK: - History + OCR
@@ -366,54 +496,58 @@ final class CapturePipeline: ObservableObject {
     func addToHistoryWithOCR(_ processed: ProcessedScreenshot) {
         let screenshotID = processed.id
         appState.syncProcessedScreenshot(processed)
-
-        // Cancel any in-flight OCR task to avoid unbounded pile-up (H9).
-        // Only the latest capture's OCR matters for history.
-        ocrTask?.cancel()
-
         let cgImageForOCR = processed.cgImage
         let recognizeTextFn = self.recognizeText
         let capturedAppState = self.appState
-        ocrTask = Task.detached {
-            defer {
-                Task { @MainActor in
-                    capturedAppState.setCapturePreviewPhase(
-                        .enrichmentComplete,
-                        for: screenshotID
-                    )
-                }
-            }
-            do {
-                guard !Task.isCancelled else { return }
-                let text = try await recognizeTextFn(cgImageForOCR)
-                guard !Task.isCancelled else { return }
-                guard !text.isEmpty else { return }
-                await MainActor.run {
-                    capturedAppState.updateScreenshot(id: screenshotID) { item in
-                        item.ocrText = text
+        let enrichmentCoordinator = self.enrichmentCoordinator
+
+        Task {
+            await enrichmentCoordinator.enqueue(screenshotID: screenshotID) {
+                do {
+                    guard !Task.isCancelled else { return }
+                    let text = try await recognizeTextFn(cgImageForOCR)
+                    guard !Task.isCancelled else { return }
+                    if !text.isEmpty {
+                        await MainActor.run {
+                            capturedAppState.updateScreenshot(id: screenshotID) { item in
+                                item.ocrText = text
+                            }
+                        }
+
+                        await detectPIIIfEnabled(
+                            cgImage: cgImageForOCR,
+                            screenshotID: screenshotID,
+                            appState: capturedAppState
+                        )
+                        await generateEmbeddingIfEnabled(
+                            text: text,
+                            screenshotID: screenshotID,
+                            appState: capturedAppState
+                        )
+                        await generateSmartMetadataIfEnabled(
+                            text: text,
+                            screenshotID: screenshotID,
+                            appState: capturedAppState
+                        )
+                    }
+
+                    await MainActor.run {
+                        capturedAppState.setCapturePreviewPhase(
+                            .enrichmentComplete,
+                            for: screenshotID
+                        )
+                    }
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    let desc = error.localizedDescription
+                    logger.error("OCR failed: \(desc, privacy: .public)")
+                    await MainActor.run {
+                        capturedAppState.setCapturePreviewPhase(
+                            .enrichmentFailed,
+                            for: screenshotID
+                        )
                     }
                 }
-
-                // AI post-processing
-                await detectPIIIfEnabled(
-                    cgImage: cgImageForOCR,
-                    screenshotID: screenshotID,
-                    appState: capturedAppState
-                )
-                await generateEmbeddingIfEnabled(
-                    text: text,
-                    screenshotID: screenshotID,
-                    appState: capturedAppState
-                )
-                await generateSmartMetadataIfEnabled(
-                    text: text,
-                    screenshotID: screenshotID,
-                    appState: capturedAppState
-                )
-            } catch {
-                guard !Task.isCancelled else { return }
-                let desc = error.localizedDescription
-                logger.error("OCR failed: \(desc, privacy: .public)")
             }
         }
     }
@@ -455,9 +589,11 @@ private func detectPIIIfEnabled(
         let detections = try await PIIDetector.detect(in: cgImage)
         guard !detections.isEmpty else { return }
         await MainActor.run {
-            appState.lastPIIResult = PIIDetectionResult(
+            appState.setPIIResult(
+                PIIDetectionResult(
                 detections: detections,
                 screenshotID: screenshotID
+            )
             )
         }
     } catch {

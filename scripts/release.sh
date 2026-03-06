@@ -61,6 +61,10 @@ ARCHIVE_PATH="$BUILD_DIR/$APP_NAME.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
 APP_PATH="$EXPORT_PATH/$APP_NAME.app"
 ZIP_PATH="$BUILD_DIR/$APP_NAME-$VERSION.zip"
+MANIFEST_PATH="$BUILD_DIR/release-manifest-$VERSION.json"
+NOTARY_PROFILE="${NOTARY_PROFILE:-Caloura-Notarize}"
+BUILD_SETTINGS_CACHE="$BUILD_DIR/release-build-settings.txt"
+BUILD_DESTINATION="${BUILD_DESTINATION:-platform=macOS,arch=arm64}"
 
 normalize_version() {
     local raw="$1"
@@ -72,6 +76,29 @@ normalize_version() {
 fail_release() {
     echo "ERROR: $1" >&2
     exit 1
+}
+
+build_setting_value() {
+    local key="$1"
+    local env_value="${!key:-}"
+    if [ -n "$env_value" ]; then
+        echo "$env_value"
+        return
+    fi
+
+    if [ ! -f "$BUILD_SETTINGS_CACHE" ]; then
+        mkdir -p "$BUILD_DIR"
+        xcodebuild -showBuildSettings \
+            -project "$PROJECT_DIR/$APP_NAME.xcodeproj" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination "$BUILD_DESTINATION" \
+            > "$BUILD_SETTINGS_CACHE"
+    fi
+
+    local value
+    value="$(awk -F' = ' -v needle="$key" '$1 ~ ("^[[:space:]]*" needle "$") {print $2; exit}' "$BUILD_SETTINGS_CACHE")"
+    echo "$value" | sed 's/[[:space:]]*$//'
 }
 
 check_release_tag_alignment() {
@@ -187,6 +214,49 @@ check_sparkle_release_metadata() {
     echo "==> Sparkle metadata check passed"
 }
 
+check_release_license_configuration() {
+    local requires_signed
+    local entitlement_url
+    local entitlement_public_key
+
+    requires_signed="$(build_setting_value "CALOURA_REQUIRE_SIGNED_ENTITLEMENT")"
+    entitlement_url="$(build_setting_value "CALOURA_LICENSE_ENTITLEMENT_URL")"
+    entitlement_public_key="$(build_setting_value "CALOURA_LICENSE_ENTITLEMENT_PUBLIC_KEY")"
+
+    if [ "$requires_signed" != "YES" ]; then
+        fail_release "Release configuration must set CALOURA_REQUIRE_SIGNED_ENTITLEMENT=YES."
+    fi
+
+    if [ -z "$entitlement_url" ]; then
+        fail_release "Release configuration is missing CALOURA_LICENSE_ENTITLEMENT_URL."
+    fi
+
+    if [ -z "$entitlement_public_key" ]; then
+        fail_release "Release configuration is missing CALOURA_LICENSE_ENTITLEMENT_PUBLIC_KEY."
+    fi
+
+    echo "==> Release license configuration check passed"
+}
+
+verify_release_environment() {
+    local feed_url
+    feed_url="$(read_plist_value "$PROJECT_DIR/Caloura/Resources/Info.plist" "SUFeedURL")"
+
+    if ! security find-identity -v -p codesigning | grep -q "Developer ID Application"; then
+        fail_release "Developer ID Application signing identity not found in Keychain."
+    fi
+
+    if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" --page-size 1 >/dev/null 2>&1; then
+        fail_release "Notarization profile '$NOTARY_PROFILE' is missing or unusable."
+    fi
+
+    if ! curl -fsSIL "$feed_url" >/dev/null; then
+        fail_release "Sparkle feed URL is unreachable: $feed_url"
+    fi
+
+    echo "==> Release environment check passed"
+}
+
 verify_signed_identity() {
     local app_path="$1"
     local signature_details
@@ -220,6 +290,54 @@ verify_gatekeeper_and_notarization() {
     echo "    Gatekeeper and stapler validation passed"
 }
 
+generate_release_manifest() {
+    local app_path="$1"
+    local artifact_path="$2"
+
+    python3 "$SCRIPT_DIR/release_manifest.py" \
+        --app "$app_path" \
+        --artifact "$artifact_path" \
+        --output "$MANIFEST_PATH" >/dev/null
+
+    echo "==> Release manifest generated at $MANIFEST_PATH"
+}
+
+generate_source_release_manifest() {
+    local plist_path="$PROJECT_DIR/Caloura/Resources/Info.plist"
+    local bundle_identifier
+    local marketing_version
+    local build_number
+    local minimum_system_version
+    local release_channel
+    local requires_signed
+    local entitlement_url
+    local entitlement_public_key
+
+    bundle_identifier="$(build_setting_value "PRODUCT_BUNDLE_IDENTIFIER")"
+    marketing_version="$(build_setting_value "MARKETING_VERSION")"
+    build_number="$(build_setting_value "CURRENT_PROJECT_VERSION")"
+    minimum_system_version="$(build_setting_value "MACOSX_DEPLOYMENT_TARGET")"
+    release_channel="$(build_setting_value "CALOURA_RELEASE_CHANNEL")"
+    requires_signed="$(build_setting_value "CALOURA_REQUIRE_SIGNED_ENTITLEMENT")"
+    entitlement_url="$(build_setting_value "CALOURA_LICENSE_ENTITLEMENT_URL")"
+    entitlement_public_key="$(build_setting_value "CALOURA_LICENSE_ENTITLEMENT_PUBLIC_KEY")"
+
+    python3 "$SCRIPT_DIR/release_manifest.py" \
+        --info-plist "$plist_path" \
+        --output "$MANIFEST_PATH" \
+        --bundle-identifier "$bundle_identifier" \
+        --marketing-version "$marketing_version" \
+        --build-number "$build_number" \
+        --minimum-system-version "$minimum_system_version" \
+        --release-channel "$release_channel" \
+        --requires-signed-entitlement "$requires_signed" \
+        --entitlement-service-url "$entitlement_url" \
+        --entitlement-public-key-configured "$([ -n "$entitlement_public_key" ] && echo true || echo false)" \
+        >/dev/null
+
+    echo "==> Source release manifest generated at $MANIFEST_PATH"
+}
+
 echo "==> Building $APP_NAME v$VERSION"
 echo ""
 
@@ -228,8 +346,11 @@ check_release_tag_alignment
 check_version_placeholders
 check_minimum_system_version_alignment
 check_sparkle_release_metadata
+check_release_license_configuration
+verify_release_environment
 
 if [ "${RELEASE_GUARD_ONLY:-0}" = "1" ]; then
+    generate_source_release_manifest
     echo "==> Guard-only mode: release tag and version placeholder checks passed."
     exit 0
 fi
@@ -250,6 +371,10 @@ xcodebuild archive \
     -scheme "$SCHEME" \
     -configuration Release \
     -archivePath "$ARCHIVE_PATH" \
+    -destination 'platform=macOS,arch=arm64' \
+    CALOURA_REQUIRE_SIGNED_ENTITLEMENT="${CALOURA_REQUIRE_SIGNED_ENTITLEMENT:-YES}" \
+    CALOURA_LICENSE_ENTITLEMENT_URL="${CALOURA_LICENSE_ENTITLEMENT_URL:-}" \
+    CALOURA_LICENSE_ENTITLEMENT_PUBLIC_KEY="${CALOURA_LICENSE_ENTITLEMENT_PUBLIC_KEY:-}" \
     MARKETING_VERSION="$VERSION" \
     CURRENT_PROJECT_VERSION="$(date +%Y%m%d%H%M%S)" \
     -quiet
@@ -282,7 +407,7 @@ ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
 # Notarize
 echo "==> Submitting for notarization (this may take a few minutes)..."
 if ! xcrun notarytool submit "$ZIP_PATH" \
-    --keychain-profile "Caloura-Notarize" \
+    --keychain-profile "$NOTARY_PROFILE" \
     --wait; then
     fail_release "Notarization failed. Run 'xcrun notarytool log' for details."
 fi
@@ -304,6 +429,7 @@ cleanup_zip_verify() {
 trap cleanup_zip_verify EXIT
 ditto -x -k "$ZIP_PATH" "$ZIP_VERIFY_DIR"
 check_bundle_version_matches_release "$ZIP_VERIFY_DIR/$APP_NAME.app/Contents/Info.plist" "Final zip artifact"
+generate_release_manifest "$APP_PATH" "$ZIP_PATH"
 
 # Summary
 echo ""
@@ -312,6 +438,7 @@ echo "  Release build complete!"
 echo "============================================"
 echo "  Version: $VERSION"
 echo "  File:    $ZIP_PATH"
+echo "  Manifest: $MANIFEST_PATH"
 echo "  Size:    $(du -h "$ZIP_PATH" | cut -f1)"
 echo ""
 echo "Next steps:"

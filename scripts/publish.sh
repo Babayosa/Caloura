@@ -31,6 +31,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_DIR/build"
 ZIP_PATH="$BUILD_DIR/Caloura-$VERSION.zip"
+MANIFEST_PATH="$BUILD_DIR/release-manifest-$VERSION.json"
 SITE_REPO="${SITE_REPO:-$HOME/caloura-site}"
 
 read_plist_value() {
@@ -39,34 +40,16 @@ read_plist_value() {
     /usr/libexec/PlistBuddy -c "Print :$key" "$plist" 2>/dev/null || true
 }
 
-expected_minimum_system_version() {
-    read_plist_value "$PROJECT_DIR/Caloura/Resources/Info.plist" "LSMinimumSystemVersion"
-}
-
-validate_appcast_minimum_system_version() {
+validate_appcast_against_manifest() {
     local appcast="$SITE_REPO/appcast.xml"
-    local expected_min
-    local actual_min
-
-    expected_min="$(expected_minimum_system_version)"
-    actual_min="$(grep -oE 'sparkle:minimumSystemVersion>[0-9.]+' "$appcast" | head -1 | cut -d'>' -f2)"
-
-    if [ -z "$expected_min" ]; then
-        echo "Error: Could not determine expected minimum macOS version from Info.plist."
+    if [ ! -f "$MANIFEST_PATH" ]; then
+        echo "Error: Release manifest not found at $MANIFEST_PATH"
         exit 1
     fi
 
-    if [ -z "$actual_min" ]; then
-        echo "Error: Could not read sparkle:minimumSystemVersion from $appcast"
-        exit 1
-    fi
-
-    if [ "$expected_min" != "$actual_min" ]; then
-        echo "Error: Appcast minimum macOS version mismatch (app=$expected_min appcast=$actual_min)"
-        exit 1
-    fi
-
-    echo "==> Appcast minimum macOS version check passed ($actual_min)"
+    python3 "$SCRIPT_DIR/validate_appcast_against_manifest.py" \
+        --manifest "$MANIFEST_PATH" \
+        --file "$appcast"
 }
 
 # Locate sign_update from Sparkle SPM artifacts
@@ -124,7 +107,7 @@ git -C "$SITE_REPO" pull --ff-only
 
 # Run the site's release script
 "$SITE_REPO/release.sh" "$ZIP_PATH"
-validate_appcast_minimum_system_version
+validate_appcast_against_manifest
 
 # ── Step 3: Summary ──────────────────────────────────────────────
 echo ""

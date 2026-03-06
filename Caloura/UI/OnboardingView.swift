@@ -176,12 +176,13 @@ struct OnboardingView: View {
     }
 
     private func refreshPermissionStatus() {
-        if isAwaitingAutoCheckAfterGrant {
-            // User just granted — run full validation (with auto-repair)
-            runUserInitiatedValidation()
-        } else {
-            let status = permissionCoordinator.refreshPassiveStatus()
-            handlePermissionStatus(status)
+        Task { @MainActor in
+            if isAwaitingAutoCheckAfterGrant {
+                runUserInitiatedValidation()
+            } else {
+                let status = await permissionCoordinator.refreshPassiveStatus()
+                handlePermissionStatus(status)
+            }
         }
     }
 
@@ -215,6 +216,14 @@ struct OnboardingView: View {
 final class OnboardingWindowController {
     private let presenter = SingleWindowPresenter<OnboardingView>()
 
+    var isVisible: Bool {
+        presenter.isVisible
+    }
+
+    var windowTitle: String? {
+        presenter.window?.title
+    }
+
     func showIfNeeded(settings: AppSettings) {
         guard !settings.hasCompletedOnboarding else { return }
         show(settings: settings)
@@ -230,5 +239,9 @@ final class OnboardingWindowController {
                 self?.presenter.close()
             }
         }
+    }
+
+    func close() {
+        presenter.close()
     }
 }

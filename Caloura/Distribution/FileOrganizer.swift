@@ -68,8 +68,12 @@ struct FileOrganizer {
         let savedURL = try await Task.detached(priority: .userInitiated) {
             let imageData = try encodedData(for: cgImage, imageFormat: imageFormat)
             try prepareDirectory(at: directoryURL)
-            try writeImageData(imageData, to: fileURL)
-            return fileURL
+            let uniqueFileURL = uniqueFileURL(
+                in: directoryURL,
+                preferredName: fileName
+            )
+            try writeImageData(imageData, to: uniqueFileURL)
+            return uniqueFileURL
         }.value
 
         return savedURL
@@ -210,6 +214,28 @@ struct FileOrganizer {
             at: directoryURL,
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
+        )
+    }
+
+    private static func uniqueFileURL(in directoryURL: URL, preferredName: String) -> URL {
+        let preferredURL = directoryURL.appendingPathComponent(preferredName)
+        guard FileManager.default.fileExists(atPath: preferredURL.path) else {
+            return preferredURL
+        }
+
+        let extensionName = preferredURL.pathExtension
+        let baseName = preferredURL.deletingPathExtension().lastPathComponent
+
+        for suffix in 2...10_000 {
+            let candidateName = "\(baseName)-\(suffix).\(extensionName)"
+            let candidateURL = directoryURL.appendingPathComponent(candidateName)
+            if !FileManager.default.fileExists(atPath: candidateURL.path) {
+                return candidateURL
+            }
+        }
+
+        return directoryURL.appendingPathComponent(
+            "\(baseName)-\(UUID().uuidString.prefix(8)).\(extensionName)"
         )
     }
 

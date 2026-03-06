@@ -56,16 +56,21 @@ private func makeGumroadResponse(
 private func makeSuccessJSON(
     refunded: Bool = false,
     disputed: Bool = false,
-    chargebacked: Bool = false
+    chargebacked: Bool = false,
+    purchaseOverrides: [String: Any] = [:]
 ) -> [String: Any] {
-    [
+    var purchase: [String: Any] = [
+        "refunded": refunded,
+        "disputed": disputed,
+        "chargebacked": chargebacked,
+        "email": "test@example.com"
+    ]
+    for (key, value) in purchaseOverrides {
+        purchase[key] = value
+    }
+    return [
         "success": true,
-        "purchase": [
-            "refunded": refunded,
-            "disputed": disputed,
-            "chargebacked": chargebacked,
-            "email": "test@example.com"
-        ]
+        "purchase": purchase
     ]
 }
 
@@ -74,43 +79,62 @@ private func makeSuccessJSON(
 @MainActor
 final class LicenseManagerNetworkTests: XCTestCase {
 
-    private var settings: AppSettings!
-    private var license: LicenseManager!
+    nonisolated(unsafe) private var settings: AppSettings!
+    nonisolated(unsafe) private var license: LicenseManager!
 
-    private var savedFirstLaunchDate: Date!
-    private var savedLicenseKey: String!
-    private var savedEntitlement: LicenseEntitlement?
-    private var savedLastValidationDate: Date?
+    nonisolated(unsafe) private var savedFirstLaunchDate: Date!
+    nonisolated(unsafe) private var savedLicenseKey: String!
+    nonisolated(unsafe) private var savedEntitlement: LicenseEntitlement?
+    nonisolated(unsafe) private var savedLastValidationDate: Date?
 
     override func setUp() {
         super.setUp()
         URLProtocol.registerClass(MockURLProtocol.self)
+        let settings = MainActor.assumeIsolated {
+            AppSettings.shared
+        }
+        self.settings = settings
+        let snapshot = MainActor.assumeIsolated {
+            (
+                settings.firstLaunchDate,
+                settings.licenseKey,
+                settings.currentLicenseEntitlement,
+                settings.lastLicenseValidationDate
+            )
+        }
+        savedFirstLaunchDate = snapshot.0
+        savedLicenseKey = snapshot.1
+        savedEntitlement = snapshot.2
+        savedLastValidationDate = snapshot.3
 
-        settings = AppSettings.shared
+        MainActor.assumeIsolated {
+            settings.licenseKey = ""
+            settings.updateLicenseEntitlement(nil)
+            settings.lastLicenseValidationDate = nil
+        }
 
-        // Save original values
-        savedFirstLaunchDate = settings.firstLaunchDate
-        savedLicenseKey = settings.licenseKey
-        savedEntitlement = settings.currentLicenseEntitlement
-        savedLastValidationDate = settings.lastLicenseValidationDate
-
-        // Reset to unlicensed state
-        settings.licenseKey = ""
-        settings.updateLicenseEntitlement(nil)
-        settings.lastLicenseValidationDate = nil
-
-        license = LicenseManager(settings: settings)
+        self.license = MainActor.assumeIsolated {
+            LicenseManager(settings: settings)
+        }
     }
 
     override func tearDown() {
         MockURLProtocol.requestHandler = nil
         URLProtocol.unregisterClass(MockURLProtocol.self)
-
-        // Restore original values
-        settings.firstLaunchDate = savedFirstLaunchDate
-        settings.licenseKey = savedLicenseKey
-        settings.updateLicenseEntitlement(savedEntitlement)
-        settings.lastLicenseValidationDate = savedLastValidationDate
+        guard let settings else {
+            super.tearDown()
+            return
+        }
+        let restoredFirstLaunchDate: Date = savedFirstLaunchDate
+        let restoredLicenseKey: String = savedLicenseKey
+        let restoredEntitlement = savedEntitlement
+        let restoredLastValidationDate = savedLastValidationDate
+        MainActor.assumeIsolated {
+            settings.firstLaunchDate = restoredFirstLaunchDate
+            settings.licenseKey = restoredLicenseKey
+            settings.updateLicenseEntitlement(restoredEntitlement)
+            settings.lastLicenseValidationDate = restoredLastValidationDate
+        }
         super.tearDown()
     }
 
@@ -126,6 +150,26 @@ final class LicenseManagerNetworkTests: XCTestCase {
         XCTAssertEqual(license.activationState, .licensed)
         XCTAssertTrue(settings.isLicenseActivated)
         XCTAssertEqual(settings.licenseKey, "AAAA-BBBB-CCCC-DDDD")
+    }
+
+    func testActivate_successWithPurchaseIDAndFeatureFlags_usesPurchaseValues() async {
+        MockURLProtocol.requestHandler = { _ in
+            try makeGumroadResponse(json: makeSuccessJSON(
+                purchaseOverrides: [
+                    "id": "gumroad-purchase-id",
+                    "feature_flags": ["pro": true, "ocr": true]
+                ]
+            ))
+        }
+
+        await license.activate(licenseKey: "AAAA-BBBB-CCCC-DDDD", settings: settings)
+
+        XCTAssertEqual(license.activationState, .licensed)
+        XCTAssertEqual(settings.currentLicenseEntitlement?.claims.licenseID, "gumroad-purchase-id")
+        XCTAssertEqual(
+            settings.currentLicenseEntitlement?.claims.featureFlags,
+            ["pro": true, "ocr": true]
+        )
     }
 
     func testActivate_refundedPurchase_fails() async {
@@ -407,5 +451,82 @@ final class LicenseManagerNetworkTests: XCTestCase {
         } else {
             XCTFail("Expected lastLicenseValidationDate to be set")
         }
+    }
+
+    func testRefreshState_futureRefreshSchedulesDelayedRevalidation() async {
+        let now = Date()
+        let suiteName = "com.caloura.tests.license.delayed.\(UUID().uuidString)"
+        let delayedDefaults = UserDefaults(suiteName: suiteName)!
+        delayedDefaults.removePersistentDomain(forName: suiteName)
+        let delayedSettings = AppSettings(defaults: delayedDefaults)
+        delayedSettings.licenseKey = "VALID-KEY-1234"
+        delayedSettings.updateLicenseEntitlement(makeTestEntitlement(
+            validatedAt: now.addingTimeInterval(-300),
+            refreshAfter: now.addingTimeInterval(0.05),
+            expiresAt: now.addingTimeInterval(120)
+        ))
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        MockURLProtocol.requestHandler = { _ in
+            try makeGumroadResponse(json: makeSuccessJSON())
+        }
+        let manager = LicenseManager(
+            settings: delayedSettings,
+            session: session,
+            now: { now },
+            verificationConfiguration: LicenseVerificationConfiguration(
+                entitlementServiceURL: nil,
+                entitlementPublicKeyBase64: nil,
+                requiresSignedEntitlement: false,
+                allowGumroadFallback: true
+            )
+        )
+
+        manager.refreshState(settings: delayedSettings)
+
+        await pollUntil(timeout: 1.0) {
+            delayedSettings.lastLicenseValidationDate != nil &&
+            delayedSettings.lastLicenseValidationDate != now.addingTimeInterval(-300)
+        }
+
+        XCTAssertTrue(delayedSettings.isLicenseActivated)
+        XCTAssertNotNil(delayedSettings.lastLicenseValidationDate)
+        delayedDefaults.removePersistentDomain(forName: suiteName)
+    }
+
+    func testRevalidation_ambiguousResponseRetriesBeforeExpiry() async {
+        let now = Date()
+        let staleDate = now.addingTimeInterval(-120)
+        settings.licenseKey = "VALID-KEY-1234"
+        settings.updateLicenseEntitlement(makeTestEntitlement(
+            validatedAt: staleDate,
+            refreshAfter: staleDate,
+            expiresAt: now.addingTimeInterval(0.05)
+        ))
+
+        var requestCount = 0
+        MockURLProtocol.requestHandler = { _ in
+            requestCount += 1
+            if requestCount == 1 {
+                let url = URL(string: "https://api.gumroad.com/v2/licenses/verify")!
+                let response = HTTPURLResponse(
+                    url: url, statusCode: 200, httpVersion: nil, headerFields: nil
+                )!
+                return (response, Data(repeating: 0x41, count: 1_000_001))
+            }
+            return try makeGumroadResponse(json: makeSuccessJSON())
+        }
+
+        license.refreshState(settings: settings)
+
+        await pollUntil(timeout: 1.0) {
+            requestCount >= 2 && (self.settings.lastLicenseValidationDate ?? .distantPast) > staleDate
+        }
+
+        XCTAssertGreaterThanOrEqual(requestCount, 2)
+        XCTAssertTrue(settings.isLicenseActivated)
+        XCTAssertEqual(license.activationState, .licensed)
     }
 }

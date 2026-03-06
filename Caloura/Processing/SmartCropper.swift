@@ -9,6 +9,13 @@ private struct BorderInsets {
     let right: Int
 }
 
+private struct NormalizedBitmap {
+    let width: Int
+    let height: Int
+    let bytesPerRow: Int
+    let bytes: [UInt8]
+}
+
 struct SmartCropper {
     /// Minimum percentage of area that must be removed for crop to apply
     private static let minCropThreshold: CGFloat = 0.15
@@ -111,36 +118,27 @@ struct SmartCropper {
 
     /// Trims uniform-color borders (e.g., whitespace around slides)
     static func trimUniformBorders(_ cgImage: CGImage) -> CGImage? {
-        guard let dataProvider = cgImage.dataProvider,
-              let data = dataProvider.data,
-              let pointer = CFDataGetBytePtr(data) else {
+        guard let bitmap = normalizedBitmap(for: cgImage) else {
             return nil
         }
 
-        let width = cgImage.width
-        let height = cgImage.height
-        let bytesPerRow = cgImage.bytesPerRow
-        let bytesPerPixel = cgImage.bitsPerPixel / 8
-
-        guard bytesPerPixel >= 3 else { return nil }
-
         // Get the corner pixel color as reference
-        let refR = pointer[0]
-        let refG = pointer[1]
-        let refB = pointer[2]
+        let refR = bitmap.bytes[0]
+        let refG = bitmap.bytes[1]
+        let refB = bitmap.bytes[2]
 
         let tolerance: UInt8 = 10
 
         @inline(__always)
         func pixelMatchesRef(x: Int, y: Int) -> Bool {
-            let offset = y * bytesPerRow + x * bytesPerPixel
-            return abs(Int(pointer[offset]) - Int(refR)) <= Int(tolerance) &&
-                   abs(Int(pointer[offset + 1]) - Int(refG)) <= Int(tolerance) &&
-                   abs(Int(pointer[offset + 2]) - Int(refB)) <= Int(tolerance)
+            let offset = y * bitmap.bytesPerRow + x * 4
+            return abs(Int(bitmap.bytes[offset]) - Int(refR)) <= Int(tolerance) &&
+                   abs(Int(bitmap.bytes[offset + 1]) - Int(refG)) <= Int(tolerance) &&
+                   abs(Int(bitmap.bytes[offset + 2]) - Int(refB)) <= Int(tolerance)
         }
 
         let borders = scanBorders(
-            width: width, height: height,
+            width: bitmap.width, height: bitmap.height,
             pixelMatchesRef: pixelMatchesRef
         )
 
@@ -151,7 +149,7 @@ struct SmartCropper {
         )
 
         // Check threshold
-        let originalArea = CGFloat(width * height)
+        let originalArea = CGFloat(bitmap.width * bitmap.height)
         let croppedArea = cropRect.width * cropRect.height
         let removedRatio = 1.0 - (croppedArea / originalArea)
 
@@ -161,6 +159,43 @@ struct SmartCropper {
         }
 
         return cgImage.cropping(to: cropRect)
+    }
+
+    private static func normalizedBitmap(for cgImage: CGImage) -> NormalizedBitmap? {
+        guard cgImage.width > 0, cgImage.height > 0 else { return nil }
+
+        let width = cgImage.width
+        let height = cgImage.height
+        let bytesPerRow = width * 4
+        var bytes = [UInt8](repeating: 0, count: bytesPerRow * height)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+
+        let rendered = bytes.withUnsafeMutableBytes { rawBuffer -> Bool in
+            guard let baseAddress = rawBuffer.baseAddress,
+                  let context = CGContext(
+                    data: baseAddress,
+                    width: width,
+                    height: height,
+                    bitsPerComponent: 8,
+                    bytesPerRow: bytesPerRow,
+                    space: colorSpace,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                  ) else {
+                return false
+            }
+
+            context.interpolationQuality = .none
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+
+        guard rendered else { return nil }
+        return NormalizedBitmap(
+            width: width,
+            height: height,
+            bytesPerRow: bytesPerRow,
+            bytes: bytes
+        )
     }
 
     private static func scanBorders(

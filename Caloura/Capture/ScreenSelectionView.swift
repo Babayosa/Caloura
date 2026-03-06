@@ -1,6 +1,8 @@
 import AppKit
 
 final class ScreenSelectionView: NSView {
+    static let captureHintText = "Click a display to capture  ·  ESC to cancel"
+
     var onScreenSelected: ((NSScreen) -> Void)?
     var onCancelled: (() -> Void)?
     weak var cursorController: CaptureCursorControlling?
@@ -14,6 +16,10 @@ final class ScreenSelectionView: NSView {
     private let highlightOverlayColor = NSColor.black.withAlphaComponent(0.15)
     private let labelFont = NSFont.systemFont(ofSize: 22, weight: .semibold)
     private let hintFont = NSFont.systemFont(ofSize: 14, weight: .medium)
+
+    var debugCaptureHintText: String {
+        Self.captureHintText
+    }
 
     init(frame: CGRect, screen: NSScreen) {
         self.targetScreen = screen
@@ -124,7 +130,7 @@ final class ScreenSelectionView: NSView {
     }
 
     private func drawClickHint() {
-        let text = "Click a display to capture  ·  ESC to cancel" as NSString
+        let text = Self.captureHintText as NSString
         let attributes: [NSAttributedString.Key: Any] = [
             .font: hintFont,
             .foregroundColor: NSColor.white.withAlphaComponent(0.8)

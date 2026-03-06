@@ -2,6 +2,28 @@ import AppKit
 import ScreenCaptureKit
 
 @MainActor
+protocol AreaCaptureSessionHandling: AnyObject {
+    var overlayWindows: [CaptureOverlayWindow] { get }
+
+    func present()
+    func updateFrozenImages(_ images: [NSScreen: CGImage])
+    func dismiss()
+}
+
+@MainActor
+protocol FullscreenCaptureSessionHandling: AnyObject {
+    var overlayWindows: [ScreenSelectionOverlayWindow] { get }
+
+    func present()
+    func dismiss()
+}
+
+@MainActor
+protocol WindowCaptureSessionHandling: AnyObject {
+    func pick() async -> WindowCaptureSessionCoordinator.SelectionResult
+}
+
+@MainActor
 final class AreaCaptureSessionCoordinator {
     typealias SelectionHandler = @MainActor (CGRect, NSScreen, CGImage?) async -> Void
     typealias CancelHandler = @MainActor () -> Void
@@ -92,6 +114,8 @@ final class AreaCaptureSessionCoordinator {
     }
 }
 
+extension AreaCaptureSessionCoordinator: AreaCaptureSessionHandling {}
+
 @MainActor
 final class FullscreenCaptureSessionCoordinator {
     typealias SelectionHandler = @MainActor (NSScreen) async -> Void
@@ -159,33 +183,44 @@ final class FullscreenCaptureSessionCoordinator {
     }
 }
 
+extension FullscreenCaptureSessionCoordinator: FullscreenCaptureSessionHandling {}
+
 @MainActor
 final class WindowCaptureSessionCoordinator {
-    typealias PickerHandler = @MainActor (@escaping @MainActor () -> Void) async -> SCContentFilter?
+    enum SelectionResult {
+        case selected(@MainActor () async throws -> CGImage)
+        case cancelled
+        case failedToStart
+    }
+
+    typealias PickerHandler = @MainActor (@escaping @MainActor () -> Void) async -> SelectionResult
 
     private let session: CapturePerformanceRecorder.Session
     private let performanceRecorder: CapturePerformanceRecorder
-    private let captureManager: ScreenCaptureManager
+    private let hasWarmContent: Bool
+    private let prewarmContent: @MainActor () async -> Void
     private let pickWindow: PickerHandler
 
     init(
         session: CapturePerformanceRecorder.Session,
         performanceRecorder: CapturePerformanceRecorder,
-        captureManager: ScreenCaptureManager,
+        hasWarmContent: Bool,
+        prewarmContent: @escaping @MainActor () async -> Void,
         pickWindow: @escaping PickerHandler
     ) {
         self.session = session
         self.performanceRecorder = performanceRecorder
-        self.captureManager = captureManager
+        self.hasWarmContent = hasWarmContent
+        self.prewarmContent = prewarmContent
         self.pickWindow = pickWindow
     }
 
-    func pick() async -> SCContentFilter? {
+    func pick() async -> SelectionResult {
         NSApp.activate(ignoringOtherApps: true)
         performanceRecorder.mark(.appActivated, in: session)
 
-        let wasWarm = captureManager.hasWarmWindowShareableContent
-        await captureManager.prewarmWindowShareableContent()
+        let wasWarm = hasWarmContent
+        await prewarmContent()
         return await pickWindow { [performanceRecorder, session] in
             performanceRecorder.mark(
                 wasWarm ? .pickerVisibleWarm : .pickerVisibleCold,
@@ -194,3 +229,5 @@ final class WindowCaptureSessionCoordinator {
         }
     }
 }
+
+extension WindowCaptureSessionCoordinator: WindowCaptureSessionHandling {}

@@ -5,7 +5,126 @@ import os.log
 private let logger = Logger(subsystem: "com.caloura.app", category: "ScreenCapture")
 
 @MainActor
-final class ScreenCaptureManager {
+protocol ScreenCaptureManaging: AnyObject {
+    var hasWarmWindowShareableContent: Bool { get }
+    func prewarmWindowShareableContent() async
+    func captureFullScreen(screen: NSScreen?) async throws -> CGImage
+    func captureArea(rect: CGRect, screen: NSScreen?) async throws -> CGImage
+    func captureWindow(filter: SCContentFilter) async throws -> CGImage
+    func captureAreaInDisplaySpace(_ rect: CGRect) async throws -> CGImage
+}
+
+enum ScreenCapturePermissionAlertAction: Sendable {
+    case cancel
+    case openSystemSettings
+    case restartApp
+}
+
+struct ScreenCapturePermissionDependencies: Sendable {
+    let cgPreflight: @Sendable () -> Bool
+    let cgRequest: @Sendable () -> Bool
+    let sckAccessProbe: @Sendable () async throws -> (displayCount: Int, windowCount: Int)
+    let runRepairTool: @Sendable (URL, [String]) async throws -> Void
+    let presentAlert: @MainActor @Sendable (
+        ScreenCaptureManager.PermissionState
+    ) -> ScreenCapturePermissionAlertAction
+    let openURL: @MainActor @Sendable (URL) -> Void
+    let relaunchApplication: @MainActor @Sendable (URL) async throws -> Void
+    let terminateApplication: @MainActor @Sendable () -> Void
+
+    @MainActor
+    static let live = ScreenCapturePermissionDependencies(
+        cgPreflight: {
+            CGPreflightScreenCaptureAccess()
+        },
+        cgRequest: {
+            CGRequestScreenCaptureAccess()
+        },
+        sckAccessProbe: {
+            let content = try await SCShareableContent
+                .excludingDesktopWindows(true, onScreenWindowsOnly: true)
+            return (content.displays.count, content.windows.count)
+        },
+        runRepairTool: { executableURL, arguments in
+            try await ScreenCaptureManager.runRepairTool(
+                executableURL,
+                arguments: arguments
+            )
+        },
+        presentAlert: { state in
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            NSApp.activate()
+
+            switch state {
+            case .neverGranted:
+                alert.messageText = "Screen Recording Permission Required"
+                alert.informativeText =
+                    "Caloura needs screen recording access to capture "
+                    + "screenshots.\n\n"
+                    + "1. Click \"Open System Settings\" below\n"
+                    + "2. Find Caloura in the list and toggle it ON\n"
+                    + "3. You may need to quit and reopen Caloura "
+                    + "after granting access"
+                alert.addButton(withTitle: "Open System Settings")
+                alert.addButton(withTitle: "Cancel")
+                return alert.runModal() == .alertFirstButtonReturn
+                    ? .openSystemSettings
+                    : .cancel
+            case .grantedButFailing:
+                alert.messageText = "Screen Recording Permission Issue"
+                alert.informativeText =
+                    "Caloura has screen recording permission, but macOS "
+                    + "is not allowing captures. This can happen after an "
+                    + "app update or system change.\n\n"
+                    + "Restarting Caloura usually fixes this. If not, try "
+                    + "toggling the permission off and on in "
+                    + "System Settings."
+                alert.addButton(withTitle: "Restart Caloura")
+                alert.addButton(withTitle: "Open System Settings")
+                alert.addButton(withTitle: "Cancel")
+
+                let response = alert.runModal()
+                switch response {
+                case .alertFirstButtonReturn:
+                    return .restartApp
+                case .alertSecondButtonReturn:
+                    return .openSystemSettings
+                default:
+                    return .cancel
+                }
+            }
+        },
+        openURL: { url in
+            NSWorkspace.shared.open(url)
+        },
+        relaunchApplication: { bundleURL in
+            let config = NSWorkspace.OpenConfiguration()
+            config.createsNewApplicationInstance = true
+            try await withCheckedThrowingContinuation { (
+                continuation: CheckedContinuation<Void, Error>
+            ) in
+                NSWorkspace.shared.openApplication(
+                    at: bundleURL,
+                    configuration: config
+                ) { _, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                        return
+                    }
+
+                    continuation.resume()
+                }
+            }
+        },
+        terminateApplication: {
+            NSApp.terminate(nil)
+        }
+    )
+}
+
+@MainActor
+final class ScreenCaptureManager: ScreenCaptureManaging {
     static let shared = ScreenCaptureManager()
 
     /// Once SCK fails permanently (e.g. user denied permission), skip it on
@@ -27,6 +146,7 @@ final class ScreenCaptureManager {
 
     /// Observer token for app-became-active notification.
     private var didBecomeActiveObserver: (any NSObjectProtocol)?
+    let permissionDependencies: ScreenCapturePermissionDependencies
 
     /// Reset the SCK failure flag so that the next capture retries SCK.
     /// Called when permission is freshly granted or on app reactivation.
@@ -37,7 +157,8 @@ final class ScreenCaptureManager {
         logger.info("SCK failure flag reset")
     }
 
-    init() {
+    init(permissionDependencies: ScreenCapturePermissionDependencies? = nil) {
+        self.permissionDependencies = permissionDependencies ?? .live
         didBecomeActiveObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
@@ -195,6 +316,37 @@ final class ScreenCaptureManager {
         do {
             logger.info("Trying screencapture CLI for area")
             return try await screencaptureArea(rect: rect, screen: screen)
+        } catch {
+            if !checkPermission() {
+                throw CaptureError.noPermission
+            }
+            throw error
+        }
+    }
+
+    func captureAreaInDisplaySpace(
+        _ rect: CGRect
+    ) async throws -> CGImage {
+        guard rect.width > 0, rect.height > 0 else {
+            let desc = rect.debugDescription
+            logger.warning("Rejecting degenerate display-space rect: \(desc)")
+            throw CaptureError.captureFailed("Zero or negative size rect")
+        }
+
+        if !sckFailed {
+            do {
+                return try await sckCaptureAreaInDisplaySpace(rect: rect)
+            } catch {
+                logger.warning(
+                    "SCK captureAreaInDisplaySpace failed: \(error.localizedDescription)"
+                )
+                handleSCKFailure(error)
+            }
+        }
+
+        do {
+            logger.info("Trying screencapture CLI for display-space area")
+            return try await screencaptureAreaInDisplaySpace(rect: rect)
         } catch {
             if !checkPermission() {
                 throw CaptureError.noPermission

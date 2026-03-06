@@ -4,14 +4,14 @@ import XCTest
 @MainActor
 final class AppStateEdgeCaseTests: XCTestCase {
 
-    private var appState: AppState!
-    private var defaults: UserDefaults!
-    private var historyFileURL: URL!
-    private var tempRoot: URL!
-    private var defaultsSuite: String!
+    nonisolated(unsafe) private var appState: AppState!
+    nonisolated(unsafe) private var defaults: UserDefaults!
+    nonisolated(unsafe) private var historyFileURL: URL!
+    nonisolated(unsafe) private var tempRoot: URL!
+    nonisolated(unsafe) private var defaultsSuite: String!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         defaultsSuite = "com.caloura.tests.appstate.edge.\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: defaultsSuite)
         defaults.removePersistentDomain(forName: defaultsSuite)
@@ -30,15 +30,22 @@ final class AppStateEdgeCaseTests: XCTestCase {
         )
         HistoryCrypto.resetCachedKeyForTesting()
 
-        appState = AppState(
-            defaults: defaults,
-            historyStoreURL: historyFileURL
-        )
-        appState.clearHistory()
+        let defaults = defaults!
+        let historyFileURL = historyFileURL!
+        let state = await MainActor.run {
+            AppState(defaults: defaults, historyStoreURL: historyFileURL)
+        }
+        self.appState = state
+        await MainActor.run {
+            state.clearHistory()
+        }
     }
 
-    override func tearDown() {
-        appState.clearHistory()
+    override func tearDown() async throws {
+        let state = appState
+        await MainActor.run {
+            state?.clearHistory()
+        }
         appState = nil
         if let defaultsSuite {
             defaults.removePersistentDomain(forName: defaultsSuite)
@@ -52,7 +59,7 @@ final class AppStateEdgeCaseTests: XCTestCase {
         }
         tempRoot = nil
         historyFileURL = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - Rapid sequential adds

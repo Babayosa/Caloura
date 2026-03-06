@@ -9,7 +9,7 @@ private let helpersLogger = Logger(subsystem: "com.caloura.app", category: "Scro
 enum ScrollCaptureHelpers {
     static let bandCount = 8
 
-    struct BitmapData {
+    struct BitmapData: @unchecked Sendable {
         let pointer: UnsafePointer<UInt8>
         let data: CFData
         let bytesPerRow: Int
@@ -21,7 +21,7 @@ enum ScrollCaptureHelpers {
         }
     }
 
-    struct PreparedFrame {
+    struct PreparedFrame: @unchecked Sendable {
         let image: CGImage
         let bitmap: BitmapData
         let grayscale: [UInt8]
@@ -253,6 +253,17 @@ enum ScrollCaptureHelpers {
         }
 
         if bestError.isFinite {
+            let refinedChoice = refineDisplacement(
+                around: bestDisplacement,
+                within: candidateRange,
+                previous: previous,
+                current: current,
+                options: options
+            )
+            bestDisplacement = refinedChoice.displacement
+            bestError = refinedChoice.error
+            runnerUpError = refinedChoice.runnerUpError
+
             let runnerUp = runnerUpError.isFinite ? runnerUpError : bestError + 1
             let margin = runnerUp > 0 ? max(0, (runnerUp - bestError) / runnerUp) : 0
             let confidence = max(0, min(1, margin + max(0, 1 - bestError / 40)))
@@ -286,6 +297,127 @@ enum ScrollCaptureHelpers {
             meanError: bestError,
             method: .none
         )
+    }
+
+    private static func refineDisplacement(
+        around seedDisplacement: Int,
+        within candidateRange: ClosedRange<Int>,
+        previous: PreparedFrame,
+        current: PreparedFrame,
+        options: ScrollDisplacementOptions
+    ) -> (displacement: Int, error: Double, runnerUpError: Double) {
+        let lowerBound = max(candidateRange.lowerBound, seedDisplacement - 6)
+        let upperBound = min(candidateRange.upperBound, seedDisplacement + 6)
+
+        guard lowerBound <= upperBound else {
+            return (seedDisplacement, .infinity, .infinity)
+        }
+
+        var bestDisplacement = seedDisplacement
+        var bestError = Double.greatestFiniteMagnitude
+        var runnerUpError = Double.greatestFiniteMagnitude
+
+        for displacement in lowerBound...upperBound {
+            let error = refinedOverlapDifference(
+                previous: previous,
+                current: current,
+                displacement: displacement,
+                options: options
+            )
+
+            guard error.isFinite else { continue }
+            if error < bestError {
+                runnerUpError = bestError
+                bestError = error
+                bestDisplacement = displacement
+            } else if error < runnerUpError {
+                runnerUpError = error
+            }
+        }
+
+        return (bestDisplacement, bestError, runnerUpError)
+    }
+
+    private static func refinedOverlapDifference(
+        previous: PreparedFrame,
+        current: PreparedFrame,
+        displacement: Int,
+        options: ScrollDisplacementOptions
+    ) -> Double {
+        let width = previous.width
+        let sampleStride = max(1, width / 96)
+        let usableStart = max(0, options.stickyHeaderHeight)
+        let usableEnd = previous.height - max(0, options.bottomExclusion)
+        let overlapHeight = usableEnd - usableStart - abs(displacement)
+
+        guard overlapHeight >= 8 else {
+            return .infinity
+        }
+
+        let previousBaseRow: Int
+        let currentBaseRow: Int
+        if displacement >= 0 {
+            previousBaseRow = usableStart + displacement
+            currentBaseRow = usableStart
+        } else {
+            previousBaseRow = usableStart
+            currentBaseRow = usableStart - displacement
+        }
+
+        var totalDifference = 0
+        var samples = 0
+        for rowOffset in 0..<overlapHeight {
+            let previousRow = previousBaseRow + rowOffset
+            let currentRow = currentBaseRow + rowOffset
+            guard previousRow >= 0,
+                  currentRow >= 0,
+                  previousRow < previous.height,
+                  currentRow < current.height else {
+                continue
+            }
+
+            let bandIndex = bandIndexForRow(
+                currentRow,
+                height: current.height,
+                topExclusion: options.stickyHeaderHeight,
+                bottomExclusion: options.bottomExclusion
+            )
+            if let bandIndex, options.unstableBands.contains(bandIndex) {
+                continue
+            }
+
+            let previousOffset = previousRow * width
+            let currentOffset = currentRow * width
+            for column in stride(from: 0, to: width, by: sampleStride) {
+                totalDifference += abs(
+                    Int(previous.grayscale[previousOffset + column]) -
+                    Int(current.grayscale[currentOffset + column])
+                )
+                samples += 1
+            }
+        }
+
+        return samples > 0 ? Double(totalDifference) / Double(samples) : .infinity
+    }
+
+    private static func bandIndexForRow(
+        _ row: Int,
+        height: Int,
+        topExclusion: Int,
+        bottomExclusion: Int
+    ) -> Int? {
+        let usableStart = max(0, topExclusion)
+        let usableEnd = height - max(0, bottomExclusion)
+        guard row >= usableStart, row < usableEnd else {
+            return nil
+        }
+
+        let usableHeight = usableEnd - usableStart
+        guard usableHeight > 0 else {
+            return nil
+        }
+
+        return min(bandCount - 1, max(0, (row - usableStart) * bandCount / usableHeight))
     }
 
     private static func meanBandDifference(

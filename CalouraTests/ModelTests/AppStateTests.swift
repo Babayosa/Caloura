@@ -4,14 +4,14 @@ import XCTest
 @MainActor
 final class AppStateTests: XCTestCase {
 
-    private var appState: AppState!
-    private var defaults: UserDefaults!
-    private var historyFileURL: URL!
-    private var tempRoot: URL!
-    private var defaultsSuite: String!
+    nonisolated(unsafe) private var appState: AppState!
+    nonisolated(unsafe) private var defaults: UserDefaults!
+    nonisolated(unsafe) private var historyFileURL: URL!
+    nonisolated(unsafe) private var tempRoot: URL!
+    nonisolated(unsafe) private var defaultsSuite: String!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         defaultsSuite = "com.caloura.tests.appstate.core.\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: defaultsSuite)
         defaults.removePersistentDomain(forName: defaultsSuite)
@@ -23,12 +23,22 @@ final class AppStateTests: XCTestCase {
         HistoryCrypto.setSecurityDirectoryForTesting(tempRoot.appendingPathComponent("security"))
         HistoryCrypto.resetCachedKeyForTesting()
 
-        appState = AppState(defaults: defaults, historyStoreURL: historyFileURL)
-        appState.clearHistory()
+        let defaults = defaults!
+        let historyFileURL = historyFileURL!
+        let state = await MainActor.run {
+            AppState(defaults: defaults, historyStoreURL: historyFileURL)
+        }
+        self.appState = state
+        await MainActor.run {
+            state.clearHistory()
+        }
     }
 
-    override func tearDown() {
-        appState.clearHistory()
+    override func tearDown() async throws {
+        let state = appState
+        await MainActor.run {
+            state?.clearHistory()
+        }
         appState = nil
         if let defaultsSuite {
             defaults.removePersistentDomain(forName: defaultsSuite)
@@ -42,7 +52,7 @@ final class AppStateTests: XCTestCase {
         }
         tempRoot = nil
         historyFileURL = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - addScreenshot
@@ -78,6 +88,43 @@ final class AppStateTests: XCTestCase {
         appState.clearHistory()
 
         XCTAssertTrue(appState.recentScreenshots.isEmpty)
+    }
+
+    func testPreviewPhase_isTrackedPerScreenshot() {
+        let first = AppStateTestHelpers.makeItem(fileName: "first.png")
+        let second = AppStateTestHelpers.makeItem(fileName: "second.png")
+        appState.addScreenshot(first)
+        appState.addScreenshot(second)
+
+        appState.setCapturePreviewPhase(.enrichmentPending, for: first.id)
+        appState.setCapturePreviewPhase(.enrichmentComplete, for: second.id)
+
+        XCTAssertEqual(appState.previewPhase(for: first.id), .enrichmentPending)
+        XCTAssertEqual(appState.previewPhase(for: second.id), .enrichmentComplete)
+    }
+
+    func testPIIResult_isTrackedPerScreenshot() {
+        let first = AppStateTestHelpers.makeItem(fileName: "first.png")
+        let second = AppStateTestHelpers.makeItem(fileName: "second.png")
+        appState.addScreenshot(first)
+        appState.addScreenshot(second)
+
+        let firstResult = PIIDetectionResult(
+            detections: [PIIDetection(type: .email, text: "one@example.com", boundingBox: .zero, confidence: 1)],
+            screenshotID: first.id
+        )
+        let secondResult = PIIDetectionResult(
+            detections: [PIIDetection(type: .email, text: "two@example.com", boundingBox: .zero, confidence: 1)],
+            screenshotID: second.id
+        )
+
+        appState.setPIIResult(firstResult)
+        appState.setPIIResult(secondResult)
+
+        XCTAssertEqual(appState.piiResult(for: first.id)?.screenshotID, first.id)
+        XCTAssertEqual(appState.piiResult(for: first.id)?.detections.first?.text, "one@example.com")
+        XCTAssertEqual(appState.piiResult(for: second.id)?.screenshotID, second.id)
+        XCTAssertEqual(appState.piiResult(for: second.id)?.detections.first?.text, "two@example.com")
     }
 
     // MARK: - JSON persistence round-trip
