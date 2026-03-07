@@ -95,22 +95,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Check passive screen recording status (non-interactive) and handle onboarding.
         let permissionCheckStart = CFAbsoluteTimeGetCurrent()
-        Task { @MainActor [onboardingController] in
+        Task { @MainActor [onboardingController, nagController] in
             let passiveStatus = await PermissionCoordinator.shared.refreshPassiveStatus()
             AppState.shared.hasScreenRecordingPermission = passiveStatus != .denied
             if passiveStatus != .denied {
                 await ScreenCaptureManager.shared.prewarmWindowShareableContent()
             }
 
+            var showedOnboarding = false
             if !AppSettings.shared.hasCompletedOnboarding {
                 onboardingController.showIfNeeded(settings: AppSettings.shared)
+                showedOnboarding = true
             } else if passiveStatus == .denied {
                 onboardingController.show(settings: AppSettings.shared)
+                showedOnboarding = true
             } else if passiveStatus != .grantedWorking {
                 let status = await PermissionCoordinator.shared.runUserInitiatedValidation()
                 if status != .grantedWorking {
                     onboardingController.show(settings: AppSettings.shared)
+                    showedOnboarding = true
                 }
+            }
+
+            // Show nag once per launch if trial expired and unlicensed,
+            // but not if we're already showing onboarding/permission repair.
+            if !showedOnboarding && AppSettings.shared.hasCompletedOnboarding {
+                nagController.showIfNeeded()
             }
 
             let permissionDuration = (CFAbsoluteTimeGetCurrent() - permissionCheckStart) * 1000
@@ -119,11 +129,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 "Passive permission diagnostics completed in \(permissionDuration, privacy: .public) ms"
             )
             appLaunchLogger.info("Launch flow ready in \(totalLaunchDuration, privacy: .public) ms")
-        }
-
-        // Show nag once per launch if trial expired and unlicensed
-        if AppSettings.shared.hasCompletedOnboarding {
-            nagController.showIfNeeded()
         }
     }
 
