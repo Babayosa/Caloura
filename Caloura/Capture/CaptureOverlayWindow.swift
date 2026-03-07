@@ -24,6 +24,15 @@ final class CaptureOverlayWindow: NSWindow {
         }
     }
 
+    var isDimmingSuppressed: Bool {
+        get { selectionView?.isDimmingSuppressed ?? false }
+        set { selectionView?.isDimmingSuppressed = newValue }
+    }
+
+    func revealFrozenImage(_ image: CGImage) {
+        selectionView?.revealFrozenImage(image)
+    }
+
     convenience init(
         for screen: NSScreen,
         cursorController: CaptureCursorControlling?
@@ -85,6 +94,7 @@ final class CaptureOverlayWindow: NSWindow {
     static func showOnAllScreens(
         cursorController: CaptureCursorControlling? = nil,
         frozenImages: [NSScreen: CGImage]? = nil,
+        suppressDimming: Bool = false,
         onRegionSelected: @escaping (CGRect, NSScreen) -> Void,
         onCancelled: @escaping () -> Void,
         onFirstMouseDown: (() -> Void)? = nil
@@ -100,6 +110,10 @@ final class CaptureOverlayWindow: NSWindow {
             // Set frozen image for this screen if provided
             if let frozenImages = frozenImages, let image = frozenImages[screen] {
                 overlay.frozenImage = image
+            }
+
+            if suppressDimming {
+                overlay.isDimmingSuppressed = true
             }
 
             let closeAll = {

@@ -139,24 +139,27 @@ extension CapturePipeline {
         areaCaptureSession?.dismiss()
         areaCaptureSession = coordinator
         firstMouseDownLogged = false
-        coordinator.present()
+
+        // Phase 1: Show overlay synchronously. When freeze is enabled, suppress
+        // dimming so the overlay is transparent until the frozen images arrive.
+        coordinator.present(suppressDimming: freezeScreensEnabled)
         overlayWindows = coordinator.overlayWindows
 
-        let overlayVisibleDuration = self.elapsedMilliseconds(since: entryStart)
+        let overlayVisibleDuration = elapsedMilliseconds(since: entryStart)
         entryLogger.info(
             "Capture entry: overlay visible at \(overlayVisibleDuration, privacy: .public) ms"
         )
-        self.recordMetric(
+        recordMetric(
             stage: .overlayVisible,
             milliseconds: overlayVisibleDuration
         )
 
-        guard freezeScreensEnabled else { return }
+        // Phase 2: Capture frozen images asynchronously and reveal dimming.
+        if freezeScreensEnabled {
+            Task { [weak self, weak coordinator] in
+                guard let self = self else { return }
+                let frozenImages = await self.freezeScreens(entryStart: entryStart)
 
-        Task { [weak self, weak coordinator] in
-            guard let self = self else { return }
-            let frozenImages = await self.freezeScreens(entryStart: entryStart)
-            await MainActor.run {
                 guard self.captureSessionID == sessionID,
                       self.isSameObject(
                         self.areaCaptureSession as AnyObject?,
@@ -164,6 +167,7 @@ extension CapturePipeline {
                       ) else {
                     return
                 }
+
                 coordinator?.updateFrozenImages(frozenImages)
             }
         }
@@ -173,6 +177,7 @@ extension CapturePipeline {
         guard !appState.isCapturing else { return }
         appState.isCapturing = true
         let performanceSession = capturePerformanceRecorder.beginSession(mode: .fullscreen)
+        NSApp.activate(ignoringOtherApps: true)
 
         if screenCountProvider() > 1 {
             let coordinator = makeFullscreenCaptureSession(
@@ -213,6 +218,7 @@ extension CapturePipeline {
         guard !appState.isCapturing else { return }
         appState.isCapturing = true
         let performanceSession = capturePerformanceRecorder.beginSession(mode: .window)
+        NSApp.activate(ignoringOtherApps: true)
 
         Task {
             let coordinator = makeWindowCaptureSession(

@@ -20,32 +20,21 @@ extension CapturePipeline {
         return frozenImages
     }
 
-    /// Capture screens for freeze mode. For multi-monitor, we freeze only the
-    /// active screen to reduce latency; other screens fall back to live capture.
+    /// Capture all connected screens so every overlay has a clean frozen image
+    /// and the selection path never falls back to a live SCK capture.
+    /// Launches captures in parallel for lower total latency on multi-monitor setups.
     func captureAllScreens() async -> [NSScreen: CGImage] {
         let screens = NSScreen.screens
-
-        if screens.count == 1, let screen = screens.first {
-            if let image = try? await captureManager.captureFullScreen(screen: screen) {
-                return [screen: image]
+        let tasks = screens.map { screen in
+            (screen, Task { try? await captureManager.captureFullScreen(screen: screen) })
+        }
+        var result: [NSScreen: CGImage] = [:]
+        for (screen, task) in tasks {
+            if let image = await task.value {
+                result[screen] = image
             }
-            return [:]
         }
-
-        guard let activeScreen = screenForMouseLocation(in: screens)
-                ?? NSScreen.main ?? screens.first else {
-            return [:]
-        }
-        if let image = try? await captureManager.captureFullScreen(screen: activeScreen) {
-            return [activeScreen: image]
-        }
-        return [:]
+        return result
     }
 
-    func screenForMouseLocation(in screens: [NSScreen]) -> NSScreen? {
-        let mouseLocation = NSEvent.mouseLocation
-        return screens.first { screen in
-            NSMouseInRect(mouseLocation, screen.frame, false)
-        }
-    }
 }

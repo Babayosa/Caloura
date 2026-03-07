@@ -11,8 +11,8 @@ final class FakeAreaCaptureSession: AreaCaptureSessionHandling {
 
     private(set) var presentCalls = 0
     private(set) var dismissCalls = 0
+    private(set) var lastSuppressDimming = false
     private(set) var updateFrozenImagesCalls = 0
-    private(set) var lastFrozenImages: [NSScreen: CGImage] = [:]
 
     init(
         onSelection: @escaping AreaCaptureSessionCoordinator.SelectionHandler,
@@ -24,13 +24,13 @@ final class FakeAreaCaptureSession: AreaCaptureSessionHandling {
         self.onFirstInteraction = onFirstInteraction
     }
 
-    func present() {
+    func present(suppressDimming: Bool) {
         presentCalls += 1
+        lastSuppressDimming = suppressDimming
     }
 
     func updateFrozenImages(_ images: [NSScreen: CGImage]) {
         updateFrozenImagesCalls += 1
-        lastFrozenImages = images
     }
 
     func dismiss() {

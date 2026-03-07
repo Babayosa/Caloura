@@ -17,6 +17,12 @@ final class RegionSelectionView: NSView {
         }
     }
 
+    /// When true, dimming and hint are hidden (used during two-phase overlay
+    /// reveal while frozen images are still loading).
+    var isDimmingSuppressed = false {
+        didSet { applyDimmingSuppression() }
+    }
+
     private var selectionStart: NSPoint?
     private var selectionEnd: NSPoint?
     private var isSelecting = false
@@ -73,6 +79,15 @@ final class RegionSelectionView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    func revealFrozenImage(_ image: CGImage) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        frozenImage = image
+        isDimmingSuppressed = false
+        updateLayerVisibility()
+        CATransaction.commit()
+    }
+
     // MARK: - Layer Setup
 
     private func setupBackgroundLayer(in root: CALayer) {
@@ -82,7 +97,7 @@ final class RegionSelectionView: NSView {
     }
 
     private func setupDimmingLayer(in root: CALayer) {
-        dimmingLayer.fillColor = NSColor.black.withAlphaComponent(0.4).cgColor
+        dimmingLayer.fillColor = NSColor.clear.cgColor
         dimmingLayer.fillRule = .evenOdd
         dimmingLayer.frame = bounds
         root.addSublayer(dimmingLayer)
@@ -187,6 +202,14 @@ final class RegionSelectionView: NSView {
 
     // MARK: - Layer Updates
 
+    private func applyDimmingSuppression() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        dimmingLayer.opacity = isDimmingSuppressed ? 0 : 1
+        hintContainer.opacity = isDimmingSuppressed ? 0 : 1
+        CATransaction.commit()
+    }
+
     private func updateLayerVisibility() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -217,9 +240,7 @@ final class RegionSelectionView: NSView {
             // Hide hint
             hintContainer.isHidden = true
         } else {
-            dimmingLayer.fillColor = NSColor.black.withAlphaComponent(
-                frozenImage == nil ? 0.16 : 0.28
-            ).cgColor
+            dimmingLayer.fillColor = NSColor.clear.cgColor
             dimmingLayer.path = CGPath(rect: bounds, transform: nil)
             borderLayer.path = nil
             borderLayer.isHidden = true

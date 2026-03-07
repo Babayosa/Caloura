@@ -3,7 +3,7 @@ import XCTest
 
 @MainActor
 extension CapturePipelineTests {
-    func testCaptureArea_entrypointPresentsInjectedCoordinatorImmediately() {
+    func testCaptureArea_entrypointPresentsInjectedCoordinator() {
         var areaSession: FakeAreaCaptureSession?
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function,
@@ -22,6 +22,7 @@ extension CapturePipelineTests {
         pipeline.captureArea()
 
         XCTAssertEqual(areaSession?.presentCalls, 1)
+        XCTAssertFalse(areaSession?.lastSuppressDimming ?? true)
         XCTAssertTrue(pipeline.appState.isCapturing)
     }
 
@@ -42,6 +43,9 @@ extension CapturePipelineTests {
         )
 
         pipeline.captureArea()
+
+        XCTAssertEqual(areaSession?.presentCalls, 1)
+
         areaSession?.triggerCancel()
 
         XCTAssertFalse(pipeline.appState.isCapturing)
@@ -68,6 +72,7 @@ extension CapturePipelineTests {
         let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
 
         pipeline.captureArea()
+        XCTAssertEqual(areaSession?.presentCalls, 1)
         await areaSession?.triggerSelection(
             rect: CGRect(x: 10, y: 12, width: 80, height: 60),
             screen: screen,
@@ -105,6 +110,7 @@ extension CapturePipelineTests {
         )
 
         pipeline.captureArea()
+        XCTAssertEqual(areaSession?.presentCalls, 1)
         await areaSession?.triggerSelection(
             rect: CGRect(x: 20, y: 24, width: 80, height: 60),
             screen: screen,
@@ -119,7 +125,7 @@ extension CapturePipelineTests {
         XCTAssertEqual(pipeline.appState.lastScreenshot?.cgImage.height, 60 * scale)
     }
 
-    func testCaptureArea_freezeEnabledUpdatesFrozenImagesAsynchronously() async {
+    func testCaptureArea_freezeEnabledPresentsWithSuppressedDimmingThenUpdates() async {
         let captureManager = FakeScreenCaptureManager()
         var areaSession: FakeAreaCaptureSession?
         let pipeline = CapturePipelineTestHelpers.makePipeline(
@@ -139,6 +145,11 @@ extension CapturePipelineTests {
 
         pipeline.captureArea()
 
+        // Phase 1: present is synchronous with dimming suppressed
+        XCTAssertEqual(areaSession?.presentCalls, 1)
+        XCTAssertTrue(areaSession?.lastSuppressDimming ?? false)
+
+        // Phase 2: frozen images arrive asynchronously
         await pollUntil(timeout: 2.0) {
             areaSession?.updateFrozenImagesCalls == 1
         }

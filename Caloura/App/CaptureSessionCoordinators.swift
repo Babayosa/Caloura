@@ -5,7 +5,7 @@ import ScreenCaptureKit
 protocol AreaCaptureSessionHandling: AnyObject {
     var overlayWindows: [CaptureOverlayWindow] { get }
 
-    func present()
+    func present(suppressDimming: Bool)
     func updateFrozenImages(_ images: [NSScreen: CGImage])
     func dismiss()
 }
@@ -56,12 +56,13 @@ final class AreaCaptureSessionCoordinator {
         self.onFirstInteraction = onFirstInteraction
     }
 
-    func present() {
+    func present(suppressDimming: Bool = false) {
         NSApp.activate(ignoringOtherApps: true)
         performanceRecorder.mark(.appActivated, in: session)
 
         overlayWindows = CaptureOverlayWindow.showOnAllScreens(
             cursorController: cursorController,
+            suppressDimming: suppressDimming,
             onRegionSelected: { [weak self] rect, screen in
                 guard let self = self else { return }
                 self.cursorController.endCrosshairSession()
@@ -92,13 +93,13 @@ final class AreaCaptureSessionCoordinator {
     }
 
     func updateFrozenImages(_ images: [NSScreen: CGImage]) {
-        frozenImages = images
-        for overlay in overlayWindows {
-            guard let screen = overlay.screen,
-                  let image = images[screen] else {
-                continue
+        self.frozenImages = images
+        for window in overlayWindows {
+            if let screen = window.screen, let image = images[screen] {
+                window.revealFrozenImage(image)
+            } else {
+                window.isDimmingSuppressed = false
             }
-            overlay.frozenImage = image
         }
     }
 
