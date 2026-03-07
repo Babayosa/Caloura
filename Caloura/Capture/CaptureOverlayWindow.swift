@@ -1,7 +1,7 @@
 import AppKit
 
 @MainActor
-final class CaptureOverlayWindow: NSWindow {
+final class CaptureOverlayWindow: NSPanel {
     var onRegionSelected: ((CGRect, NSScreen) -> Void)?
     var onCancelled: (() -> Void)?
     var onFirstMouseDown: (() -> Void)?
@@ -31,7 +31,7 @@ final class CaptureOverlayWindow: NSWindow {
     ) {
         self.init(
             contentRect: screen.frame,
-            styleMask: .borderless,
+            styleMask: .nonactivatingPanel,
             backing: .buffered,
             defer: false
         )
@@ -43,6 +43,7 @@ final class CaptureOverlayWindow: NSWindow {
         self.hasShadow = false
         self.ignoresMouseEvents = false
         self.acceptsMouseMovedEvents = true
+        self.hidesOnDeactivate = false
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let selectionView = RegionSelectionView(
@@ -67,7 +68,7 @@ final class CaptureOverlayWindow: NSWindow {
     }
 
     override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
+    override var canBecomeMain: Bool { false }
 
     override func close() {
         tearDownHandlers()

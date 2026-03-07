@@ -177,7 +177,6 @@ extension CapturePipeline {
         guard !appState.isCapturing else { return }
         appState.isCapturing = true
         let performanceSession = capturePerformanceRecorder.beginSession(mode: .fullscreen)
-        NSApp.activate(ignoringOtherApps: true)
 
         if screenCountProvider() > 1 {
             let coordinator = makeFullscreenCaptureSession(

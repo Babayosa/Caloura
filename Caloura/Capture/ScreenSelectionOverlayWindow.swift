@@ -1,6 +1,6 @@
 import AppKit
 
-final class ScreenSelectionOverlayWindow: NSWindow {
+final class ScreenSelectionOverlayWindow: NSPanel {
     var onScreenSelected: ((NSScreen) -> Void)?
     var onCancelled: (() -> Void)?
 
@@ -10,7 +10,7 @@ final class ScreenSelectionOverlayWindow: NSWindow {
     ) {
         self.init(
             contentRect: screen.frame,
-            styleMask: .borderless,
+            styleMask: .nonactivatingPanel,
             backing: .buffered,
             defer: false
         )
@@ -22,6 +22,7 @@ final class ScreenSelectionOverlayWindow: NSWindow {
         self.hasShadow = false
         self.ignoresMouseEvents = false
         self.acceptsMouseMovedEvents = true
+        self.hidesOnDeactivate = false
         self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let selectionView = ScreenSelectionView(
@@ -39,7 +40,7 @@ final class ScreenSelectionOverlayWindow: NSWindow {
     }
 
     override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
+    override var canBecomeMain: Bool { false }
 
     @MainActor
     static func showOnAllScreens(

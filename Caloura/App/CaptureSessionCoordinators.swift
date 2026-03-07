@@ -57,9 +57,6 @@ final class AreaCaptureSessionCoordinator {
     }
 
     func present(suppressDimming: Bool = false) {
-        NSApp.activate(ignoringOtherApps: true)
-        performanceRecorder.mark(.appActivated, in: session)
-
         overlayWindows = CaptureOverlayWindow.showOnAllScreens(
             cursorController: cursorController,
             suppressDimming: suppressDimming,
@@ -145,9 +142,6 @@ final class FullscreenCaptureSessionCoordinator {
     }
 
     func present() {
-        NSApp.activate(ignoringOtherApps: true)
-        performanceRecorder.mark(.appActivated, in: session)
-
         overlayWindows = ScreenSelectionOverlayWindow.showOnAllScreens(
             cursorController: cursorController,
             onScreenSelected: { [weak self] screen in
