@@ -1,5 +1,4 @@
 import AppKit
-import CoreGraphics
 
 final class ScreenSelectionOverlayWindow: NSWindow {
     var onScreenSelected: ((NSScreen) -> Void)?
@@ -17,13 +16,13 @@ final class ScreenSelectionOverlayWindow: NSWindow {
         )
 
         self.isReleasedWhenClosed = false
-        self.level = CaptureOverlayWindow.overlayLevel
+        self.level = .screenSaver
         self.isOpaque = false
         self.backgroundColor = NSColor.black.withAlphaComponent(0.01)
         self.hasShadow = false
         self.ignoresMouseEvents = false
         self.acceptsMouseMovedEvents = true
-        self.collectionBehavior = [.canJoinAllSpaces, .transient]
+        self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let selectionView = ScreenSelectionView(
             frame: NSRect(origin: .zero, size: screen.frame.size),
