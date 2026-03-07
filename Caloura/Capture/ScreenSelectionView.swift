@@ -30,6 +30,7 @@ final class ScreenSelectionView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

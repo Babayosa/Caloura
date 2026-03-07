@@ -1,7 +1,15 @@
 import AppKit
+import CoreGraphics
 
 @MainActor
 final class CaptureOverlayWindow: NSWindow {
+    /// Window level high enough to sit above all normal windows, the menu bar,
+    /// and the Dock, without the aggressive screen-takeover semantics of
+    /// `.screenSaver` which can cause macOS to hide other apps' windows on
+    /// external monitors.
+    static let overlayLevel = NSWindow.Level(
+        rawValue: Int(CGWindowLevelForKey(.overlayWindow))
+    )
     var onRegionSelected: ((CGRect, NSScreen) -> Void)?
     var onCancelled: (() -> Void)?
     var onFirstMouseDown: (() -> Void)?
@@ -28,13 +36,13 @@ final class CaptureOverlayWindow: NSWindow {
         )
 
         self.isReleasedWhenClosed = false
-        self.level = .screenSaver
+        self.level = Self.overlayLevel
         self.isOpaque = false
         self.backgroundColor = NSColor.clear
         self.hasShadow = false
         self.ignoresMouseEvents = false
         self.acceptsMouseMovedEvents = true
-        self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        self.collectionBehavior = [.canJoinAllSpaces, .transient]
 
         let selectionView = RegionSelectionView(
             frame: NSRect(origin: .zero, size: screen.frame.size)
