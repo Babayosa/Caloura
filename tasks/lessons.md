@@ -119,3 +119,8 @@
 
 ### Documentation drift
 - **Rule**: Archive stale planning material to `tasks/archive/`. Keep only current behavior in live docs. Update docs same-day when flows change.
+
+### Never skip research steps before implementation
+- **Rule**: When a plan has a research/validation step before coding (e.g., Codex calls, deep research), complete it first. Even a detailed plan can have wrong assumptions that research would catch.
+- **Mistake**: Skipped Codex research calls in the permission fix plan and went straight to implementation. Research later revealed 4 additional gaps (replayd approval cache not cleared on TCC reset, SCK retry window too short, missing sckStateResetter in capture failure handler, blank image detection).
+- **Key insight**: Research validates assumptions. The 0-10 second TCC propagation finding changed the retry window from 1.6s to ~7s. The Sequoia replayd `ScreenCaptureApprovals.plist` finding revealed the nuclear reset button was broken.

@@ -11,9 +11,7 @@ private struct SecRequirementHandle {
         guard CFGetTypeID(requirementRef) == SecRequirementGetTypeID() else {
             return nil
         }
-        // The CoreFoundation type ID guard establishes the concrete Security type here.
-        // swiftlint:disable:next force_cast
-        self.requirement = requirementRef as! SecRequirement
+        self.requirement = unsafeBitCast(requirementRef, to: SecRequirement.self)
     }
 
     func stringValue() -> String? {
@@ -177,6 +175,7 @@ final class PermissionCoordinator: ObservableObject {
     typealias RepairCheck = () async -> ScreenCaptureAccessProbeResult
     typealias TCCReset = () async -> Void
     typealias Relauncher = () -> Void
+    typealias SCKStateResetter = () -> Void
 
     @Published private(set) var permissionUIModel = PermissionUIModel()
 
@@ -192,6 +191,7 @@ final class PermissionCoordinator: ObservableObject {
     private let repairSCKAccess: RepairCheck
     private let resetTCCEntry: TCCReset
     private let relaunchApp: Relauncher
+    private let sckStateResetter: SCKStateResetter
     private let logger = Logger(subsystem: "com.caloura.app", category: "Permission")
 
     private var isShowingAlert = false
@@ -201,6 +201,7 @@ final class PermissionCoordinator: ObservableObject {
 
     private enum Keys {
         static let lastWorkingIdentityFingerprint = "permissionLastWorkingIdentityFingerprint"
+        static let lastWorkingExecutablePath = "permissionLastWorkingExecutablePath"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -216,6 +217,7 @@ final class PermissionCoordinator: ObservableObject {
         self.repairSCKAccess = { await ScreenCaptureManager.shared.repairSCKAccess() }
         self.resetTCCEntry = { await ScreenCaptureManager.shared.resetTCCEntry() }
         self.relaunchApp = { ScreenCaptureManager.shared.relaunchApp() }
+        self.sckStateResetter = { ScreenCaptureManager.shared.resetSCKState() }
     }
 
     init(
@@ -230,7 +232,8 @@ final class PermissionCoordinator: ObservableObject {
         now: @escaping NowProvider,
         repairSCKAccess: @escaping RepairCheck = { .transientFailure },
         resetTCCEntry: @escaping TCCReset = { },
-        relaunchApp: @escaping Relauncher = { }
+        relaunchApp: @escaping Relauncher = { },
+        sckStateResetter: @escaping SCKStateResetter = { }
     ) {
         self.defaults = defaults
         self.passiveCheck = passiveCheck
@@ -244,6 +247,7 @@ final class PermissionCoordinator: ObservableObject {
         self.repairSCKAccess = repairSCKAccess
         self.resetTCCEntry = resetTCCEntry
         self.relaunchApp = relaunchApp
+        self.sckStateResetter = sckStateResetter
     }
 
     /// Perform a non-interactive permission check and update the published UI model.
@@ -256,6 +260,14 @@ final class PermissionCoordinator: ObservableObject {
         let passiveMsg = "passive_check cg_granted=\(cgGranted)"
             + " path=\(execPath) signing=\(signingType)"
         logger.info("\(passiveMsg, privacy: .public)")
+
+        #if DEBUG
+        if !cgGranted, identity.bundleIdentifier.contains(".debug") {
+            let warnMsg = "Debug bundle ID '\(identity.bundleIdentifier)'"
+                + " — System Settings toggle is for the release bundle ID"
+            logger.warning("\(warnMsg, privacy: .public)")
+        }
+        #endif
 
         let status: ScreenRecordingState
         if !cgGranted {
@@ -304,6 +316,7 @@ final class PermissionCoordinator: ObservableObject {
     /// Automatically attempts replayd repair if SCK fails but CG is granted.
     @discardableResult
     func runUserInitiatedValidation() async -> ScreenRecordingState {
+        sckStateResetter()
         let identity = await identityProvider()
         let cgGranted = passiveCheck()
         logger.info("interactive_check_start cg_granted=\(cgGranted, privacy: .public)")
@@ -354,8 +367,11 @@ final class PermissionCoordinator: ObservableObject {
     @discardableResult
     func revalidateAfterSettingsReturn(
         timeoutSeconds: TimeInterval = 4,
-        pollIntervalNanoseconds: UInt64 = 350_000_000
+        pollIntervalNanoseconds: UInt64 = 350_000_000,
+        sckRetryDelayNanoseconds: UInt64 = 1_000_000_000,
+        maxSCKRetries: Int = 5
     ) async -> ScreenRecordingState {
+        sckStateResetter()
         let deadline = now().addingTimeInterval(timeoutSeconds)
 
         while now() < deadline {
@@ -364,7 +380,19 @@ final class PermissionCoordinator: ObservableObject {
             case .denied:
                 try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
             case .grantedNeedsValidation, .working:
-                return await runUserInitiatedValidation()
+                for attempt in 1...maxSCKRetries {
+                    let result = await runUserInitiatedValidation()
+                    if result == .working {
+                        return .working
+                    }
+                    if result == .denied {
+                        return .denied
+                    }
+                    if attempt < maxSCKRetries {
+                        try? await Task.sleep(nanoseconds: sckRetryDelayNanoseconds)
+                    }
+                }
+                return permissionUIModel.status
             case .needsRelaunch, .staleRecord, .repairing:
                 return passiveStatus
             }
@@ -376,6 +404,7 @@ final class PermissionCoordinator: ObservableObject {
     /// Handle a capture failure due to missing permission, showing an alert if not rate-limited.
     /// Silently attempts replayd repair first when CG is granted.
     func handleCapturePermissionFailure() async {
+        sckStateResetter()
         let identity = await identityProvider()
         var status = await refreshPassiveStatus()
 
@@ -424,9 +453,11 @@ final class PermissionCoordinator: ObservableObject {
         updateCooldownInModel(cooldownActive: true)
     }
 
-    /// Reset the TCC entry and relaunch so the system re-prompts for permission.
+    /// Reset the TCC entry, restart replayd to clear its approval cache,
+    /// then relaunch so the system re-prompts for permission.
     func performTCCResetAndRelaunch() async {
         await resetTCCEntry()
+        _ = await repairSCKAccess()
         relaunchApp()
     }
 
@@ -486,10 +517,18 @@ final class PermissionCoordinator: ObservableObject {
 
     private func recordWorkingIdentity(_ identity: PermissionIdentity) {
         defaults.set(identity.fingerprint, forKey: Keys.lastWorkingIdentityFingerprint)
+        defaults.set(identity.executablePath, forKey: Keys.lastWorkingExecutablePath)
     }
 
     private func explicitFailureStatus(for identity: PermissionIdentity) -> ScreenRecordingState {
-        hasKnownWorkingMismatch(for: identity) ? .staleRecord : .needsRelaunch
+        guard hasKnownWorkingMismatch(for: identity) else {
+            return .needsRelaunch
+        }
+        let lastPath = defaults.string(forKey: Keys.lastWorkingExecutablePath)
+        if lastPath == identity.executablePath {
+            return .needsRelaunch
+        }
+        return .staleRecord
     }
 
     private func updateUIModel(status: ScreenRecordingState, identity: PermissionIdentity) {
@@ -513,9 +552,11 @@ final class PermissionCoordinator: ObservableObject {
         case .staleRecord:
             return "Current app: \(identity.executablePath)\n\n"
                 + "macOS appears to trust a different Caloura copy. "
-                + "Open /Applications/Caloura.app, then re-grant Screen Recording for that copy if needed."
+                + "In System Settings > Privacy > Screen Recording, remove the old Caloura entry, "
+                + "then re-add /Applications/Caloura.app."
         case .needsRelaunch:
-            return "Screen Recording is granted, but macOS needs a Caloura relaunch to fully apply it."
+            return "Screen Recording is granted, but macOS needs a Caloura relaunch to fully apply it. "
+                + "If restarting doesn't help, try logging out and back in."
         case .denied:
             return "Caloura needs Screen Recording access to capture screenshots."
         case .grantedNeedsValidation:

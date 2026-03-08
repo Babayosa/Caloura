@@ -76,7 +76,10 @@ extension ScreenCaptureManager {
 
     /// Reset TCC entry so the system re-prompts on next request.
     func resetTCCEntry() async {
-        let bundleID = Bundle.main.bundleIdentifier ?? "com.caloura.app"
+        guard let bundleID = Bundle.main.bundleIdentifier else {
+            logger.warning("Cannot reset TCC: bundle identifier unavailable")
+            return
+        }
         logger.info("Resetting TCC ScreenCapture entry for \(bundleID)")
         do {
             try await permissionDependencies.runRepairTool(

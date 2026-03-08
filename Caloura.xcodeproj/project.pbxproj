@@ -1374,7 +1374,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.caloura.app.debug;
+				PRODUCT_BUNDLE_IDENTIFIER = com.caloura.app;
 				SDKROOT = macosx;
 			};
 			name = Debug;

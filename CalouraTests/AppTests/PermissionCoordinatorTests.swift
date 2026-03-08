@@ -239,6 +239,123 @@ final class PermissionCoordinatorTests: XCTestCase {
         XCTAssertTrue(relaunchCalled)
     }
 
+    func testRunUserInitiatedValidationResetsSCKState() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        var resetCount = 0
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: { true },
+            interactiveCheck: { .authorized },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { PermissionTestHelpers.makeIdentity("sck-reset") },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 20_000) },
+            sckStateResetter: { resetCount += 1 }
+        )
+
+        _ = await coordinator.runUserInitiatedValidation()
+
+        XCTAssertEqual(
+            resetCount, 1,
+            "SCK state should be reset before interactive validation"
+        )
+    }
+
+    func testRevalidateAfterSettingsReturnResetsSCKState() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        var resetCount = 0
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: { true },
+            interactiveCheck: { .authorized },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { PermissionTestHelpers.makeIdentity("sck-reset-settings") },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 21_000) },
+            sckStateResetter: { resetCount += 1 }
+        )
+
+        _ = await coordinator.revalidateAfterSettingsReturn(
+            timeoutSeconds: 1,
+            pollIntervalNanoseconds: 1_000_000,
+            sckRetryDelayNanoseconds: 1_000_000
+        )
+
+        XCTAssertGreaterThanOrEqual(
+            resetCount, 2,
+            "SCK state should be reset at revalidation entry and again inside runUserInitiatedValidation"
+        )
+    }
+
+    func testRevalidateRetriesSCKUpToThreeTimes() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        var interactiveCallCount = 0
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: { true },
+            interactiveCheck: {
+                interactiveCallCount += 1
+                return .transientFailure
+            },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { PermissionTestHelpers.makeIdentity("retry-exhaust") },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 24_000) },
+            repairSCKAccess: { .transientFailure }
+        )
+
+        _ = await coordinator.revalidateAfterSettingsReturn(
+            timeoutSeconds: 1,
+            pollIntervalNanoseconds: 1_000_000,
+            sckRetryDelayNanoseconds: 1_000_000,
+            maxSCKRetries: 3
+        )
+
+        XCTAssertEqual(
+            interactiveCallCount, 3,
+            "Should retry SCK validation up to maxSCKRetries times"
+        )
+    }
+
+    func testRevalidateStopsRetryingOnFirstSuccess() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        var interactiveCallCount = 0
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: { true },
+            interactiveCheck: {
+                interactiveCallCount += 1
+                return interactiveCallCount >= 2 ? .authorized : .transientFailure
+            },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { PermissionTestHelpers.makeIdentity("retry-success") },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 25_000) },
+            repairSCKAccess: { .transientFailure },
+            sckStateResetter: { }
+        )
+
+        let status = await coordinator.revalidateAfterSettingsReturn(
+            timeoutSeconds: 1,
+            pollIntervalNanoseconds: 1_000_000,
+            sckRetryDelayNanoseconds: 1_000_000
+        )
+
+        XCTAssertEqual(status, .working, "Should succeed on second attempt")
+        XCTAssertEqual(
+            interactiveCallCount, 2,
+            "Should stop retrying after first success"
+        )
+    }
+
     func testPrimeIfPermissionGrantedCachesWorkingWithoutRepairUI() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let identity = PermissionTestHelpers.makeIdentity("primed")

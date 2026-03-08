@@ -50,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         guard AppMover.currentInstallState == .inApplications else { return }
         Task { @MainActor in
+            ScreenCaptureManager.shared.resetSCKState()
             let status = await PermissionCoordinator.shared.refreshPassiveStatus()
             AppState.shared.hasScreenRecordingPermission = status != .denied
             if status != .denied {

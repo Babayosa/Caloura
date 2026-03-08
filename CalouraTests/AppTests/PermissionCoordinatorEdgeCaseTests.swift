@@ -166,10 +166,107 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
 
         let status = await coordinator.revalidateAfterSettingsReturn(
             timeoutSeconds: 3,
-            pollIntervalNanoseconds: 1_000_000
+            pollIntervalNanoseconds: 1_000_000,
+            sckRetryDelayNanoseconds: 1_000_000,
+            maxSCKRetries: 3
         )
 
         XCTAssertEqual(status, .staleRecord)
+    }
+
+    func testExplicitFailureReturnsNeedsRelaunchForSamePathDifferentSigning() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        let path = "/Applications/Caloura.app/Contents/MacOS/Caloura"
+
+        let previousIdentity = PermissionIdentity(
+            bundleIdentifier: "com.caloura.app",
+            executablePath: path,
+            teamIdentifier: "OLDTEAM",
+            signingIdentityType: "developer-id",
+            designatedRequirementHash: "old-hash"
+        )
+        defaults.set(
+            previousIdentity.fingerprint,
+            forKey: "permissionLastWorkingIdentityFingerprint"
+        )
+        defaults.set(
+            previousIdentity.executablePath,
+            forKey: "permissionLastWorkingExecutablePath"
+        )
+
+        let currentIdentity = PermissionIdentity(
+            bundleIdentifier: "com.caloura.app",
+            executablePath: path,
+            teamIdentifier: "NEWTEAM",
+            signingIdentityType: "apple-development",
+            designatedRequirementHash: "new-hash"
+        )
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: { true },
+            interactiveCheck: { .transientFailure },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { currentIdentity },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 22_000) },
+            repairSCKAccess: { .transientFailure }
+        )
+
+        let status = await coordinator.runUserInitiatedValidation()
+
+        XCTAssertEqual(
+            status, .needsRelaunch,
+            "Same path but different signing should be needsRelaunch, not staleRecord"
+        )
+    }
+
+    func testExplicitFailureReturnsStaleRecordForDifferentPath() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+
+        let previousIdentity = PermissionIdentity(
+            bundleIdentifier: "com.caloura.app",
+            executablePath: "/Applications/Caloura.app/Contents/MacOS/Caloura",
+            teamIdentifier: "NG4ML6Q47T",
+            signingIdentityType: "developer-id",
+            designatedRequirementHash: "prod-hash"
+        )
+        defaults.set(
+            previousIdentity.fingerprint,
+            forKey: "permissionLastWorkingIdentityFingerprint"
+        )
+        defaults.set(
+            previousIdentity.executablePath,
+            forKey: "permissionLastWorkingExecutablePath"
+        )
+
+        let currentIdentity = PermissionIdentity(
+            bundleIdentifier: "com.caloura.app.debug",
+            executablePath: "/Users/dev/DerivedData/Caloura/Build/Debug/Caloura.app/Contents/MacOS/Caloura",
+            teamIdentifier: "NG4ML6Q47T",
+            signingIdentityType: "apple-development",
+            designatedRequirementHash: "debug-hash"
+        )
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: { true },
+            interactiveCheck: { .transientFailure },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { currentIdentity },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 23_000) },
+            repairSCKAccess: { .transientFailure }
+        )
+
+        let status = await coordinator.runUserInitiatedValidation()
+
+        XCTAssertEqual(
+            status, .staleRecord,
+            "Different path should be staleRecord"
+        )
     }
 
     func testReleaseScriptUsesNeutralDmgBackgroundAsset() throws {

@@ -45,7 +45,7 @@ targets:
         DEVELOPMENT_TEAM: NG4ML6Q47T
       configs:
         Debug:
-          PRODUCT_BUNDLE_IDENTIFIER: com.caloura.app.debug
+          PRODUCT_BUNDLE_IDENTIFIER: com.caloura.app
           CODE_SIGN_IDENTITY: "Apple Development"
           CODE_SIGN_STYLE: Automatic
           CALOURA_REQUIRE_SIGNED_ENTITLEMENT: NO
