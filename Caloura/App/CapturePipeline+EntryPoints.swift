@@ -1,4 +1,3 @@
-// swiftlint:disable file_length
 import AppKit
 import os.log
 import ScreenCaptureKit
@@ -90,58 +89,111 @@ extension CapturePipeline {
         let entryStart = CFAbsoluteTimeGetCurrent()
         let performanceSession = capturePerformanceRecorder.beginSession(mode: .area)
         entryLogger.debug("Capture entry: request received")
+        firstMouseDownLogged = false
 
-        let coordinator = makeAreaCaptureSession(
-            performanceSession,
-            { [weak self] (rect: CGRect, screen: NSScreen, frozenImage: CGImage?) in
-                guard let self = self else { return }
-                guard self.captureSessionID == sessionID else { return }
-                self.overlayWindows = []
-                self.areaCaptureSession = nil
-                self.appState.lastCaptureRect = rect
-                self.appState.lastCaptureScreen = screen
-                if let frozenImage {
-                    await self.performFrozenAreaCapture(
-                        rect: rect,
-                        screen: screen,
-                        frozenImage: frozenImage,
-                        performanceSession: performanceSession
-                    )
-                } else {
-                    await self.performAreaCapture(
-                        rect: rect,
-                        screen: screen,
-                        performanceSession: performanceSession
-                    )
-                }
-            },
-            { [weak self] in
-                guard let self = self else { return }
-                guard self.captureSessionID == sessionID else { return }
-                self.overlayWindows = []
-                self.areaCaptureSession = nil
-                self.appState.isCapturing = false
-                self.capturePerformanceRecorder.finishSession(performanceSession)
-            },
-            { [weak self] in
-                guard let self = self, !self.firstMouseDownLogged else { return }
-                self.firstMouseDownLogged = true
-                let duration = self.elapsedMilliseconds(since: entryStart)
-                entryLogger.info(
-                    "Capture entry: first mouseDown at \(duration, privacy: .public) ms"
-                )
-                self.recordMetric(
-                    stage: .firstMouseDown,
-                    milliseconds: duration
-                )
-            }
+        let coordinator = makeAreaCaptureCoordinator(
+            sessionID: sessionID,
+            entryStart: entryStart,
+            performanceSession: performanceSession
         )
         areaCaptureSession?.dismiss()
         areaCaptureSession = coordinator
-        firstMouseDownLogged = false
 
-        // Phase 1: Show overlay synchronously. When freeze is enabled, suppress
-        // dimming so the overlay is transparent until the frozen images arrive.
+        presentAreaCaptureCoordinator(coordinator, entryStart: entryStart)
+
+        guard freezeScreensEnabled else { return }
+        loadAreaCaptureFrozenImages(
+            for: coordinator,
+            sessionID: sessionID,
+            entryStart: entryStart
+        )
+    }
+
+    private func makeAreaCaptureCoordinator(
+        sessionID: UInt,
+        entryStart: CFAbsoluteTime,
+        performanceSession: CapturePerformanceRecorder.Session
+    ) -> any AreaCaptureSessionHandling {
+        makeAreaCaptureSession(
+            performanceSession,
+            { [weak self] (rect: CGRect, screen: NSScreen, frozenImage: CGImage?) in
+                guard let self = self else { return }
+                await self.handleAreaCaptureSelection(
+                    sessionID: sessionID,
+                    rect: rect,
+                    screen: screen,
+                    frozenImage: frozenImage,
+                    performanceSession: performanceSession
+                )
+            },
+            { [weak self] in
+                guard let self = self else { return }
+                self.handleAreaCaptureCancellation(
+                    sessionID: sessionID,
+                    performanceSession: performanceSession
+                )
+            },
+            { [weak self] in
+                self?.recordAreaCaptureFirstMouseDown(entryStart: entryStart)
+            }
+        )
+    }
+
+    private func handleAreaCaptureSelection(
+        sessionID: UInt,
+        rect: CGRect,
+        screen: NSScreen,
+        frozenImage: CGImage?,
+        performanceSession: CapturePerformanceRecorder.Session
+    ) async {
+        guard captureSessionID == sessionID else { return }
+        overlayWindows = []
+        areaCaptureSession = nil
+        appState.lastCaptureRect = rect
+        appState.lastCaptureScreen = screen
+
+        if let frozenImage {
+            await performFrozenAreaCapture(
+                rect: rect,
+                screen: screen,
+                frozenImage: frozenImage,
+                performanceSession: performanceSession
+            )
+            return
+        }
+
+        await performAreaCapture(
+            rect: rect,
+            screen: screen,
+            performanceSession: performanceSession
+        )
+    }
+
+    private func handleAreaCaptureCancellation(
+        sessionID: UInt,
+        performanceSession: CapturePerformanceRecorder.Session
+    ) {
+        guard captureSessionID == sessionID else { return }
+        overlayWindows = []
+        areaCaptureSession = nil
+        appState.isCapturing = false
+        capturePerformanceRecorder.finishSession(performanceSession)
+    }
+
+    private func recordAreaCaptureFirstMouseDown(entryStart: CFAbsoluteTime) {
+        guard !firstMouseDownLogged else { return }
+        firstMouseDownLogged = true
+        let duration = elapsedMilliseconds(since: entryStart)
+        entryLogger.info(
+            "Capture entry: first mouseDown at \(duration, privacy: .public) ms"
+        )
+        recordMetric(stage: .firstMouseDown, milliseconds: duration)
+    }
+
+    private func presentAreaCaptureCoordinator(
+        _ coordinator: any AreaCaptureSessionHandling,
+        entryStart: CFAbsoluteTime
+    ) {
         coordinator.present(suppressDimming: freezeScreensEnabled)
         overlayWindows = coordinator.overlayWindows
 
@@ -153,23 +205,26 @@ extension CapturePipeline {
             stage: .overlayVisible,
             milliseconds: overlayVisibleDuration
         )
+    }
 
-        // Phase 2: Capture frozen images asynchronously and reveal dimming.
-        if freezeScreensEnabled {
-            Task { [weak self, weak coordinator] in
-                guard let self = self else { return }
-                let frozenImages = await self.freezeScreens(entryStart: entryStart)
+    private func loadAreaCaptureFrozenImages(
+        for coordinator: any AreaCaptureSessionHandling,
+        sessionID: UInt,
+        entryStart: CFAbsoluteTime
+    ) {
+        Task { [weak self, weak coordinator] in
+            guard let self = self else { return }
+            let frozenImages = await self.freezeScreens(entryStart: entryStart)
 
-                guard self.captureSessionID == sessionID,
-                      self.isSameObject(
-                        self.areaCaptureSession as AnyObject?,
-                        coordinator as AnyObject?
-                      ) else {
-                    return
-                }
-
-                coordinator?.updateFrozenImages(frozenImages)
+            guard self.captureSessionID == sessionID,
+                  self.isSameObject(
+                    self.areaCaptureSession as AnyObject?,
+                    coordinator as AnyObject?
+                  ) else {
+                return
             }
+
+            coordinator?.updateFrozenImages(frozenImages)
         }
     }
 

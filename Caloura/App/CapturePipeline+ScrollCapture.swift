@@ -129,13 +129,16 @@ extension CapturePipeline {
         }
 
         let engine = ScrollCaptureEngine()
+        let request = ScrollCaptureEngine.Request(
+            region: rect,
+            geometry: geometry,
+            config: config,
+            targetAppName: targetAppName
+        )
         let task = Task {
             await engine.capture(
-                region: rect,
-                geometry: geometry,
-                config: config,
+                request,
                 control: sessionCoordinator.control,
-                targetAppName: targetAppName,
                 captureFrame: captureFrameFn,
                 onProgress: { progress in
                     sessionCoordinator.update(progress)

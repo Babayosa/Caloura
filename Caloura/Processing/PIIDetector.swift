@@ -20,29 +20,34 @@ struct PIIDetectorObservation {
     let matchBoundingBox: (Range<String.Index>) -> CGRect?
 }
 
-struct PIIDetector {
-    // swiftlint:disable force_try
-    private static let emailPattern = try! NSRegularExpression(
-        pattern: #"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"#
+private enum PIIPatterns {
+    static let email = compile(
+        #"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}"#
     )
-    private static let phonePattern = try! NSRegularExpression(
-        pattern: #"\b(?:\+?1[-.]?)?\(?\d{3}\)?[-.]?\d{3}[-.]?\d{4}\b"#
+    static let phone = compile(
+        #"\b(?:\+?1[-.]?)?\(?\d{3}\)?[-.]?\d{3}[-.]?\d{4}\b"#
     )
-    private static let creditCardPattern = try! NSRegularExpression(
-        pattern: #"\b(?:\d[ \-]*?){13,19}\b"#
-    )
-    private static let apiKeyPattern = try! NSRegularExpression(
-        pattern: #"(?:sk|pk|api|key|token|secret|bearer)[-_]?[a-zA-Z0-9]{20,}"#,
+    static let creditCard = compile(#"\b(?:\d[ \-]*?){13,19}\b"#)
+    static let apiKey = compile(
+        #"(?:sk|pk|api|key|token|secret|bearer)[-_]?[a-zA-Z0-9]{20,}"#,
         options: .caseInsensitive
     )
-    private static let ipAddressPattern = try! NSRegularExpression(
-        pattern: #"\b(?:\d{1,3}\.){3}\d{1,3}\b"#
-    )
-    private static let ssnPattern = try! NSRegularExpression(
-        pattern: #"\b\d{3}[-]?\d{2}[-]?\d{4}\b"#
-    )
-    // swiftlint:enable force_try
+    static let ipAddress = compile(#"\b(?:\d{1,3}\.){3}\d{1,3}\b"#)
+    static let ssn = compile(#"\b\d{3}[-]?\d{2}[-]?\d{4}\b"#)
 
+    private static func compile(
+        _ pattern: String,
+        options: NSRegularExpression.Options = []
+    ) -> NSRegularExpression {
+        do {
+            return try NSRegularExpression(pattern: pattern, options: options)
+        } catch {
+            preconditionFailure("Invalid PII regex pattern: \(pattern)")
+        }
+    }
+}
+
+struct PIIDetector {
     static func detect(in cgImage: CGImage, types: [PIIType]? = nil) async throws -> [PIIDetection] {
         try await Task.detached(priority: .utility) {
             try performDetection(in: cgImage, types: types)
@@ -147,12 +152,12 @@ struct PIIDetector {
     private static func matchesForType(_ type: PIIType, text: String, range: NSRange) -> [NSRange] {
         let pattern: NSRegularExpression
         switch type {
-        case .email: pattern = emailPattern
-        case .phone: pattern = phonePattern
-        case .creditCard: pattern = creditCardPattern
-        case .apiKey: pattern = apiKeyPattern
-        case .ipAddress: pattern = ipAddressPattern
-        case .ssn: pattern = ssnPattern
+        case .email: pattern = PIIPatterns.email
+        case .phone: pattern = PIIPatterns.phone
+        case .creditCard: pattern = PIIPatterns.creditCard
+        case .apiKey: pattern = PIIPatterns.apiKey
+        case .ipAddress: pattern = PIIPatterns.ipAddress
+        case .ssn: pattern = PIIPatterns.ssn
         }
         return pattern.matches(in: text, range: range).map { $0.range }
     }

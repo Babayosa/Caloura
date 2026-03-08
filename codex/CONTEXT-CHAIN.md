@@ -4,6 +4,23 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Audit Task 01: Lint suppression removal
+**Status:** Complete  
+**Branch:** `task-01-lint-suppression`  
+**Changes:**
+- Removed every `swiftlint:disable` / `swiftlint:enable` directive from `Caloura/`
+- Split scroll-capture source into focused files for AX bridges, protocols, engine flow, automatic/manual capture logic, accessibility helpers, bitmap preparation, displacement analysis, stitching, and geometry
+- Replaced the AX CoreFoundation bridge force casts with guarded `unsafeBitCast(...)` wrappers and replaced `PIIDetector`'s forced regex initialization with fail-fast compiled patterns
+- Refactored `CapturePipeline.captureArea()` into smaller helpers, moved the welcome tab view out of `PreferencesView.swift`, and updated scroll-capture tests plus production call sites for the new request/settling parameter objects
+- Revalidated with `swift build`, `swiftlint`, and `swift test` (460 tests passing)
+
+**Decisions Made:**
+- Keep the task strictly scoped to removing source suppressions and the minimum refactors needed to satisfy that cleanup; do not expand into broader warning-reduction work outside the affected surfaces
+- Use parameter objects where signature width was the actual lint pressure point (`ScrollCaptureEngine.Request`, `ScrollSettleRequest`) instead of weakening access or reintroducing local suppression
+- Preserve existing scroll-capture behavior by updating both production seams and synthetic-test doubles in the same refactor
+
+---
+
 ## Task 13: Capture pipeline + command-surface refactor
 **Status:** Complete  
 **Branch:** `codex/task-13-post-grant-fix`  

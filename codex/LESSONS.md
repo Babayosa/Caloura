@@ -139,3 +139,10 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Rule**: Human-friendly or AI-generated filenames must be uniqued at save time, even if the base filename generation logic is deterministic.
 - **Context**: Reusing the same smart title for multiple captures will otherwise overwrite earlier artifacts despite having “better” names.
 - **Example**: `FileOrganizer.save(...)` now resolves `release-notes.png`, `release-notes-2.png`, and so on before writing the file to disk.
+
+## Testing / Refactors
+
+### Protocol signature changes need conformance sweeps, not just call-site sweeps
+- **Rule**: When changing a protocol method signature, grep for all conformers and test doubles in addition to the production call sites before validation.
+- **Context**: Updating `ScrollSettling.settle(...)` to use `ScrollSettleRequest` compiled the app target, but `swift test` still failed because `ImmediateSettler` in `ScrollCaptureEngineTests` retained the old signature.
+- **Example**: After refactoring `ScrollSettling`, grep both `: ScrollSettling` and `settle(` so production implementations and synthetic test seams stay aligned.

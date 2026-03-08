@@ -331,15 +331,11 @@ struct DefaultScrollSettling: ScrollSettling, Sendable {
     }
 
     func settle(
-        region: CGRect,
+        request: ScrollSettleRequest,
         captureFrame: @escaping @Sendable (CGRect) async throws -> CGImage,
-        previousAcceptedFrame: ScrollCaptureHelpers.PreparedFrame?,
-        expectedDisplacement: Int?,
-        stickyHeaderHeight: Int,
-        mode: ScrollCaptureMode,
         displacementEstimator: any ScrollDisplacementEstimating
     ) async throws -> ScrollSettledFrame? {
-        let startDelay = mode == .manual ? 80_000_000 : initialDelayNanos
+        let startDelay = request.mode == .manual ? 80_000_000 : initialDelayNanos
         try await Task.sleep(nanoseconds: startDelay)
 
         var probes: [ScrollCaptureHelpers.PreparedFrame] = []
@@ -347,20 +343,20 @@ struct DefaultScrollSettling: ScrollSettling, Sendable {
 
         for probeIndex in 0..<maxProbes {
             try Task.checkCancellation()
-            let image = try await captureFrame(region)
+            let image = try await captureFrame(request.region)
             guard let prepared = ScrollCaptureHelpers.prepareFrame(image) else {
                 continue
             }
 
-            if mode == .manual,
+            if request.mode == .manual,
                probeIndex == 0,
-               let previousAcceptedFrame {
+               let previousAcceptedFrame = request.previousAcceptedFrame {
                 let movement = displacementEstimator.estimate(
                     previous: previousAcceptedFrame,
                     current: prepared,
                     options: .manual(
-                        expectedDisplacement: expectedDisplacement,
-                        stickyHeaderHeight: stickyHeaderHeight,
+                        expectedDisplacement: request.expectedDisplacement,
+                        stickyHeaderHeight: request.stickyHeaderHeight,
                         unstableBands: []
                     )
                 )
