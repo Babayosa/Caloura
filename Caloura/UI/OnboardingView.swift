@@ -93,6 +93,16 @@ struct OnboardingView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             handleDidBecomeActive()
         }
+        .task(id: flow.currentState) {
+            guard flow.currentState == .completed, settings.hasCompletedOnboarding else {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(800))
+            guard flow.currentState == .completed, settings.hasCompletedOnboarding else {
+                return
+            }
+            dismissWindow()
+        }
     }
 
     private var topLabel: some View {
@@ -244,8 +254,8 @@ struct OnboardingView: View {
             }
             if !settings.hasCompletedOnboarding {
                 transition(to: .readyForFirstCapture)
-            } else if flow.currentState != .completed {
-                transition(to: .completed)
+            } else if flow.currentState != .repairStalePermissionRecord {
+                transition(to: .repairStalePermissionRecord)
             }
         case .needsRelaunch, .staleRecord, .repairing:
             transition(to: .repairStalePermissionRecord)

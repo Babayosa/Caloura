@@ -221,6 +221,7 @@ Running log of completed tasks. Read this to understand what changed before your
 - Added recent permission-request session tracking, current-process live-validation caching, and one-time pending-capture resume across automatic relaunch
 - Updated onboarding and launch flow so stale in-process CG results keep the user in the waiting path instead of bouncing back to the grant screen
 - Tightened capture error classification so stale CG false no longer turns transient post-grant capture failures into `.noPermission`
+- Stopped showing the repaired/completed onboarding state for `grantedNeedsValidation`, and kept same-copy stale CG false in the validation/repair path instead of reopening System Settings immediately
 - Updated README, CLAUDE rules, and lessons to treat CG as coarse and SCK as authoritative after an explicit grant attempt
 
 **Decisions Made:**

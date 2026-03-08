@@ -22,6 +22,7 @@ Permission behavior:
 - If Screen Recording already looks enabled, onboarding silently validates it in the background and keeps the first-capture CTA as the primary action
 - Return from System Settings triggers an automatic re-validation loop that trusts live ScreenCaptureKit validation before stale CoreGraphics state, then resumes the pending first capture on success
 - If macOS still stays ambiguous after the post-Settings grace window, Caloura performs one automatic relaunch and resumes the pending first capture on the next launch
+- The repaired/completed permission UI is only shown after a live validation path succeeds; stale CG for the same app copy stays in validation/repair instead of pretending capture is ready
 - Stale permission records are treated as a separate repair state from plain denial, but only after a real capture validation path fails
 - Accessibility remains deferred to Scroll Capture only
 
@@ -31,7 +32,8 @@ If capture fails after permission looks enabled:
 1. Use **only one installed copy** while testing (`/Applications/Caloura.app` recommended).
 2. In **System Settings > Privacy & Security > Screen & System Audio Recording**, ensure the current build is enabled.
 3. Return to Caloura and let the automatic re-validation finish. Caloura will relaunch itself once if macOS still keeps stale in-process state.
-4. If the first capture still fails after the automatic retry/relaunch, use the in-app repair flow or run `scripts/permission_diagnose.sh`.
+4. If Caloura says permission needs validation for this installed copy, run the in-app live check again instead of trusting the passive toggle alone.
+5. If the first capture still fails after the automatic retry/relaunch, use the in-app repair flow or run `scripts/permission_diagnose.sh`.
 
 ### Build Identity Mismatch (Xcode vs /Applications)
 

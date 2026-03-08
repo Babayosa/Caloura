@@ -264,7 +264,8 @@ final class PermissionCoordinator: ObservableObject {
     @discardableResult
     func refreshPassiveStatus() async -> ScreenRecordingState {
         let identity = await identityProvider()
-        clearExpiredPermissionRequestSessionIfNeeded(at: now())
+        let timestamp = now()
+        clearExpiredPermissionRequestSessionIfNeeded(at: timestamp)
         let cgGranted = passiveCheck()
         let execPath = identity.executablePath
         let signingType = identity.signingIdentityType
@@ -284,7 +285,10 @@ final class PermissionCoordinator: ObservableObject {
         if isLiveValidatedIdentity(identity) {
             status = .working
         } else if !cgGranted {
-            status = hasFreshPermissionRequestSession(at: now()) ? .grantedNeedsValidation : .denied
+            status = shouldTrustLiveValidationWithoutCoreGraphics(
+                for: identity,
+                at: timestamp
+            ) ? .grantedNeedsValidation : .denied
         } else if isKnownWorkingIdentity(identity) {
             status = .working
         } else {
@@ -311,8 +315,11 @@ final class PermissionCoordinator: ObservableObject {
     }
 
     func coreGraphicsPreflightIsAuthoritative() -> Bool {
-        clearExpiredPermissionRequestSessionIfNeeded(at: now())
-        return recentPermissionRequestSession == nil && liveValidatedIdentityFingerprint == nil
+        let timestamp = now()
+        clearExpiredPermissionRequestSessionIfNeeded(at: timestamp)
+        return recentPermissionRequestSession == nil
+            && liveValidatedIdentityFingerprint == nil
+            && !currentExecutablePathMatchesLastWorkingPath()
     }
 
     /// Perform a non-blocking live validation once CoreGraphics already
@@ -359,9 +366,14 @@ final class PermissionCoordinator: ObservableObject {
         sckStateResetter()
         let identity = await identityProvider()
         let cgGranted = passiveCheck()
+        let timestamp = now()
         logger.info("interactive_check_start cg_granted=\(cgGranted, privacy: .public)")
 
-        guard cgGranted else {
+        guard cgGranted
+            || shouldTrustLiveValidationWithoutCoreGraphics(
+                for: identity,
+                at: timestamp
+            ) else {
             updateUIModel(status: .denied, identity: identity)
             return .denied
         }
@@ -568,7 +580,10 @@ final class PermissionCoordinator: ObservableObject {
         relaunchApp()
     }
 
-    private func alertState(for status: ScreenRecordingState) -> ScreenCaptureManager.PermissionState {
+}
+
+private extension PermissionCoordinator {
+    func alertState(for status: ScreenRecordingState) -> ScreenCaptureManager.PermissionState {
         switch status {
         case .denied:
             return .neverGranted
@@ -581,19 +596,19 @@ final class PermissionCoordinator: ObservableObject {
         }
     }
 
-    private func isCooldownActive(at timestamp: Date) -> Bool {
+    func isCooldownActive(at timestamp: Date) -> Bool {
         guard let lastBlockingAlertAt else { return false }
         return timestamp.timeIntervalSince(lastBlockingAlertAt) < alertCooldownSeconds
     }
 
-    private func updateCooldownInModel(cooldownActive: Bool) {
+    func updateCooldownInModel(cooldownActive: Bool) {
         permissionUIModel.isAlertCooldownActive = cooldownActive
         if cooldownActive {
             scheduleCooldownReset()
         }
     }
 
-    private func scheduleCooldownReset() {
+    func scheduleCooldownReset() {
         cooldownResetTask?.cancel()
         let seconds = alertCooldownSeconds
         cooldownResetTask = Task { [weak self] in
@@ -603,7 +618,7 @@ final class PermissionCoordinator: ObservableObject {
         }
     }
 
-    private func knownWorkingFingerprint() -> String? {
+    func knownWorkingFingerprint() -> String? {
         guard let fingerprint = defaults.string(forKey: Keys.lastWorkingIdentityFingerprint),
               !fingerprint.isEmpty else {
             return nil
@@ -611,33 +626,60 @@ final class PermissionCoordinator: ObservableObject {
         return fingerprint
     }
 
-    private func isKnownWorkingIdentity(_ identity: PermissionIdentity) -> Bool {
+    func isKnownWorkingIdentity(_ identity: PermissionIdentity) -> Bool {
         knownWorkingFingerprint() == identity.fingerprint
     }
 
-    private func isLiveValidatedIdentity(_ identity: PermissionIdentity) -> Bool {
+    func isLiveValidatedIdentity(_ identity: PermissionIdentity) -> Bool {
         liveValidatedIdentityFingerprint == identity.fingerprint
     }
 
-    private func hasFreshPermissionRequestSession(at timestamp: Date) -> Bool {
+    func lastWorkingExecutablePath() -> String? {
+        guard let path = defaults.string(forKey: Keys.lastWorkingExecutablePath),
+              !path.isEmpty else {
+            return nil
+        }
+        return path
+    }
+
+    func lastWorkingExecutablePathMatches(_ identity: PermissionIdentity) -> Bool {
+        lastWorkingExecutablePath() == identity.executablePath
+    }
+
+    func currentExecutablePathMatchesLastWorkingPath() -> Bool {
+        let currentPath = Bundle.main.executableURL?.path ?? Bundle.main.bundleURL.path
+        return lastWorkingExecutablePath() == currentPath
+    }
+
+    func shouldTrustLiveValidationWithoutCoreGraphics(
+        for identity: PermissionIdentity,
+        at timestamp: Date
+    ) -> Bool {
+        hasFreshPermissionRequestSession(at: timestamp)
+            || isLiveValidatedIdentity(identity)
+            || isKnownWorkingIdentity(identity)
+            || lastWorkingExecutablePathMatches(identity)
+    }
+
+    func hasFreshPermissionRequestSession(at timestamp: Date) -> Bool {
         guard let session = recentPermissionRequestSession else {
             return false
         }
         return timestamp.timeIntervalSince(session.startedAt) <= permissionRequestLifetimeSeconds
     }
 
-    private func clearExpiredPermissionRequestSessionIfNeeded(at timestamp: Date) {
+    func clearExpiredPermissionRequestSessionIfNeeded(at timestamp: Date) {
         guard !hasFreshPermissionRequestSession(at: timestamp) else {
             return
         }
         recentPermissionRequestSession = nil
     }
 
-    private func clearPermissionRequestSession() {
+    func clearPermissionRequestSession() {
         recentPermissionRequestSession = nil
     }
 
-    private func canAutoRelaunchAfterSettingsReturn(at timestamp: Date) -> Bool {
+    func canAutoRelaunchAfterSettingsReturn(at timestamp: Date) -> Bool {
         guard hasFreshPermissionRequestSession(at: timestamp),
               let session = recentPermissionRequestSession else {
             return false
@@ -645,7 +687,7 @@ final class PermissionCoordinator: ObservableObject {
         return !session.didAutoRelaunch
     }
 
-    private func markAutoRelaunchIssued() {
+    func markAutoRelaunchIssued() {
         guard var session = recentPermissionRequestSession else {
             return
         }
@@ -653,31 +695,31 @@ final class PermissionCoordinator: ObservableObject {
         recentPermissionRequestSession = session
     }
 
-    private func hasKnownWorkingMismatch(for identity: PermissionIdentity) -> Bool {
+    func hasKnownWorkingMismatch(for identity: PermissionIdentity) -> Bool {
         guard let lastWorkingFingerprint = knownWorkingFingerprint() else {
             return false
         }
         return lastWorkingFingerprint != identity.fingerprint
     }
 
-    private func recordWorkingIdentity(_ identity: PermissionIdentity) {
+    func recordWorkingIdentity(_ identity: PermissionIdentity) {
         liveValidatedIdentityFingerprint = identity.fingerprint
         defaults.set(identity.fingerprint, forKey: Keys.lastWorkingIdentityFingerprint)
         defaults.set(identity.executablePath, forKey: Keys.lastWorkingExecutablePath)
     }
 
-    private func explicitFailureStatus(for identity: PermissionIdentity) -> ScreenRecordingState {
+    func explicitFailureStatus(for identity: PermissionIdentity) -> ScreenRecordingState {
         guard hasKnownWorkingMismatch(for: identity) else {
             return .needsRelaunch
         }
-        let lastPath = defaults.string(forKey: Keys.lastWorkingExecutablePath)
+        let lastPath = lastWorkingExecutablePath()
         if lastPath == identity.executablePath {
             return .needsRelaunch
         }
         return .staleRecord
     }
 
-    private func updateUIModel(status: ScreenRecordingState, identity: PermissionIdentity) {
+    func updateUIModel(status: ScreenRecordingState, identity: PermissionIdentity) {
         let shouldShowStaleRecordBanner = shouldShowStaleRecordBanner(for: status)
         let guidance = guidance(for: status, identity: identity)
         let cooldownActive = isCooldownActive(at: now())
@@ -689,11 +731,11 @@ final class PermissionCoordinator: ObservableObject {
         )
     }
 
-    private func shouldShowStaleRecordBanner(for status: ScreenRecordingState) -> Bool {
+    func shouldShowStaleRecordBanner(for status: ScreenRecordingState) -> Bool {
         status == .staleRecord
     }
 
-    private func guidance(for status: ScreenRecordingState, identity: PermissionIdentity) -> String? {
+    func guidance(for status: ScreenRecordingState, identity: PermissionIdentity) -> String? {
         switch status {
         case .staleRecord:
             return "Current app: \(identity.executablePath)\n\n"
@@ -710,6 +752,10 @@ final class PermissionCoordinator: ObservableObject {
                 return "Caloura is waiting for macOS to finish applying Screen Recording. "
                     + "Keep the toggle enabled and return here."
             }
+            if isKnownWorkingIdentity(identity) || lastWorkingExecutablePathMatches(identity) {
+                return "Caloura is re-validating Screen Recording for this app copy. "
+                    + "Run one live capture check to finish confirming access."
+            }
             return "Screen Recording looks granted. Start a capture to finish validation."
         case .repairing:
             if recentPermissionRequestSession?.didAutoRelaunch == true {
@@ -721,7 +767,7 @@ final class PermissionCoordinator: ObservableObject {
         }
     }
 
-    private func nonBlockingMessage(for status: ScreenRecordingState) -> String {
+    func nonBlockingMessage(for status: ScreenRecordingState) -> String {
         switch status {
         case .staleRecord:
             return "Screen Recording appears tied to a different Caloura copy. "

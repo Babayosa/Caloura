@@ -178,9 +178,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch status {
         case .denied:
             return .grantScreenRecording
+        case .grantedNeedsValidation:
+            return hasCompletedOnboarding ? .repairStalePermissionRecord : .readyForFirstCapture
         case .needsRelaunch, .staleRecord, .repairing:
             return .repairStalePermissionRecord
-        case .grantedNeedsValidation, .working:
+        case .working:
             return hasCompletedOnboarding ? .completed : .readyForFirstCapture
         }
     }

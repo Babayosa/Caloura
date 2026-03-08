@@ -31,6 +31,11 @@
 ### CODE_SIGNING_ALLOWED=NO strips TCC [Graduated]
 - **Rule**: Only use `CODE_SIGNING_ALLOWED=NO` for CI/headless builds. Manual testing requires code signing for TCC permissions.
 
+### Permission-repaired UI must only reflect live validation
+- **Rule**: Do not show the repaired/completed Screen Recording UI until the current app copy reaches `.working`; `grantedNeedsValidation` is still an in-progress repair state.
+- **Context**: Passive records and same-copy history can keep Screen Recording out of hard denial while macOS still needs one successful live validation. Showing “Permission repaired” first makes the next failed capture look contradictory.
+- **Example**: `OnboardingView.handlePermissionStatus(...)` now routes `grantedNeedsValidation` back to the repair/validation step for completed users, and `AppDelegate.onboardingState(...)` maps only `.working` to `.completed`.
+
 ## Swift Language
 
 ### Extension file splitting
