@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import XCTest
 @testable import Caloura
 
@@ -10,7 +11,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
-            interactiveCheck: { true },
+            interactiveCheck: { .authorized },
             alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { PermissionTestHelpers.makeIdentity("stable") },
@@ -32,7 +33,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { false },
-            interactiveCheck: { false },
+            interactiveCheck: { .transientFailure },
             alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { PermissionTestHelpers.makeIdentity("denied") },
@@ -56,7 +57,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
-            interactiveCheck: { true },
+            interactiveCheck: { .authorized },
             alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { identity },
@@ -73,7 +74,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
-            interactiveCheck: { true },
+            interactiveCheck: { .authorized },
             alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { PermissionTestHelpers.makeIdentity("uimodel") },
@@ -91,7 +92,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         }
     }
 
-    func testStaleRecordDetectionRepeatedCallsStableBanner() async {
+    func testPassiveMismatchDoesNotBecomeStaleRecord() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let identity = PermissionTestHelpers.makeIdentity("mismatch-stable")
         defaults.set(
@@ -102,7 +103,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
-            interactiveCheck: { false },
+            interactiveCheck: { .transientFailure },
             alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { identity },
@@ -111,13 +112,13 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         )
 
         let first = await coordinator.refreshPassiveStatus()
-        XCTAssertEqual(first, .staleRecord)
-        XCTAssertTrue(coordinator.permissionUIModel.shouldShowStaleRecordBanner)
+        XCTAssertEqual(first, .grantedNeedsValidation)
+        XCTAssertFalse(coordinator.permissionUIModel.shouldShowStaleRecordBanner)
 
         for _ in 0..<10 {
             let status = await coordinator.refreshPassiveStatus()
-            XCTAssertEqual(status, .staleRecord)
-            XCTAssertTrue(coordinator.permissionUIModel.shouldShowStaleRecordBanner)
+            XCTAssertEqual(status, .grantedNeedsValidation)
+            XCTAssertFalse(coordinator.permissionUIModel.shouldShowStaleRecordBanner)
         }
     }
 
@@ -127,7 +128,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { false },
-            interactiveCheck: { false },
+            interactiveCheck: { .transientFailure },
             alertPresenter: { _ in alertCount += 1 },
             permissionRequester: { true },
             identityProvider: { PermissionTestHelpers.makeIdentity("rapid-fail") },
@@ -140,5 +141,53 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         }
 
         XCTAssertEqual(alertCount, 1)
+    }
+
+    func testRevalidateAfterSettingsReturnUsesLiveValidationBeforeStaleDecision() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        let identity = PermissionTestHelpers.makeIdentity("settings-stale")
+        defaults.set("different-fingerprint", forKey: "permissionLastWorkingIdentityFingerprint")
+        var passiveChecks = 0
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: {
+                passiveChecks += 1
+                return passiveChecks >= 2
+            },
+            interactiveCheck: { .transientFailure },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { identity },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 16_000 + Double(passiveChecks)) },
+            repairSCKAccess: { .transientFailure }
+        )
+
+        let status = await coordinator.revalidateAfterSettingsReturn(
+            timeoutSeconds: 3,
+            pollIntervalNanoseconds: 1_000_000
+        )
+
+        XCTAssertEqual(status, .staleRecord)
+    }
+
+    func testReleaseScriptUsesNeutralDmgBackgroundAsset() throws {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let releaseScriptURL = repoRoot.appendingPathComponent("scripts/release.sh")
+        let assetURL = repoRoot.appendingPathComponent("scripts/assets/dmg-neutral-background.png")
+        let releaseScript = try String(contentsOf: releaseScriptURL, encoding: .utf8)
+        let imageSource = CGImageSourceCreateWithURL(assetURL as CFURL, nil)
+        let properties = imageSource
+            .flatMap { CGImageSourceCopyPropertiesAtIndex($0, 0, nil) as? [CFString: Any] }
+
+        XCTAssertTrue(releaseScript.contains("scripts/assets/dmg-neutral-background.png"))
+        XCTAssertFalse(releaseScript.contains("AppIcon.appiconset/icon_512x512.png"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: assetURL.path))
+        XCTAssertEqual(properties?[kCGImagePropertyPixelWidth] as? Int, 1120)
+        XCTAssertEqual(properties?[kCGImagePropertyPixelHeight] as? Int, 720)
     }
 }

@@ -10,7 +10,7 @@ final class PermissionCoordinatorTests: XCTestCase {
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { false },
-            interactiveCheck: { true },
+            interactiveCheck: { .authorized },
             alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { PermissionTestHelpers.makeIdentity("denied") },
@@ -24,7 +24,7 @@ final class PermissionCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.permissionUIModel.status, .denied)
     }
 
-    func testStaleRecordDetectionAndBannerSuppression() async {
+    func testPassiveMismatchStaysGrantedNeedsValidation() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let identity = PermissionTestHelpers.makeIdentity("stale")
         defaults.set("different-fingerprint", forKey: "permissionLastWorkingIdentityFingerprint")
@@ -32,7 +32,7 @@ final class PermissionCoordinatorTests: XCTestCase {
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
-            interactiveCheck: { false },
+            interactiveCheck: { .transientFailure },
             alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { identity },
@@ -41,11 +41,7 @@ final class PermissionCoordinatorTests: XCTestCase {
         )
 
         let firstStatus = await coordinator.refreshPassiveStatus()
-        XCTAssertEqual(firstStatus, .staleRecord)
-        XCTAssertTrue(coordinator.permissionUIModel.shouldShowStaleRecordBanner)
-
-        await coordinator.markCurrentStaleRecordBannerShown()
-        _ = await coordinator.refreshPassiveStatus()
+        XCTAssertEqual(firstStatus, .grantedNeedsValidation)
         XCTAssertFalse(coordinator.permissionUIModel.shouldShowStaleRecordBanner)
     }
 
@@ -58,7 +54,7 @@ final class PermissionCoordinatorTests: XCTestCase {
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { false },
-            interactiveCheck: { false },
+            interactiveCheck: { .transientFailure },
             alertPresenter: { _ in alertCount += 1 },
             permissionRequester: { true },
             identityProvider: { PermissionTestHelpers.makeIdentity("cooldown") },
@@ -78,13 +74,13 @@ final class PermissionCoordinatorTests: XCTestCase {
 
     func testUserInitiatedValidationTransitions() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
-        var interactiveAuthorized = false
+        var interactiveResult: ScreenCaptureAccessProbeResult = .transientFailure
 
         let firstIdentity = PermissionTestHelpers.makeIdentity("primary")
         let firstCoordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
-            interactiveCheck: { interactiveAuthorized },
+            interactiveCheck: { interactiveResult },
             alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { firstIdentity },
@@ -95,22 +91,23 @@ final class PermissionCoordinatorTests: XCTestCase {
         let firstStatus = await firstCoordinator.runUserInitiatedValidation()
         XCTAssertEqual(firstStatus, .needsRelaunch)
 
-        interactiveAuthorized = true
+        interactiveResult = .authorized
         let secondStatus = await firstCoordinator.runUserInitiatedValidation()
         XCTAssertEqual(secondStatus, .working)
 
         let staleCoordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
-            interactiveCheck: { false },
+            interactiveCheck: { .transientFailure },
             alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { PermissionTestHelpers.makeIdentity("secondary") },
             statusMessageSink: { _ in },
-            now: { Date(timeIntervalSince1970: 4_100) }
+            now: { Date(timeIntervalSince1970: 4_100) },
+            repairSCKAccess: { .transientFailure }
         )
 
-        let staleStatus = await staleCoordinator.refreshPassiveStatus()
+        let staleStatus = await staleCoordinator.runUserInitiatedValidation()
         XCTAssertEqual(staleStatus, .staleRecord)
     }
 
@@ -122,7 +119,7 @@ final class PermissionCoordinatorTests: XCTestCase {
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
-            interactiveCheck: { false },
+            interactiveCheck: { .transientFailure },
             alertPresenter: { _ in },
             permissionRequester: { true },
             identityProvider: { identity },
@@ -130,7 +127,7 @@ final class PermissionCoordinatorTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 5_000) },
             repairSCKAccess: {
                 repairCalled = true
-                return true
+                return .authorized
             }
         )
 
@@ -148,13 +145,13 @@ final class PermissionCoordinatorTests: XCTestCase {
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
-            interactiveCheck: { false },
+            interactiveCheck: { .transientFailure },
             alertPresenter: { _ in },
             permissionRequester: { true },
             identityProvider: { identity },
             statusMessageSink: { _ in },
             now: { Date(timeIntervalSince1970: 5_100) },
-            repairSCKAccess: { false }
+            repairSCKAccess: { .transientFailure }
         )
 
         let status = await coordinator.runUserInitiatedValidation()
@@ -170,13 +167,13 @@ final class PermissionCoordinatorTests: XCTestCase {
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
-            interactiveCheck: { false },
+            interactiveCheck: { .transientFailure },
             alertPresenter: { _ in alertCount += 1 },
             permissionRequester: { true },
             identityProvider: { identity },
             statusMessageSink: { _ in },
             now: { Date(timeIntervalSince1970: 6_000) },
-            repairSCKAccess: { true }
+            repairSCKAccess: { .authorized }
         )
 
         await coordinator.handleCapturePermissionFailure()
@@ -199,7 +196,7 @@ final class PermissionCoordinatorTests: XCTestCase {
             },
             interactiveCheck: {
                 interactiveChecks += 1
-                return true
+                return .authorized
             },
             alertPresenter: { _ in },
             permissionRequester: { true },
@@ -226,7 +223,7 @@ final class PermissionCoordinatorTests: XCTestCase {
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
-            interactiveCheck: { true },
+            interactiveCheck: { .authorized },
             alertPresenter: { _ in },
             permissionRequester: { true },
             identityProvider: { PermissionTestHelpers.makeIdentity("tcc-reset") },
@@ -240,5 +237,28 @@ final class PermissionCoordinatorTests: XCTestCase {
 
         XCTAssertTrue(resetCalled)
         XCTAssertTrue(relaunchCalled)
+    }
+
+    func testPrimeIfPermissionGrantedCachesWorkingWithoutRepairUI() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        let identity = PermissionTestHelpers.makeIdentity("primed")
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: { true },
+            primeCheck: { .authorized },
+            interactiveCheck: { .transientFailure },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { identity },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 9_000) }
+        )
+
+        let status = await coordinator.primeIfPermissionGranted()
+
+        XCTAssertEqual(status, .working)
+        XCTAssertEqual(coordinator.permissionUIModel.status, .working)
+        XCTAssertFalse(coordinator.permissionUIModel.shouldShowStaleRecordBanner)
     }
 }

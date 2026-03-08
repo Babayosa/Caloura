@@ -10,6 +10,7 @@ struct OnboardingView: View {
     @State var installState: AppInstallState
     @State var isCheckingPermission = false
     @State var iconAppeared = false
+    @State var shouldResumePendingCapture = false
 
     private let initialState: OnboardingFlowState
     private let onDismiss: () -> Void
@@ -124,7 +125,12 @@ struct OnboardingView: View {
 
     private func syncPermissionStateOnAppear() {
         guard flow.currentState != .installRequired else { return }
-        guard initialState != .readyForFirstCapture else { return }
+        if flow.currentState == .readyForFirstCapture {
+            Task { @MainActor in
+                _ = await permissionCoordinator.primeIfPermissionGranted()
+            }
+            return
+        }
         Task { @MainActor in
             let status = await permissionCoordinator.refreshPassiveStatus()
             handlePermissionStatus(status)
@@ -166,6 +172,7 @@ struct OnboardingView: View {
 
     func startFirstCapture() {
         onboardingLogger.info("funnel_event=first_capture_requested")
+        shouldResumePendingCapture = true
         Task { @MainActor in
             let passiveStatus = await permissionCoordinator.refreshPassiveStatus()
             switch passiveStatus {
@@ -205,7 +212,7 @@ struct OnboardingView: View {
         Task { @MainActor in
             defer { isCheckingPermission = false }
             let status = await permissionCoordinator.revalidateAfterSettingsReturn()
-            handlePermissionStatus(status, launchCaptureOnSuccess: !settings.hasCompletedOnboarding)
+            handlePermissionStatus(status, launchCaptureOnSuccess: shouldResumePendingCapture)
         }
     }
 
@@ -220,7 +227,7 @@ struct OnboardingView: View {
         switch status {
         case .working:
             onboardingLogger.info("funnel_event=screen_recording_working")
-            if launchCaptureOnSuccess {
+            if launchCaptureOnSuccess || shouldResumePendingCapture {
                 launchFirstCapture()
             } else {
                 transition(to: .completed)
@@ -228,12 +235,10 @@ struct OnboardingView: View {
         case .denied:
             transition(to: .grantScreenRecording)
         case .grantedNeedsValidation:
-            if launchCaptureOnSuccess {
-                launchFirstCapture()
-            } else if settings.hasCompletedOnboarding {
+            if !settings.hasCompletedOnboarding {
+                transition(to: .readyForFirstCapture)
+            } else if flow.currentState != .completed {
                 transition(to: .completed)
-            } else {
-                transition(to: .grantScreenRecording)
             }
         case .needsRelaunch, .staleRecord, .repairing:
             transition(to: .repairStalePermissionRecord)
@@ -249,6 +254,7 @@ struct OnboardingView: View {
     }
 
     func launchFirstCapture() {
+        shouldResumePendingCapture = false
         settings.hasSeenWelcome = true
         transition(to: .completed)
         onDismiss()
@@ -258,6 +264,7 @@ struct OnboardingView: View {
     }
 
     func dismissWindow() {
+        shouldResumePendingCapture = false
         settings.hasSeenWelcome = true
         onDismiss()
     }

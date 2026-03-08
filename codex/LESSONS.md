@@ -103,6 +103,16 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: TCC can report a grant for a stale or moved app record even when the active app bundle still cannot capture, especially after duplicate copies or path changes.
 - **Example**: `PermissionCoordinator` now distinguishes `grantedNeedsValidation`, `working`, `needsRelaunch`, and `staleRecord`, and onboarding waits for interactive validation after the user returns from System Settings.
 
+### [Graduated] Passive fingerprint mismatch should not trigger onboarding repair by itself
+- **Rule**: A stored identity mismatch is advisory only. Do not show stale-copy repair UI until the current app copy fails a real capture validation and a single silent repair retry.
+- **Context**: Development machines routinely accumulate `/Applications`, Downloads, DerivedData, archive, and export copies. Treating that mismatch as a passive startup failure produces false negatives even when the installed app can capture correctly.
+- **Example**: Caloura now keeps passive status at `grantedNeedsValidation`, primes SCK silently on the first-capture screen, and only emits `.staleRecord` after live validation plus replayd repair both fail.
+
+### [Graduated] DMG install windows need dedicated neutral artwork
+- **Rule**: Use a purpose-built neutral background asset for the drag-to-Applications DMG window instead of repurposing product icons or in-app branding art.
+- **Context**: DMG install surfaces are Finder UI, not in-app onboarding. Reusing product artwork there reads as improvised and undermines the install presentation.
+- **Example**: `scripts/release.sh` now requires `scripts/assets/dmg-neutral-background.png` and fails fast if the neutral DMG background asset is missing.
+
 ## Persistence / Data Integrity
 
 ### Async history saves need monotonic revisions

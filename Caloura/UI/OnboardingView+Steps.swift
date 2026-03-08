@@ -258,11 +258,6 @@ extension OnboardingView {
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
             .padding(.horizontal, 4)
-            .onAppear {
-                Task { @MainActor in
-                    await permissionCoordinator.markCurrentStaleRecordBannerShown()
-                }
-            }
     }
 
     @ViewBuilder

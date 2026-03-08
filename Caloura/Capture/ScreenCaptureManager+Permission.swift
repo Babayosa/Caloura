@@ -35,39 +35,27 @@ extension ScreenCaptureManager {
         permissionDependencies.cgRequest()
     }
 
-    /// Quick single-attempt SCK check for passive status updates
-    /// (e.g. app launch). Does not retry or show alerts — just checks
-    /// on success. Also sets `sckFailed` so subsequent captures skip
-    /// SCK entirely.
-    func checkSCKAccess() async -> Bool {
-        do {
-            let counts = try await permissionDependencies.sckAccessProbe()
-            let displayCount = counts.displayCount
-            let windowCount = counts.windowCount
-            logger.info(
-                "SCK check: authorized (\(displayCount) displays, \(windowCount) windows)"
-            )
-            sckFailed = false
-            return true
-        } catch {
-            let desc = error.localizedDescription
-            logger.info(
-                "SCK check: not authorized (\(desc))"
-            )
-            sckFailed = true
-            return false
-        }
+    /// Quick single-attempt SCK check that uses a minimal screenshot probe.
+    /// Background validation uses this without mutating `sckFailed`.
+    func checkSCKAccess() async -> ScreenCaptureAccessProbeResult {
+        await probeSCKAccess(updatingFailureState: true)
     }
 
     /// Explicit user-initiated SCK validation.
     /// Do not call passively on launch/activation.
-    func validateSCKAccessUserInitiated() async -> Bool {
-        await checkSCKAccess()
+    func validateSCKAccessUserInitiated() async -> ScreenCaptureAccessProbeResult {
+        await probeSCKAccess(updatingFailureState: true)
+    }
+
+    /// Background validation for onboarding/launch. Never permanently
+    /// disables SCK for later user-initiated capture.
+    func primeSCKAccessIfPossible() async -> ScreenCaptureAccessProbeResult {
+        await probeSCKAccess(updatingFailureState: false)
     }
 
     /// Restart replayd to clear stale SCK authorization cache.
     /// Returns true if SCK works after the restart.
-    func repairSCKAccess() async -> Bool {
+    func repairSCKAccess() async -> ScreenCaptureAccessProbeResult {
         logger.info("Attempting replayd restart")
         do {
             try await permissionDependencies.runRepairTool(
@@ -80,10 +68,10 @@ extension ScreenCaptureManager {
         } catch {
             let desc = error.localizedDescription
             logger.warning("replayd restart failed: \(desc)")
-            return false
+            return .transientFailure
         }
         try? await Task.sleep(for: .milliseconds(500))
-        return await checkSCKAccess()
+        return await probeSCKAccess(updatingFailureState: true)
     }
 
     /// Reset TCC entry so the system re-prompts on next request.
@@ -147,6 +135,81 @@ extension ScreenCaptureManager {
             case .cancel:
                 break
             }
+        }
+    }
+
+    private func probeSCKAccess(
+        updatingFailureState: Bool
+    ) async -> ScreenCaptureAccessProbeResult {
+        let result = await permissionDependencies.sckAccessProbe()
+
+        switch result {
+        case .authorized:
+            logger.info("SCK probe: authorized")
+            sckFailed = false
+            sckFailureCount = 0
+        case .userDeclined:
+            logger.info("SCK probe: user declined")
+            if updatingFailureState {
+                sckFailed = true
+                logger.error("SCK permanently disabled (user declined)")
+            }
+        case .transientFailure:
+            logger.info("SCK probe: transient failure")
+            if updatingFailureState {
+                sckFailureCount += 1
+                if sckFailureCount >= maxTransientFailures {
+                    sckFailed = true
+                    logger.warning(
+                        "SCK disabled after \(self.maxTransientFailures) consecutive transient failures"
+                    )
+                }
+            }
+        }
+
+        return result
+    }
+
+    nonisolated static func probeSCKAccessViaMinimalScreenshot() async -> ScreenCaptureAccessProbeResult {
+        let bounds = CGDisplayBounds(CGMainDisplayID())
+        guard !bounds.isEmpty else {
+            return .transientFailure
+        }
+
+        let probeRect = CGRect(
+            x: bounds.origin.x + 1,
+            y: bounds.origin.y + 1,
+            width: min(2, max(1, bounds.width - 2)),
+            height: min(2, max(1, bounds.height - 2))
+        ).integral
+
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                SCScreenshotManager.captureImage(in: probeRect) { image, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                        return
+                    }
+                    guard image != nil else {
+                        continuation.resume(
+                            throwing: CaptureError.captureFailed(
+                                "ScreenCaptureKit returned no probe image"
+                            )
+                        )
+                        return
+                    }
+                    continuation.resume()
+                }
+            }
+            return .authorized
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == SCStreamError.errorDomain,
+               let code = SCStreamError.Code(rawValue: nsError.code),
+               code == .userDeclined {
+                return .userDeclined
+            }
+            return .transientFailure
         }
     }
 }

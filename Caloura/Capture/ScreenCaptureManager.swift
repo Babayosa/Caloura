@@ -21,10 +21,16 @@ enum ScreenCapturePermissionAlertAction: Sendable {
     case restartApp
 }
 
+enum ScreenCaptureAccessProbeResult: Sendable, Equatable {
+    case authorized
+    case userDeclined
+    case transientFailure
+}
+
 struct ScreenCapturePermissionDependencies: Sendable {
     let cgPreflight: @Sendable () -> Bool
     let cgRequest: @Sendable () -> Bool
-    let sckAccessProbe: @Sendable () async throws -> (displayCount: Int, windowCount: Int)
+    let sckAccessProbe: @Sendable () async -> ScreenCaptureAccessProbeResult
     let runRepairTool: @Sendable (URL, [String]) async throws -> Void
     let presentAlert: @MainActor @Sendable (
         ScreenCaptureManager.PermissionState
@@ -42,9 +48,7 @@ struct ScreenCapturePermissionDependencies: Sendable {
             CGRequestScreenCaptureAccess()
         },
         sckAccessProbe: {
-            let content = try await SCShareableContent
-                .excludingDesktopWindows(true, onScreenWindowsOnly: true)
-            return (content.displays.count, content.windows.count)
+            await ScreenCaptureManager.probeSCKAccessViaMinimalScreenshot()
         },
         runRepairTool: { executableURL, arguments in
             try await ScreenCaptureManager.runRepairTool(
@@ -135,10 +139,10 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     /// Consecutive transient SCK failure count. After
     /// `maxTransientFailures` consecutive transient failures, `sckFailed`
     /// is set to `true` to avoid repeated slow fallback paths.
-    private var sckFailureCount: Int = 0
+    var sckFailureCount: Int = 0
 
     /// Number of consecutive transient failures before giving up on SCK.
-    private let maxTransientFailures = 3
+    let maxTransientFailures = 3
 
     /// Cached SCShareableContent to avoid 80–300ms fetch on every capture.
     private var cachedContent: SCShareableContent?

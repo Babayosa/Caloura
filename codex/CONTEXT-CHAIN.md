@@ -120,6 +120,23 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 12: Screen Recording recovery + neutral DMG surface
+**Status:** Complete  
+**Branch:** `codex/task-12-screen-recording-recovery`  
+**Changes:**
+- Reworked Screen Recording onboarding so passive identity mismatches no longer trigger stale-copy repair on launch; only explicit live validation failures can produce `staleRecord`
+- Replaced the old shareable-content permission probe with a minimal `SCScreenshotManager.captureImage(in:)` probe that distinguishes `authorized`, `userDeclined`, and `transientFailure`
+- Added silent priming for already-granted Screen Recording on the first-capture screen and auto-resume of the pending first capture after System Settings return
+- Swapped the DMG install window background from the app icon to a dedicated neutral light PNG asset and made the release script fail if that asset is missing
+- Added focused tests for passive mismatch handling, post-settings live validation, typed SCK probe behavior, and the release script’s DMG background source
+
+**Decisions Made:**
+- Fingerprint mismatches remain advisory until the installed app actually fails a live capture validation path
+- Background/onboarding permission probes must never permanently disable SCK for later capture attempts
+- The DMG surface should stay plain and professional: neutral light background, same fixed drag-to-Applications layout
+
+---
+
 ## Task 04: Codex scope + codemap refresh
 **Status:** Complete  
 **Branch:** codex/task-04-codex-doc-refresh  

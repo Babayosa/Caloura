@@ -24,40 +24,54 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
     func testCheckSCKAccess_successClearsFailureState() async {
         let manager = ScreenCaptureManager(
             permissionDependencies: makeDependencies(
-                sckProbe: { (displayCount: 2, windowCount: 12) }
+                sckProbe: { .authorized }
             )
         )
         manager.sckFailed = true
 
         let result = await manager.checkSCKAccess()
 
-        XCTAssertTrue(result)
+        XCTAssertEqual(result, .authorized)
         XCTAssertFalse(manager.sckFailed)
     }
 
-    func testCheckSCKAccess_failureSetsFailureState() async {
+    func testCheckSCKAccess_userDeclinedSetsFailureState() async {
         let manager = ScreenCaptureManager(
             permissionDependencies: makeDependencies(
-                sckProbe: { throw URLError(.notConnectedToInternet) }
+                sckProbe: { .userDeclined }
             )
         )
 
         let result = await manager.checkSCKAccess()
 
-        XCTAssertFalse(result)
+        XCTAssertEqual(result, .userDeclined)
         XCTAssertTrue(manager.sckFailed)
+    }
+
+    func testPrimeSCKAccessIfPossible_failureDoesNotSetFailureState() async {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(
+                sckProbe: { .transientFailure }
+            )
+        )
+        manager.sckFailed = false
+
+        let result = await manager.primeSCKAccessIfPossible()
+
+        XCTAssertEqual(result, .transientFailure)
+        XCTAssertFalse(manager.sckFailed)
     }
 
     func testValidateSCKAccessUserInitiated_delegatesToCheckSCKAccess() async {
         let manager = ScreenCaptureManager(
             permissionDependencies: makeDependencies(
-                sckProbe: { (displayCount: 1, windowCount: 2) }
+                sckProbe: { .authorized }
             )
         )
 
         let result = await manager.validateSCKAccessUserInitiated()
 
-        XCTAssertTrue(result)
+        XCTAssertEqual(result, .authorized)
         XCTAssertFalse(manager.sckFailed)
     }
 
@@ -68,16 +82,16 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
                 box: box,
                 sckProbe: {
                     if box.runRepairToolCalls.isEmpty {
-                        throw URLError(.notConnectedToInternet)
+                        return .transientFailure
                     }
-                    return (displayCount: 1, windowCount: 4)
+                    return .authorized
                 }
             )
         )
 
         let result = await manager.repairSCKAccess()
 
-        XCTAssertTrue(result)
+        XCTAssertEqual(result, .authorized)
         XCTAssertEqual(box.runRepairToolCalls.count, 1)
         XCTAssertEqual(box.runRepairToolCalls.first?.0.lastPathComponent, "launchctl")
     }
@@ -209,8 +223,8 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
         box: DependencyBox = DependencyBox(),
         preflight: @escaping @Sendable () -> Bool = { true },
         request: @escaping @Sendable () -> Bool = { false },
-        sckProbe: @escaping @Sendable () async throws -> (displayCount: Int, windowCount: Int) = {
-            (displayCount: 1, windowCount: 1)
+        sckProbe: @escaping @Sendable () async -> ScreenCaptureAccessProbeResult = {
+            .authorized
         },
         alertAction: ScreenCapturePermissionAlertAction = .cancel,
         relaunchResult: Result<Void, Error> = .success(())

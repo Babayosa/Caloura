@@ -254,14 +254,15 @@ Manual checks to perform now:
 1. Open the downloaded DMG and verify it presents `Caloura.app` alongside an `Applications` shortcut.
 2. Drag Caloura into `/Applications` and launch the installed copy only.
 3. On first launch, verify onboarding starts on "Take your first screenshot" instead of a permission wizard.
-4. Trigger the first capture from the onboarding CTA. If Screen Recording is missing, verify the app waits for the System Settings return and re-checks automatically.
-5. If Screen Recording was just granted, verify the installed app recognizes it without falling back to the old repair maze.
-6. Verify scroll capture requests Accessibility only when Scroll Capture is used.
-7. Verify no keychain password dialog appears at startup, onboarding, capture, License, or History.
-8. After a few captures, open History and confirm encrypted-at-rest storage exists at:
+4. If Screen Recording is already enabled, trigger the first capture and verify Caloura starts capture without switching into repair UI first.
+5. If Screen Recording is missing, trigger the first capture from the onboarding CTA and verify the app waits for the System Settings return, re-checks automatically, and resumes the pending capture on success.
+6. If Screen Recording was just granted, verify the installed app recognizes it without falling back to repair UI unless a real capture validation still fails.
+7. Verify scroll capture requests Accessibility only when Scroll Capture is used.
+8. Verify no keychain password dialog appears at startup, onboarding, capture, License, or History.
+9. After a few captures, open History and confirm encrypted-at-rest storage exists at:
    - ~/Library/Application Support/Caloura/history.enc (expected perm 600)
    - ~/Library/Application Support/Caloura/security/history.key (expected perm 600; parent dir 700)
-9. Verify the manual download is the DMG while Sparkle still updates from the ZIP/appcast path.
+10. Verify the manual download is the DMG while Sparkle still updates from the ZIP/appcast path.
 MANUAL
 }
 

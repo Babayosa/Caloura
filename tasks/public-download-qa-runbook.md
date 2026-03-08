@@ -51,10 +51,12 @@ scripts/public_download_qa.sh --version 1.0.7 trial-reset
 
 - Manual download is the DMG, while the Sparkle appcast still points to the ZIP.
 - The DMG opens with `Caloura.app` and an `Applications` shortcut in a drag-to-install layout.
+- The DMG background is a plain light neutral surface, not reused product artwork.
 - First launch from `/Applications` opens directly to `Take your first screenshot`, not a permission wizard.
+- If Screen Recording is already enabled, the first capture starts without an immediate repair detour.
 - Screen Recording is requested only when the first real capture starts.
-- Returning from System Settings triggers an automatic permission re-check.
-- Stale-copy issues show explicit `/Applications/Caloura.app` repair guidance instead of generic denial.
+- Returning from System Settings triggers an automatic permission re-check and resumes the pending first capture on success.
+- Stale-copy issues show explicit `/Applications/Caloura.app` repair guidance only after a real capture validation fails.
 - Scroll Capture is the only path that asks for Accessibility.
 - No keychain password prompt appears on startup, onboarding, capture, License, or History.
 - Permission failure shows recovery guidance once; no prompt/dialog loops.

@@ -52,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             let status = await PermissionCoordinator.shared.refreshPassiveStatus()
             AppState.shared.hasScreenRecordingPermission = status != .denied
-            if status != .denied && status != .staleRecord {
+            if status != .denied {
                 await ScreenCaptureManager.shared.prewarmWindowShareableContent()
             }
         }
@@ -110,7 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor [onboardingController, nagController] in
             let passiveStatus = await PermissionCoordinator.shared.refreshPassiveStatus()
             AppState.shared.hasScreenRecordingPermission = passiveStatus != .denied
-            if passiveStatus != .denied && passiveStatus != .staleRecord {
+            if passiveStatus != .denied {
                 await ScreenCaptureManager.shared.prewarmWindowShareableContent()
             }
 
@@ -122,12 +122,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 onboardingController.show(
                     settings: AppSettings.shared,
                     initialState: .grantScreenRecording
-                )
-                showedOnboarding = true
-            } else if passiveStatus == .staleRecord {
-                onboardingController.show(
-                    settings: AppSettings.shared,
-                    initialState: .repairStalePermissionRecord
                 )
                 showedOnboarding = true
             }
@@ -239,7 +233,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Task { @MainActor in
-            let status = await PermissionCoordinator.shared.refreshPassiveStatus()
+            let currentStatus = PermissionCoordinator.shared.permissionUIModel.status
+            let status: ScreenRecordingState
+            switch currentStatus {
+            case .needsRelaunch, .staleRecord, .repairing:
+                status = currentStatus
+            case .denied, .grantedNeedsValidation, .working:
+                status = await PermissionCoordinator.shared.refreshPassiveStatus()
+            }
             let state: OnboardingFlowState
             switch status {
             case .denied:

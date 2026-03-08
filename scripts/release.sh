@@ -67,7 +67,7 @@ NOTARY_PROFILE="${NOTARY_PROFILE:-Caloura-Notarize}"
 BUILD_SETTINGS_CACHE="$BUILD_DIR/release-build-settings.txt"
 BUILD_DESTINATION="${BUILD_DESTINATION:-platform=macOS,arch=arm64}"
 DMG_VOLUME_NAME="$APP_NAME"
-DMG_BACKGROUND_SOURCE="$PROJECT_DIR/Caloura/Resources/Assets.xcassets/AppIcon.appiconset/icon_512x512.png"
+DMG_BACKGROUND_SOURCE="$PROJECT_DIR/scripts/assets/dmg-neutral-background.png"
 DMG_BACKGROUND_NAME="install-background.png"
 
 normalize_version() {
@@ -305,14 +305,16 @@ create_branded_dmg() {
     local mount_point="$BUILD_DIR/dmg-mount"
     local rw_dmg="$BUILD_DIR/$APP_NAME-$VERSION-rw.dmg"
 
+    if [ ! -f "$DMG_BACKGROUND_SOURCE" ]; then
+        fail_release "Missing DMG background asset at $DMG_BACKGROUND_SOURCE."
+    fi
+
     rm -rf "$staging_dir" "$mount_point" "$rw_dmg" "$DMG_PATH"
     mkdir -p "$staging_dir/.background" "$mount_point"
 
     cp -R "$APP_PATH" "$staging_dir/$APP_NAME.app"
     ln -s /Applications "$staging_dir/Applications"
-    if [ -f "$DMG_BACKGROUND_SOURCE" ]; then
-        cp "$DMG_BACKGROUND_SOURCE" "$staging_dir/.background/$DMG_BACKGROUND_NAME"
-    fi
+    cp "$DMG_BACKGROUND_SOURCE" "$staging_dir/.background/$DMG_BACKGROUND_NAME"
 
     hdiutil create -quiet \
         -fs HFS+ \
@@ -342,9 +344,7 @@ tell application "Finder"
         set theViewOptions to the icon view options of container window
         set arrangement of theViewOptions to not arranged
         set icon size of theViewOptions to 128
-        try
-            set background picture of theViewOptions to file ".background:$DMG_BACKGROUND_NAME"
-        end try
+        set background picture of theViewOptions to file ".background:$DMG_BACKGROUND_NAME"
         set position of item "$APP_NAME.app" of container window to {160, 180}
         set position of item "Applications" of container window to {400, 180}
         close
