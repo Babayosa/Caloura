@@ -25,7 +25,7 @@
 ## Permissions / macOS
 
 ### CGWindowList false positive on Sequoia [Graduated]
-- **Rule**: Never use `CGWindowListCopyWindowInfo` as a permission check. `CGPreflightScreenCaptureAccess()` is the only reliable signal.
+- **Rule**: Never use `CGWindowListCopyWindowInfo` as a permission check. `CGPreflightScreenCaptureAccess()` is only a coarse passive signal; after an explicit Screen Recording grant attempt, use live ScreenCaptureKit validation as the authority.
 - **Context**: Sequoia returns window metadata (names, owners) without screen recording permission.
 
 ### CODE_SIGNING_ALLOWED=NO strips TCC [Graduated]

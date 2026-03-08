@@ -143,11 +143,13 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         XCTAssertEqual(alertCount, 1)
     }
 
-    func testRevalidateAfterSettingsReturnUsesLiveValidationBeforeStaleDecision() async {
+    func testRevalidateAfterSettingsReturnAutoRelaunchesBeforeStaleDecision() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let identity = PermissionTestHelpers.makeIdentity("settings-stale")
         defaults.set("different-fingerprint", forKey: "permissionLastWorkingIdentityFingerprint")
         var passiveChecks = 0
+        var relaunchCount = 0
+        var currentTime = 16_000.0
 
         let coordinator = PermissionCoordinator(
             defaults: defaults,
@@ -160,10 +162,15 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             permissionRequester: { true },
             identityProvider: { identity },
             statusMessageSink: { _ in },
-            now: { Date(timeIntervalSince1970: 16_000 + Double(passiveChecks)) },
-            repairSCKAccess: { .transientFailure }
+            now: {
+                defer { currentTime += 0.8 }
+                return Date(timeIntervalSince1970: currentTime)
+            },
+            repairSCKAccess: { .transientFailure },
+            relaunchApp: { relaunchCount += 1 }
         )
 
+        XCTAssertTrue(coordinator.requestPermissionFromSystem())
         let status = await coordinator.revalidateAfterSettingsReturn(
             timeoutSeconds: 3,
             pollIntervalNanoseconds: 1_000_000,
@@ -171,7 +178,9 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             maxSCKRetries: 3
         )
 
-        XCTAssertEqual(status, .staleRecord)
+        XCTAssertEqual(status, .repairing)
+        XCTAssertEqual(relaunchCount, 1)
+        XCTAssertGreaterThanOrEqual(passiveChecks, 1)
     }
 
     func testExplicitFailureReturnsNeedsRelaunchForSamePathDifferentSigning() async {

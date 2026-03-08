@@ -173,6 +173,7 @@ struct OnboardingView: View {
     func startFirstCapture() {
         onboardingLogger.info("funnel_event=first_capture_requested")
         shouldResumePendingCapture = true
+        permissionCoordinator.armPendingCaptureResume()
         Task { @MainActor in
             let passiveStatus = await permissionCoordinator.refreshPassiveStatus()
             switch passiveStatus {
@@ -191,6 +192,9 @@ struct OnboardingView: View {
     func requestScreenRecording() {
         guard !isCheckingPermission else { return }
         onboardingLogger.info("funnel_event=screen_recording_prompt_requested")
+        if shouldResumePendingCapture {
+            permissionCoordinator.armPendingCaptureResume()
+        }
         _ = permissionCoordinator.requestPermissionFromSystem()
         transition(to: .waitingForSettingsReturn)
     }
@@ -235,6 +239,9 @@ struct OnboardingView: View {
         case .denied:
             transition(to: .grantScreenRecording)
         case .grantedNeedsValidation:
+            if flow.currentState == .waitingForSettingsReturn {
+                return
+            }
             if !settings.hasCompletedOnboarding {
                 transition(to: .readyForFirstCapture)
             } else if flow.currentState != .completed {
@@ -255,6 +262,7 @@ struct OnboardingView: View {
 
     func launchFirstCapture() {
         shouldResumePendingCapture = false
+        permissionCoordinator.clearPendingCaptureResume()
         settings.hasSeenWelcome = true
         transition(to: .completed)
         onDismiss()
@@ -265,6 +273,7 @@ struct OnboardingView: View {
 
     func dismissWindow() {
         shouldResumePendingCapture = false
+        permissionCoordinator.clearPendingCaptureResume()
         settings.hasSeenWelcome = true
         onDismiss()
     }

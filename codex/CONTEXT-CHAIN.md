@@ -213,4 +213,20 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 13: Screen Recording post-grant detection fix
+**Status:** Complete
+**Branch:** codex/task-13-post-grant-fix
+**Changes:**
+- Reworked post-Settings Screen Recording revalidation so `PermissionCoordinator` no longer waits for `CGPreflightScreenCaptureAccess()` to flip before attempting live SCK validation
+- Added recent permission-request session tracking, current-process live-validation caching, and one-time pending-capture resume across automatic relaunch
+- Updated onboarding and launch flow so stale in-process CG results keep the user in the waiting path instead of bouncing back to the grant screen
+- Tightened capture error classification so stale CG false no longer turns transient post-grant capture failures into `.noPermission`
+- Updated README, CLAUDE rules, and lessons to treat CG as coarse and SCK as authoritative after an explicit grant attempt
+
+**Decisions Made:**
+- Use one automatic self-relaunch only as the last resort after a 10s post-Settings grace window
+- Resume the pending first capture automatically after that relaunch instead of dumping the user back into generic onboarding
+
+---
+
 <!-- Add new task entries above this line -->

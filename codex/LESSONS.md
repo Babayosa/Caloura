@@ -99,9 +99,9 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Example**: Caloura now publishes a branded DMG for manual installs, keeps ZIP output for Sparkle, and blocks onboarding on moving the app into `/Applications` first.
 
 ### [Graduated] Passive Screen Recording grant is not the same as a working capture copy
-- **Rule**: Treat `CGPreflightScreenCaptureAccess()` as a coarse grant check only; do not mark Screen Recording as working until the current installed app copy succeeds at real ScreenCaptureKit validation.
-- **Context**: TCC can report a grant for a stale or moved app record even when the active app bundle still cannot capture, especially after duplicate copies or path changes.
-- **Example**: `PermissionCoordinator` now distinguishes `grantedNeedsValidation`, `working`, `needsRelaunch`, and `staleRecord`, and onboarding waits for interactive validation after the user returns from System Settings.
+- **Rule**: Treat `CGPreflightScreenCaptureAccess()` as a coarse grant check only; do not mark Screen Recording as working until the current installed app copy succeeds at real ScreenCaptureKit validation, and do not bounce back to denial purely because CG stays false after a recent explicit grant attempt.
+- **Context**: TCC can report a grant for a stale or moved app record even when the active app bundle still cannot capture, especially after duplicate copies or path changes. On macOS 26, the opposite failure also appears in practice: same-process CG can stay stale after the user enables Screen Recording, while a live SCK validation path is the only trustworthy way to decide whether to proceed, keep waiting, or relaunch once.
+- **Example**: `PermissionCoordinator` now distinguishes passive denial from post-Settings validation, keeps onboarding in the waiting flow while SCK retries run, trusts a successful live validation for the rest of the current launch, and performs one automatic relaunch only after the explicit post-Settings grace window expires.
 
 ### [Graduated] Passive fingerprint mismatch should not trigger onboarding repair by itself
 - **Rule**: A stored identity mismatch is advisory only. Do not show stale-copy repair UI until the current app copy fails a real capture validation and a single silent repair retry.

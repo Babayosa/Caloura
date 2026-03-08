@@ -75,6 +75,34 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
         XCTAssertFalse(manager.sckFailed)
     }
 
+    func testCoreGraphicsPermissionFailureCheckCanBeSuppressedDuringRecentGrantWindow() {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(preflight: { false }),
+            cgPreflightAuthorityProvider: { false }
+        )
+
+        XCTAssertFalse(manager.shouldTreatCoreGraphicsStateAsPermissionDenied())
+        XCTAssertFalse(
+            manager.shouldTreatCaptureErrorAsPermissionDenied(
+                NSError(domain: "tests", code: 1)
+            )
+        )
+    }
+
+    func testCoreGraphicsPermissionFailureCheckStillAppliesWhenAuthoritative() {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(preflight: { false }),
+            cgPreflightAuthorityProvider: { true }
+        )
+
+        XCTAssertTrue(manager.shouldTreatCoreGraphicsStateAsPermissionDenied())
+        XCTAssertTrue(
+            manager.shouldTreatCaptureErrorAsPermissionDenied(
+                NSError(domain: "tests", code: 1)
+            )
+        )
+    }
+
     func testRepairSCKAccess_runsRepairToolAndRechecksAuthorization() async {
         let box = DependencyBox()
         let manager = ScreenCaptureManager(

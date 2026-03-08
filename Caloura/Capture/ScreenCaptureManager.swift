@@ -153,6 +153,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     private var didBecomeActiveObserver: (any NSObjectProtocol)?
     let permissionDependencies: ScreenCapturePermissionDependencies
     private let shareableContentProvider: @MainActor () async throws -> SCShareableContent
+    private let cgPreflightAuthorityProvider: @MainActor () -> Bool
     private let filteredScreenshotProvider: @MainActor (
         SCContentFilter,
         SCStreamConfiguration
@@ -170,6 +171,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     init(
         permissionDependencies: ScreenCapturePermissionDependencies? = nil,
         shareableContentProvider: (@MainActor () async throws -> SCShareableContent)? = nil,
+        cgPreflightAuthorityProvider: (@MainActor () -> Bool)? = nil,
         filteredScreenshotProvider: (
             @MainActor (
                 SCContentFilter,
@@ -180,6 +182,9 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         self.permissionDependencies = permissionDependencies ?? .live
         self.shareableContentProvider = shareableContentProvider ?? {
             try await SCShareableContent.current
+        }
+        self.cgPreflightAuthorityProvider = cgPreflightAuthorityProvider ?? {
+            PermissionCoordinator.shared.coreGraphicsPreflightIsAuthoritative()
         }
         self.filteredScreenshotProvider = filteredScreenshotProvider ?? {
             contentFilter,
@@ -280,6 +285,20 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         }
     }
 
+    func shouldTreatCoreGraphicsStateAsPermissionDenied() -> Bool {
+        guard cgPreflightAuthorityProvider() else {
+            return false
+        }
+        return !checkPermission()
+    }
+
+    func shouldTreatCaptureErrorAsPermissionDenied(_ error: Error) -> Bool {
+        if isSCKErrorPermanent(error) {
+            return true
+        }
+        return shouldTreatCoreGraphicsStateAsPermissionDenied()
+    }
+
     // MARK: - SCShareableContent Cache
 
     func shareableContent(
@@ -332,13 +351,16 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                     "SCK captureFullScreen failed: \(error.localizedDescription)"
                 )
                 handleSCKFailure(error)
+                if shouldTreatCaptureErrorAsPermissionDenied(error) {
+                    throw CaptureError.noPermission
+                }
             }
         }
         do {
             logger.info("Trying screencapture CLI for fullscreen")
             return try await screencaptureFullScreen(screen: screen)
         } catch {
-            if !checkPermission() {
+            if shouldTreatCoreGraphicsStateAsPermissionDenied() {
                 throw CaptureError.noPermission
             }
             throw error
@@ -366,6 +388,9 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                     "SCK captureArea failed: \(error.localizedDescription)"
                 )
                 handleSCKFailure(error)
+                if shouldTreatCaptureErrorAsPermissionDenied(error) {
+                    throw CaptureError.noPermission
+                }
             }
         }
 
@@ -373,7 +398,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
             logger.info("Trying screencapture CLI for area")
             return try await screencaptureArea(rect: rect, screen: screen)
         } catch {
-            if !checkPermission() {
+            if shouldTreatCoreGraphicsStateAsPermissionDenied() {
                 throw CaptureError.noPermission
             }
             throw error
@@ -397,6 +422,9 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                     "SCK captureAreaInDisplaySpace failed: \(error.localizedDescription)"
                 )
                 handleSCKFailure(error)
+                if shouldTreatCaptureErrorAsPermissionDenied(error) {
+                    throw CaptureError.noPermission
+                }
             }
         }
 
@@ -404,7 +432,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
             logger.info("Trying screencapture CLI for display-space area")
             return try await screencaptureAreaInDisplaySpace(rect: rect)
         } catch {
-            if !checkPermission() {
+            if shouldTreatCoreGraphicsStateAsPermissionDenied() {
                 throw CaptureError.noPermission
             }
             throw error
@@ -437,7 +465,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                 "SCK captureWindow failed: \(error.localizedDescription)"
             )
             handleSCKFailure(error)
-            if isSCKErrorPermanent(error) || !checkPermission() {
+            if shouldTreatCaptureErrorAsPermissionDenied(error) {
                 throw CaptureError.noPermission
             }
             throw error

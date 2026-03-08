@@ -109,17 +109,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Check passive screen recording status (non-interactive) and handle onboarding.
         let permissionCheckStart = CFAbsoluteTimeGetCurrent()
         Task { @MainActor [onboardingController, nagController] in
-            let passiveStatus = await PermissionCoordinator.shared.refreshPassiveStatus()
-            AppState.shared.hasScreenRecordingPermission = passiveStatus != .denied
-            if passiveStatus != .denied {
+            let permissionCoordinator = PermissionCoordinator.shared
+            var launchPermissionStatus = await permissionCoordinator.refreshPassiveStatus()
+            AppState.shared.hasScreenRecordingPermission = launchPermissionStatus != .denied
+            if launchPermissionStatus != .denied {
                 await ScreenCaptureManager.shared.prewarmWindowShareableContent()
             }
 
+            let shouldResumePendingCapture = permissionCoordinator.takePendingCaptureResumeIfFresh()
+            if shouldResumePendingCapture, launchPermissionStatus == .grantedNeedsValidation {
+                launchPermissionStatus = await permissionCoordinator.runUserInitiatedValidation()
+                AppState.shared.hasScreenRecordingPermission = launchPermissionStatus != .denied
+            }
+
+            if shouldResumePendingCapture, launchPermissionStatus == .working {
+                AppSettings.shared.hasSeenWelcome = true
+                AppCommandRouter.shared.dispatch(.captureArea)
+
+                let permissionDuration = (CFAbsoluteTimeGetCurrent() - permissionCheckStart) * 1000
+                let totalLaunchDuration = (CFAbsoluteTimeGetCurrent() - launchStart) * 1000
+                appLaunchLogger.debug(
+                    "Passive permission diagnostics completed in \(permissionDuration, privacy: .public) ms"
+                )
+                appLaunchLogger.info("Launch flow ready in \(totalLaunchDuration, privacy: .public) ms")
+                return
+            }
+
             var showedOnboarding = false
-            if !AppSettings.shared.hasCompletedOnboarding {
+            if shouldResumePendingCapture {
+                onboardingController.show(
+                    settings: AppSettings.shared,
+                    initialState: onboardingState(
+                        for: launchPermissionStatus,
+                        hasCompletedOnboarding: AppSettings.shared.hasCompletedOnboarding
+                    )
+                )
+                showedOnboarding = true
+            } else if !AppSettings.shared.hasCompletedOnboarding {
                 onboardingController.showIfNeeded(settings: AppSettings.shared)
                 showedOnboarding = true
-            } else if passiveStatus == .denied {
+            } else if launchPermissionStatus == .denied {
                 onboardingController.show(
                     settings: AppSettings.shared,
                     initialState: .grantScreenRecording
@@ -139,6 +168,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 "Passive permission diagnostics completed in \(permissionDuration, privacy: .public) ms"
             )
             appLaunchLogger.info("Launch flow ready in \(totalLaunchDuration, privacy: .public) ms")
+        }
+    }
+
+    private func onboardingState(
+        for status: ScreenRecordingState,
+        hasCompletedOnboarding: Bool
+    ) -> OnboardingFlowState {
+        switch status {
+        case .denied:
+            return .grantScreenRecording
+        case .needsRelaunch, .staleRecord, .repairing:
+            return .repairStalePermissionRecord
+        case .grantedNeedsValidation, .working:
+            return hasCompletedOnboarding ? .completed : .readyForFirstCapture
         }
     }
 
