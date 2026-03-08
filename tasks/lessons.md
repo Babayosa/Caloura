@@ -36,6 +36,11 @@
 - **Context**: Passive records and same-copy history can keep Screen Recording out of hard denial while macOS still needs one successful live validation. Showing “Permission repaired” first makes the next failed capture look contradictory.
 - **Example**: `OnboardingView.handlePermissionStatus(...)` now routes `grantedNeedsValidation` back to the repair/validation step for completed users, and `AppDelegate.onboardingState(...)` maps only `.working` to `.completed`.
 
+### Historical working state must not suppress a fresh permission request
+- **Rule**: Never use stored “last working” path or fingerprint by itself to bypass `CGRequestScreenCaptureAccess()`. Only an actual recent permission-request session may keep stale `CGPreflightScreenCaptureAccess()` from forcing denial.
+- **Context**: After `tccutil reset` or a removed Screen Recording record, relying on historical working metadata prevents Caloura from reappearing in System Settings because the app never re-requests permission.
+- **Example**: `PermissionCoordinator.shouldTrustLiveValidationWithoutCoreGraphics(...)` now trusts only fresh request-session state or current-process live validation, while `takePendingCaptureResumeIfFresh()` recreates the recent request session in memory after the one automatic relaunch.
+
 ## Swift Language
 
 ### Extension file splitting

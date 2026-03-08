@@ -415,7 +415,7 @@ final class PermissionCoordinatorTests: XCTestCase {
         XCTAssertEqual(refreshStatus, .working)
     }
 
-    func testRefreshPassiveStatusKeepsKnownWorkingPathInValidationWhenCGStaysFalse() async {
+    func testRefreshPassiveStatusDeniedWhenOnlyLastWorkingPathExistsAndNoActiveRequest() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let identity = PermissionTestHelpers.makeIdentity("same-path-refresh")
         defaults.set(
@@ -436,17 +436,36 @@ final class PermissionCoordinatorTests: XCTestCase {
 
         let status = await coordinator.refreshPassiveStatus()
 
+        XCTAssertEqual(status, .denied)
+        XCTAssertEqual(coordinator.permissionUIModel.status, .denied)
+    }
+
+    func testRefreshPassiveStatusKeepsPendingCaptureResumeInValidationWhenCGStaysFalse() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        let identity = PermissionTestHelpers.makeIdentity("same-path-interactive")
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: { false },
+            interactiveCheck: { .transientFailure },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { identity },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 26_600) }
+        )
+
+        coordinator.armPendingCaptureResume()
+        XCTAssertTrue(coordinator.takePendingCaptureResumeIfFresh())
+        let status = await coordinator.refreshPassiveStatus()
+
         XCTAssertEqual(status, .grantedNeedsValidation)
         XCTAssertEqual(coordinator.permissionUIModel.status, .grantedNeedsValidation)
     }
 
-    func testRunUserInitiatedValidationCanSucceedWhenCGStaysFalseForKnownWorkingPath() async {
+    func testRunUserInitiatedValidationCanSucceedWhenCGStaysFalseDuringPendingResume() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
-        let identity = PermissionTestHelpers.makeIdentity("same-path-interactive")
-        defaults.set(
-            identity.executablePath,
-            forKey: "permissionLastWorkingExecutablePath"
-        )
+        let identity = PermissionTestHelpers.makeIdentity("same-path-interactive-success")
 
         let coordinator = PermissionCoordinator(
             defaults: defaults,
@@ -456,22 +475,20 @@ final class PermissionCoordinatorTests: XCTestCase {
             permissionRequester: { true },
             identityProvider: { identity },
             statusMessageSink: { _ in },
-            now: { Date(timeIntervalSince1970: 26_600) }
+            now: { Date(timeIntervalSince1970: 26_650) }
         )
 
+        coordinator.armPendingCaptureResume()
+        XCTAssertTrue(coordinator.takePendingCaptureResumeIfFresh())
         let status = await coordinator.runUserInitiatedValidation()
 
         XCTAssertEqual(status, .working)
         XCTAssertEqual(coordinator.permissionUIModel.status, .working)
     }
 
-    func testHandleCapturePermissionFailureForKnownWorkingPathRepairsBeforeAlert() async {
+    func testHandleCapturePermissionFailureDuringPendingResumeRepairsBeforeAlert() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let identity = PermissionTestHelpers.makeIdentity("same-path-repair")
-        defaults.set(
-            identity.executablePath,
-            forKey: "permissionLastWorkingExecutablePath"
-        )
         var alertCount = 0
 
         let coordinator = PermissionCoordinator(
@@ -486,6 +503,8 @@ final class PermissionCoordinatorTests: XCTestCase {
             repairSCKAccess: { .authorized }
         )
 
+        coordinator.armPendingCaptureResume()
+        XCTAssertTrue(coordinator.takePendingCaptureResumeIfFresh())
         await coordinator.handleCapturePermissionFailure()
 
         XCTAssertEqual(alertCount, 0)

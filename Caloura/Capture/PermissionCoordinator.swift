@@ -285,10 +285,9 @@ final class PermissionCoordinator: ObservableObject {
         if isLiveValidatedIdentity(identity) {
             status = .working
         } else if !cgGranted {
-            status = shouldTrustLiveValidationWithoutCoreGraphics(
-                for: identity,
-                at: timestamp
-            ) ? .grantedNeedsValidation : .denied
+            status = shouldTrustLiveValidationWithoutCoreGraphics(at: timestamp)
+                ? .grantedNeedsValidation
+                : .denied
         } else if isKnownWorkingIdentity(identity) {
             status = .working
         } else {
@@ -311,7 +310,14 @@ final class PermissionCoordinator: ObservableObject {
         guard let requestedAt = defaults.object(forKey: Keys.pendingCaptureResumeRequestedAt) as? Date else {
             return false
         }
-        return now().timeIntervalSince(requestedAt) <= pendingCaptureResumeTTLSeconds
+        guard now().timeIntervalSince(requestedAt) <= pendingCaptureResumeTTLSeconds else {
+            return false
+        }
+        recentPermissionRequestSession = PermissionRequestSession(
+            startedAt: requestedAt,
+            didAutoRelaunch: true
+        )
+        return true
     }
 
     func coreGraphicsPreflightIsAuthoritative() -> Bool {
@@ -319,7 +325,6 @@ final class PermissionCoordinator: ObservableObject {
         clearExpiredPermissionRequestSessionIfNeeded(at: timestamp)
         return recentPermissionRequestSession == nil
             && liveValidatedIdentityFingerprint == nil
-            && !currentExecutablePathMatchesLastWorkingPath()
     }
 
     /// Perform a non-blocking live validation once CoreGraphics already
@@ -370,10 +375,7 @@ final class PermissionCoordinator: ObservableObject {
         logger.info("interactive_check_start cg_granted=\(cgGranted, privacy: .public)")
 
         guard cgGranted
-            || shouldTrustLiveValidationWithoutCoreGraphics(
-                for: identity,
-                at: timestamp
-            ) else {
+            || shouldTrustLiveValidationWithoutCoreGraphics(at: timestamp) else {
             updateUIModel(status: .denied, identity: identity)
             return .denied
         }
@@ -646,19 +648,9 @@ private extension PermissionCoordinator {
         lastWorkingExecutablePath() == identity.executablePath
     }
 
-    func currentExecutablePathMatchesLastWorkingPath() -> Bool {
-        let currentPath = Bundle.main.executableURL?.path ?? Bundle.main.bundleURL.path
-        return lastWorkingExecutablePath() == currentPath
-    }
-
-    func shouldTrustLiveValidationWithoutCoreGraphics(
-        for identity: PermissionIdentity,
-        at timestamp: Date
-    ) -> Bool {
+    func shouldTrustLiveValidationWithoutCoreGraphics(at timestamp: Date) -> Bool {
         hasFreshPermissionRequestSession(at: timestamp)
-            || isLiveValidatedIdentity(identity)
-            || isKnownWorkingIdentity(identity)
-            || lastWorkingExecutablePathMatches(identity)
+            || liveValidatedIdentityFingerprint != nil
     }
 
     func hasFreshPermissionRequestSession(at timestamp: Date) -> Bool {

@@ -113,6 +113,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: Same-copy stale CoreGraphics state can keep Screen Recording in a validation-needed state even after the app has enough evidence to avoid a hard denial. Showing “Permission repaired” too early makes the next failed capture look like a contradiction instead of an unfinished validation path.
 - **Example**: `OnboardingView.handlePermissionStatus(...)` now keeps completed users in the repair/validation step while status is `grantedNeedsValidation`, and `AppDelegate.onboardingState(...)` maps only `.working` to `.completed`.
 
+### Historical working state must not replace a fresh Screen Recording request
+- **Rule**: Never let stored “last working” path or fingerprint suppress `CGRequestScreenCaptureAccess()` on its own. Only a real recent permission-request session or current-process live validation may override stale CoreGraphics denial.
+- **Context**: After a TCC reset or deleted Screen Recording record, historical metadata can still match the current app copy. If that metadata bypasses denial, the app never reappears in System Settings because macOS never sees a new request.
+- **Example**: `PermissionCoordinator.shouldTrustLiveValidationWithoutCoreGraphics(...)` now ignores historical path/fingerprint state, and `takePendingCaptureResumeIfFresh()` reconstructs the recent request session after the one automatic relaunch so the post-Settings recovery path still works.
+
 ### [Graduated] DMG install windows need dedicated neutral artwork
 - **Rule**: Use a purpose-built neutral background asset for the drag-to-Applications DMG window instead of repurposing product icons or in-app branding art.
 - **Context**: DMG install surfaces are Finder UI, not in-app onboarding. Reusing product artwork there reads as improvised and undermines the install presentation.

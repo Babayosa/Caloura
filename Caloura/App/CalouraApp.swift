@@ -110,13 +110,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let permissionCheckStart = CFAbsoluteTimeGetCurrent()
         Task { @MainActor [onboardingController, nagController] in
             let permissionCoordinator = PermissionCoordinator.shared
+            let shouldResumePendingCapture = permissionCoordinator.takePendingCaptureResumeIfFresh()
             var launchPermissionStatus = await permissionCoordinator.refreshPassiveStatus()
             AppState.shared.hasScreenRecordingPermission = launchPermissionStatus != .denied
             if launchPermissionStatus != .denied {
                 await ScreenCaptureManager.shared.prewarmWindowShareableContent()
             }
 
-            let shouldResumePendingCapture = permissionCoordinator.takePendingCaptureResumeIfFresh()
             if shouldResumePendingCapture, launchPermissionStatus == .grantedNeedsValidation {
                 launchPermissionStatus = await permissionCoordinator.runUserInitiatedValidation()
                 AppState.shared.hasScreenRecordingPermission = launchPermissionStatus != .denied
