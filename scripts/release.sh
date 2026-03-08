@@ -61,10 +61,14 @@ ARCHIVE_PATH="$BUILD_DIR/$APP_NAME.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
 APP_PATH="$EXPORT_PATH/$APP_NAME.app"
 ZIP_PATH="$BUILD_DIR/$APP_NAME-$VERSION.zip"
+DMG_PATH="$BUILD_DIR/$APP_NAME-$VERSION.dmg"
 MANIFEST_PATH="$BUILD_DIR/release-manifest-$VERSION.json"
 NOTARY_PROFILE="${NOTARY_PROFILE:-Caloura-Notarize}"
 BUILD_SETTINGS_CACHE="$BUILD_DIR/release-build-settings.txt"
 BUILD_DESTINATION="${BUILD_DESTINATION:-platform=macOS,arch=arm64}"
+DMG_VOLUME_NAME="$APP_NAME"
+DMG_BACKGROUND_SOURCE="$PROJECT_DIR/Caloura/Resources/Assets.xcassets/AppIcon.appiconset/icon_512x512.png"
+DMG_BACKGROUND_NAME="install-background.png"
 
 normalize_version() {
     local raw="$1"
@@ -296,13 +300,115 @@ verify_gatekeeper_and_notarization() {
     echo "    Gatekeeper and stapler validation passed"
 }
 
+create_branded_dmg() {
+    local staging_dir="$BUILD_DIR/dmg-root"
+    local mount_point="$BUILD_DIR/dmg-mount"
+    local rw_dmg="$BUILD_DIR/$APP_NAME-$VERSION-rw.dmg"
+
+    rm -rf "$staging_dir" "$mount_point" "$rw_dmg" "$DMG_PATH"
+    mkdir -p "$staging_dir/.background" "$mount_point"
+
+    cp -R "$APP_PATH" "$staging_dir/$APP_NAME.app"
+    ln -s /Applications "$staging_dir/Applications"
+    if [ -f "$DMG_BACKGROUND_SOURCE" ]; then
+        cp "$DMG_BACKGROUND_SOURCE" "$staging_dir/.background/$DMG_BACKGROUND_NAME"
+    fi
+
+    hdiutil create -quiet \
+        -fs HFS+ \
+        -srcfolder "$staging_dir" \
+        -volname "$DMG_VOLUME_NAME" \
+        -format UDRW \
+        "$rw_dmg"
+
+    hdiutil attach -quiet \
+        -readwrite \
+        -noverify \
+        -noautoopen \
+        "$rw_dmg" \
+        -mountpoint "$mount_point"
+
+    osascript >/dev/null <<EOF
+tell application "Finder"
+    tell disk "$DMG_VOLUME_NAME"
+        open
+        set current view of container window to icon view
+        set toolbar visible of container window to false
+        set statusbar visible of container window to false
+        set bounds of container window to {200, 160, 760, 520}
+        set theViewOptions to the icon view options of container window
+        set arrangement of theViewOptions to not arranged
+        set icon size of theViewOptions to 128
+        try
+            set background picture of theViewOptions to file ".background:$DMG_BACKGROUND_NAME"
+        end try
+        set position of item "$APP_NAME.app" of container window to {160, 180}
+        set position of item "Applications" of container window to {400, 180}
+        close
+        open
+        update without registering applications
+        delay 1
+    end tell
+end tell
+EOF
+
+    sync
+    hdiutil detach -quiet "$mount_point"
+    hdiutil convert -quiet "$rw_dmg" -format UDZO -imagekey zlib-level=9 -o "$DMG_PATH"
+
+    rm -rf "$staging_dir" "$mount_point" "$rw_dmg"
+}
+
+sign_and_notarize_dmg() {
+    codesign --force --sign "Developer ID Application" --timestamp "$DMG_PATH"
+    if ! xcrun notarytool submit "$DMG_PATH" \
+        --keychain-profile "$NOTARY_PROFILE" \
+        --wait; then
+        fail_release "DMG notarization failed. Run 'xcrun notarytool log' for details."
+    fi
+    xcrun stapler staple "$DMG_PATH"
+}
+
+verify_dmg_artifact() {
+    local mount_point="$BUILD_DIR/dmg-verify"
+    rm -rf "$mount_point"
+    mkdir -p "$mount_point"
+
+    if ! spctl -a -vv -t open "$DMG_PATH" >/dev/null; then
+        fail_release "Gatekeeper did not accept the DMG."
+    fi
+
+    xcrun stapler validate "$DMG_PATH"
+
+    hdiutil attach -quiet \
+        -readonly \
+        -noverify \
+        -noautoopen \
+        "$DMG_PATH" \
+        -mountpoint "$mount_point"
+
+    check_bundle_version_matches_release "$mount_point/$APP_NAME.app/Contents/Info.plist" "Final dmg artifact"
+
+    if [ ! -L "$mount_point/Applications" ]; then
+        hdiutil detach -quiet "$mount_point" || true
+        fail_release "DMG is missing the /Applications symlink."
+    fi
+
+    hdiutil detach -quiet "$mount_point"
+    rm -rf "$mount_point"
+    echo "    DMG validation passed"
+}
+
 generate_release_manifest() {
     local app_path="$1"
-    local artifact_path="$2"
+    local sparkle_artifact_path="$2"
+    local manual_artifact_path="$3"
 
     python3 "$SCRIPT_DIR/release_manifest.py" \
         --app "$app_path" \
-        --artifact "$artifact_path" \
+        --artifact "$sparkle_artifact_path" \
+        --sparkle-artifact "$sparkle_artifact_path" \
+        --manual-artifact "$manual_artifact_path" \
         --output "$MANIFEST_PATH" >/dev/null
 
     echo "==> Release manifest generated at $MANIFEST_PATH"
@@ -438,7 +544,15 @@ cleanup_zip_verify() {
 trap cleanup_zip_verify EXIT
 ditto -x -k "$ZIP_PATH" "$ZIP_VERIFY_DIR"
 check_bundle_version_matches_release "$ZIP_VERIFY_DIR/$APP_NAME.app/Contents/Info.plist" "Final zip artifact"
-generate_release_manifest "$APP_PATH" "$ZIP_PATH"
+
+echo "==> Creating branded DMG..."
+create_branded_dmg
+
+echo "==> Signing and notarizing DMG..."
+sign_and_notarize_dmg
+verify_dmg_artifact
+
+generate_release_manifest "$APP_PATH" "$ZIP_PATH" "$DMG_PATH"
 
 # Summary
 echo ""
@@ -446,12 +560,14 @@ echo "============================================"
 echo "  Release build complete!"
 echo "============================================"
 echo "  Version: $VERSION"
-echo "  File:    $ZIP_PATH"
+echo "  DMG:     $DMG_PATH"
+echo "  ZIP:     $ZIP_PATH"
 echo "  Manifest: $MANIFEST_PATH"
-echo "  Size:    $(du -h "$ZIP_PATH" | cut -f1)"
+echo "  DMG Size: $(du -h "$DMG_PATH" | cut -f1)"
+echo "  ZIP Size: $(du -h "$ZIP_PATH" | cut -f1)"
 echo ""
 echo "Next steps:"
 echo "  • To publish now:  ./scripts/publish.sh $VERSION"
 echo "    (or re-run with SKIP_BUILD=1 to skip the build step)"
-echo "  • Upload $ZIP_PATH to Gumroad manually"
+echo "  • Upload $DMG_PATH to Gumroad / website manual-download slot"
 echo ""

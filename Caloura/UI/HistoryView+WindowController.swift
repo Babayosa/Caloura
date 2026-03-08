@@ -23,6 +23,7 @@ final class HistoryWindowController {
         }
 
         guard didCreate else { return }
+        OnboardingTipsController.shared.showIfNeeded(.history)
 
         let openMilliseconds = (CFAbsoluteTimeGetCurrent() - openStart) * 1000
         historyLogger.debug(

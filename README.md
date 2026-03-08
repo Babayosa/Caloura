@@ -12,20 +12,21 @@ Caloura is a fast macOS menu-bar screenshot tool for area, window, and full-scre
 
 ## Onboarding And Permissions
 
-Caloura uses a **2-step onboarding** flow:
-1. Screen Recording permission (soft-gated)
-2. First capture quick-start
+Caloura now uses an **install-first onboarding** flow:
+1. Install the app in `/Applications` before setup continues
+2. Launch the installed copy and take the first screenshot
+3. Grant Screen Recording only when the first real capture needs it
 
-Permission step behavior:
-- `Continue` is always available (no hard block)
-- Primary action path is `Grant Permission`
-- Explicit recheck is `Check Again`
-- After grant, onboarding shows an auto-check progress state
+Permission behavior:
+- Screen Recording is checked in context when capture starts
+- Return from System Settings triggers an automatic re-validation loop
+- Stale permission records are treated as a separate repair state from plain denial
+- Accessibility remains deferred to Scroll Capture only
 
 ## Screen Recording Troubleshooting
 
 If capture fails after permission looks enabled:
-1. Use **only one build lane** while testing (`/Applications/Caloura.app` recommended).
+1. Use **only one installed copy** while testing (`/Applications/Caloura.app` recommended).
 2. In **System Settings > Privacy & Security > Screen & System Audio Recording**, ensure the current build is enabled.
 3. Relaunch Caloura.
 4. If you alternate between Xcode and public builds, run `scripts/permission_diagnose.sh`.
@@ -72,7 +73,9 @@ xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug
 Versioning is gated by `scripts/release.sh`:
 - tag/version alignment (`RELEASE_TAG` / `GITHUB_REF_NAME`)
 - exported app version parity
-- final zipped artifact version parity
+- final ZIP artifact version parity
+- final DMG artifact version parity
+- signed/notarized/stapled manual-download DMG plus Sparkle ZIP
 
 Guard-only check:
 
@@ -82,6 +85,7 @@ RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.7 ./scripts/release.sh 1.0.7
 
 For the public website/appcast release flow (v1.0.7 process), use:
 - app build + notarization: `scripts/release.sh`
+- manual-download DMG publish + Sparkle ZIP publish: `scripts/publish.sh`
 - public artifact verification: `scripts/public_download_qa.sh --version 1.0.7 verify`
 
 ## Public Download QA

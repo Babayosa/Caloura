@@ -49,13 +49,13 @@ scripts/public_download_qa.sh --version 1.0.7 trial-reset
 
 ## Expected Outcomes
 
-- Onboarding has exactly 2 steps.
-- Permission step is soft-gated: `Continue` works without permission.
-- Permission step shows only `Grant Permission` and `Check Again`.
-- `Grant Permission` is the single settings-entry path in onboarding.
-- Auto-check progress appears immediately after `Grant Permission`.
-- Final step has both `Take First Screenshot` and `Finish`.
-- Finishing onboarding returns to ready menu-bar state (no auto-open Preferences).
+- Manual download is the DMG, while the Sparkle appcast still points to the ZIP.
+- The DMG opens with `Caloura.app` and an `Applications` shortcut in a drag-to-install layout.
+- First launch from `/Applications` opens directly to `Take your first screenshot`, not a permission wizard.
+- Screen Recording is requested only when the first real capture starts.
+- Returning from System Settings triggers an automatic permission re-check.
+- Stale-copy issues show explicit `/Applications/Caloura.app` repair guidance instead of generic denial.
+- Scroll Capture is the only path that asks for Accessibility.
 - No keychain password prompt appears on startup, onboarding, capture, License, or History.
 - Permission failure shows recovery guidance once; no prompt/dialog loops.
 - Trial states align with simulated dates and show expected day counts/expired behavior.
@@ -72,7 +72,7 @@ Run both lanes when diagnosing repeated permission prompts:
 
 1. Public lane (`/Applications/Caloura.app`):
 - Confirm capture works without repeated permission dialogs.
-- Confirm onboarding permission step shows stable state after one relaunch.
+- Confirm install-first onboarding lands on first capture, then permission recovery if needed.
 
 2. Xcode lane (DerivedData app):
 - Launch from Xcode and run one capture.

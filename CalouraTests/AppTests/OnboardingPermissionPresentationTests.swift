@@ -7,59 +7,60 @@ final class OnboardingPermissionPresentationTests: XCTestCase {
         let uiModel = PermissionUIModel(
             status: .denied,
             guidanceText: "Denied",
-            shouldShowSignatureMismatchBanner: false,
+            shouldShowStaleRecordBanner: false,
             isAlertCooldownActive: false
         )
         let presentation = OnboardingPermissionPresentation.from(uiModel)
 
         XCTAssertEqual(presentation.detail, .notGranted)
         XCTAssertTrue(presentation.showsGrantButton)
-        XCTAssertTrue(presentation.showsCheckAgainButton)
-        XCTAssertFalse(presentation.shouldShowMismatchBanner)
-        XCTAssertEqual(presentation.statusHeadline, "Permission not granted yet")
-        XCTAssertEqual(presentation.statusMessage, "You can continue now and grant this anytime.")
+        XCTAssertFalse(presentation.showsCheckAgainButton)
+        XCTAssertFalse(presentation.shouldShowStaleRecordBanner)
+        XCTAssertEqual(presentation.statusHeadline, "Screen Recording not granted yet")
+        XCTAssertEqual(presentation.statusMessage, "Denied")
     }
 
-    func testGrantedNeedsRelaunchPresentation() {
+    func testNeedsRelaunchPresentation() {
         let uiModel = PermissionUIModel(
-            status: .grantedNeedsRelaunch,
+            status: .needsRelaunch,
             guidanceText: "Restart",
-            shouldShowSignatureMismatchBanner: false,
+            shouldShowStaleRecordBanner: false,
             isAlertCooldownActive: false
         )
         let presentation = OnboardingPermissionPresentation.from(uiModel)
 
-        XCTAssertEqual(presentation.detail, .grantedNotWorking)
+        XCTAssertEqual(presentation.detail, .needsRelaunch)
         XCTAssertFalse(presentation.showsGrantButton)
         XCTAssertTrue(presentation.showsRepairButton)
         XCTAssertTrue(presentation.showsResetRelaunchButton)
-        XCTAssertTrue(presentation.showsCheckAgainButton)
-        XCTAssertEqual(presentation.statusHeadline, "Permission needs repair")
+        XCTAssertFalse(presentation.showsCheckAgainButton)
+        XCTAssertEqual(presentation.statusHeadline, "One relaunch still needed")
         XCTAssertEqual(presentation.statusMessage, "Restart")
     }
 
-    func testSignatureMismatchBannerVisibility() {
+    func testStaleRecordBannerVisibility() {
         let first = PermissionUIModel(
-            status: .signatureMismatch,
-            guidanceText: "Mismatch",
-            shouldShowSignatureMismatchBanner: true,
+            status: .staleRecord,
+            guidanceText: "Stale",
+            shouldShowStaleRecordBanner: true,
             isAlertCooldownActive: false
         )
         let firstPresentation = OnboardingPermissionPresentation.from(first)
-        XCTAssertEqual(firstPresentation.detail, .signatureMismatch)
-        XCTAssertTrue(firstPresentation.shouldShowMismatchBanner)
-        XCTAssertTrue(firstPresentation.showsGrantButton)
-        XCTAssertEqual(firstPresentation.statusHeadline, "Permission tied to a different build")
-        XCTAssertEqual(firstPresentation.statusMessage, "Mismatch")
+        XCTAssertEqual(firstPresentation.detail, .staleRecord)
+        XCTAssertTrue(firstPresentation.shouldShowStaleRecordBanner)
+        XCTAssertTrue(firstPresentation.showsRepairButton)
+        XCTAssertTrue(firstPresentation.showsCheckAgainButton)
+        XCTAssertEqual(firstPresentation.statusHeadline, "macOS trusts a different Caloura copy")
+        XCTAssertEqual(firstPresentation.statusMessage, "Stale")
 
         let second = PermissionUIModel(
-            status: .signatureMismatch,
-            guidanceText: "Mismatch",
-            shouldShowSignatureMismatchBanner: false,
+            status: .staleRecord,
+            guidanceText: "Stale",
+            shouldShowStaleRecordBanner: false,
             isAlertCooldownActive: false
         )
         let secondPresentation = OnboardingPermissionPresentation.from(second)
-        XCTAssertEqual(secondPresentation.detail, .signatureMismatch)
-        XCTAssertFalse(secondPresentation.shouldShowMismatchBanner)
+        XCTAssertEqual(secondPresentation.detail, .staleRecord)
+        XCTAssertFalse(secondPresentation.shouldShowStaleRecordBanner)
     }
 }

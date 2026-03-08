@@ -1,29 +1,18 @@
 #!/bin/bash
 #
 # Caloura Full Release Pipeline
-# One command: build → notarize → sign appcast → publish to GitHub Pages
+# One command: build → notarize → publish manual DMG + Sparkle ZIP
 #
 # USAGE:
 #   ./scripts/publish.sh <version>
-#   Example: ./scripts/publish.sh 1.0.9
-#
-# PREREQUISITES:
-#   - Developer ID certificate installed in Keychain
-#   - Notarization credentials stored (see release.sh header)
-#   - Sparkle EdDSA signing key in Keychain (via generate_keys)
-#   - caloura-site repo cloned (default: ~/caloura-site)
-#
-# CONFIGURATION (environment variables):
-#   SITE_REPO    Path to caloura-site repo (default: ~/caloura-site)
-#   SKIP_BUILD   Set to 1 to skip build and use existing zip in build/
-#
+#   Example: ./scripts/publish.sh 2.1.4
 
 set -euo pipefail
 
 VERSION="${1:-}"
 if [ -z "$VERSION" ]; then
     echo "Usage: $0 <version>"
-    echo "Example: $0 1.0.9"
+    echo "Example: $0 2.1.4"
     exit 1
 fi
 
@@ -31,17 +20,29 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_DIR/build"
 ZIP_PATH="$BUILD_DIR/Caloura-$VERSION.zip"
+DMG_PATH="$BUILD_DIR/Caloura-$VERSION.dmg"
+ZIP_NAME="$(basename "$ZIP_PATH")"
+DMG_NAME="$(basename "$DMG_PATH")"
 MANIFEST_PATH="$BUILD_DIR/release-manifest-$VERSION.json"
 SITE_REPO="${SITE_REPO:-$HOME/caloura-site}"
+APPCAST_PATH="$SITE_REPO/appcast.xml"
+INDEX_PATH="$SITE_REPO/index.html"
 
-read_plist_value() {
-    local plist="$1"
-    local key="$2"
-    /usr/libexec/PlistBuddy -c "Print :$key" "$plist" 2>/dev/null || true
+manifest_value() {
+    local key="$1"
+    python3 - "$MANIFEST_PATH" "$key" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    manifest = json.load(handle)
+
+value = manifest.get(sys.argv[2], "")
+print(value)
+PY
 }
 
 validate_appcast_against_manifest() {
-    local appcast="$SITE_REPO/appcast.xml"
     if [ ! -f "$MANIFEST_PATH" ]; then
         echo "Error: Release manifest not found at $MANIFEST_PATH"
         exit 1
@@ -49,31 +50,27 @@ validate_appcast_against_manifest() {
 
     python3 "$SCRIPT_DIR/validate_appcast_against_manifest.py" \
         --manifest "$MANIFEST_PATH" \
-        --file "$appcast"
+        --file "$APPCAST_PATH"
 }
 
-# Locate sign_update from Sparkle SPM artifacts
-SIGN_UPDATE=""
-for candidate in \
-    "$PROJECT_DIR/.build/xcode/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update" \
-    "$HOME/Applications/Sparkle/bin/sign_update"; do
-    if [ -f "$candidate" ]; then
-        SIGN_UPDATE="$candidate"
-        break
-    fi
-done
+find_sign_update() {
+    for candidate in \
+        "$PROJECT_DIR/.build/xcode/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update" \
+        "$HOME/Applications/Sparkle/bin/sign_update"; do
+        if [ -f "$candidate" ]; then
+            echo "$candidate"
+            return
+        fi
+    done
+    command -v sign_update || true
+}
 
-if [ -z "$SIGN_UPDATE" ] && ! command -v sign_update &> /dev/null; then
+SIGN_UPDATE="$(find_sign_update)"
+if [ -z "$SIGN_UPDATE" ]; then
     echo "Error: sign_update not found. Build the project first or install Sparkle."
     exit 1
 fi
 
-# If we found a local binary, add its directory to PATH
-if [ -n "$SIGN_UPDATE" ]; then
-    export PATH="$(dirname "$SIGN_UPDATE"):$PATH"
-fi
-
-# Verify site repo exists
 if [ ! -d "$SITE_REPO/.git" ]; then
     echo "Error: Site repo not found at $SITE_REPO"
     echo "Clone it: git clone git@github.com:Babayosa/caloura-site.git $SITE_REPO"
@@ -85,40 +82,94 @@ echo "  Caloura v$VERSION — Full Publish"
 echo "========================================"
 echo ""
 
-# ── Step 1: Build + Notarize ──────────────────────────────────────
-if [ "${SKIP_BUILD:-0}" = "1" ] && [ -f "$ZIP_PATH" ]; then
-    echo "==> Skipping build (SKIP_BUILD=1), using existing $ZIP_PATH"
+if [ "${SKIP_BUILD:-0}" = "1" ] && [ -f "$ZIP_PATH" ] && [ -f "$DMG_PATH" ]; then
+    echo "==> Skipping build (SKIP_BUILD=1), using existing artifacts"
 else
-    echo "==> Step 1/3: Building and notarizing..."
+    echo "==> Step 1/3: Building and notarizing artifacts..."
     "$SCRIPT_DIR/release.sh" "$VERSION"
 fi
 
 if [ ! -f "$ZIP_PATH" ]; then
-    echo "Error: Expected zip not found at $ZIP_PATH"
+    echo "Error: Expected Sparkle ZIP not found at $ZIP_PATH"
+    exit 1
+fi
+
+if [ ! -f "$DMG_PATH" ]; then
+    echo "Error: Expected manual-download DMG not found at $DMG_PATH"
     exit 1
 fi
 
 echo ""
-echo "==> Step 2/3: Publishing to caloura.app..."
+echo "==> Step 2/3: Publishing artifacts to caloura.app..."
 
-# ── Step 2: Publish to GitHub Pages ───────────────────────────────
-# Pull latest site repo to avoid push conflicts
 git -C "$SITE_REPO" pull --ff-only
 
-# Run the site's release script
-"$SITE_REPO/release.sh" "$ZIP_PATH"
+mkdir -p "$SITE_REPO/releases"
+cp "$ZIP_PATH" "$SITE_REPO/releases/$ZIP_NAME"
+cp "$DMG_PATH" "$SITE_REPO/releases/$DMG_NAME"
+
+ZIP_LENGTH="$(stat -f%z "$SITE_REPO/releases/$ZIP_NAME")"
+SIGN_OUTPUT="$("$SIGN_UPDATE" "$SITE_REPO/releases/$ZIP_NAME")"
+SIGNATURE="$(echo "$SIGN_OUTPUT" | grep -oE 'sparkle:edSignature="[^"]+"' | cut -d'"' -f2)"
+
+if [ -z "$SIGNATURE" ]; then
+    echo "Error: Could not extract Sparkle signature"
+    exit 1
+fi
+
+BUILD_NUMBER="$(manifest_value build_number)"
+MINIMUM_SYSTEM_VERSION="$(manifest_value minimum_system_version)"
+PUBDATE="$(date -R)"
+TMPITEM="$(mktemp)"
+
+cat > "$TMPITEM" <<XMLEOF
+    <item>
+      <title>Version $VERSION</title>
+      <pubDate>$PUBDATE</pubDate>
+      <sparkle:version>$BUILD_NUMBER</sparkle:version>
+      <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>$MINIMUM_SYSTEM_VERSION</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <h2>What's New</h2>
+        <ul>
+          <li>See release notes</li>
+        </ul>
+      ]]></description>
+      <enclosure
+        url="https://caloura.app/releases/$ZIP_NAME"
+        type="application/octet-stream"
+        sparkle:version="$BUILD_NUMBER"
+        sparkle:shortVersionString="$VERSION"
+        sparkle:minimumSystemVersion="$MINIMUM_SYSTEM_VERSION"
+        sparkle:edSignature="$SIGNATURE"
+        length="$ZIP_LENGTH"
+      />
+    </item>
+XMLEOF
+
+sed -i '' "/<language>en<\/language>/r $TMPITEM" "$APPCAST_PATH"
+rm -f "$TMPITEM"
+
+sed -i '' -E "s|releases/Caloura-[0-9][0-9.]*\\.(zip|dmg)|releases/$DMG_NAME|g" "$INDEX_PATH"
+
 validate_appcast_against_manifest
 
-# ── Step 3: Summary ──────────────────────────────────────────────
+echo ""
+echo "==> Step 3/3: Committing and pushing site changes..."
+git -C "$SITE_REPO" add "releases/$ZIP_NAME" "releases/$DMG_NAME" appcast.xml index.html
+git -C "$SITE_REPO" commit -m "Release v$VERSION"
+git -C "$SITE_REPO" push
+
 echo ""
 echo "========================================"
 echo "  v$VERSION is live!"
 echo "========================================"
 echo ""
-echo "  Website:  https://caloura.app"
-echo "  Download: https://caloura.app/releases/Caloura-$VERSION.zip"
-echo "  Appcast:  https://caloura.app/appcast.xml"
+echo "  Website:           https://caloura.app"
+echo "  Manual download:   https://caloura.app/releases/$DMG_NAME"
+echo "  Sparkle artifact:  https://caloura.app/releases/$ZIP_NAME"
+echo "  Appcast:           https://caloura.app/appcast.xml"
 echo ""
 echo "  GitHub Pages may take 1-2 minutes to propagate."
-echo "  Existing users will see the update via Sparkle."
+echo "  Existing users will continue updating through Sparkle."
 echo ""

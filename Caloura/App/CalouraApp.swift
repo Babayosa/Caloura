@@ -29,8 +29,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let nagController = NagWindowController()
     private var isInitialLaunch = true
     private var commandHandlerID: UUID?
+    private var captureObserver: NSObjectProtocol?
 
     func applicationWillTerminate(_ notification: Notification) {
+        if let captureObserver {
+            NotificationCenter.default.removeObserver(captureObserver)
+        }
         // Synchronous flush — blocks until written, ensuring data survives process exit.
         AppState.shared.saveHistorySync()
         AppSettings.shared.saveAllSettings()
@@ -44,10 +48,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             isInitialLaunch = false
             return
         }
+        guard AppMover.currentInstallState == .inApplications else { return }
         Task { @MainActor in
             let status = await PermissionCoordinator.shared.refreshPassiveStatus()
             AppState.shared.hasScreenRecordingPermission = status != .denied
-            if status != .denied {
+            if status != .denied && status != .staleRecord {
                 await ScreenCaptureManager.shared.prewarmWindowShareableContent()
             }
         }
@@ -62,13 +67,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        if AppMover.moveToApplicationsFolderIfNeeded() { return }
-
         cleanupStaleTempFiles()
+
+        if AppMover.currentInstallState != .inApplications {
+            onboardingController.show(
+                settings: AppSettings.shared,
+                initialState: .installRequired
+            )
+            return
+        }
 
         let launchStart = CFAbsoluteTimeGetCurrent()
         HotKeyManager.shared.registerAll()
         setupCommandHandlers()
+        registerCaptureObserver()
 
         // Register URL scheme handler
         NSAppleEventManager.shared().setEventHandler(
@@ -98,7 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor [onboardingController, nagController] in
             let passiveStatus = await PermissionCoordinator.shared.refreshPassiveStatus()
             AppState.shared.hasScreenRecordingPermission = passiveStatus != .denied
-            if passiveStatus != .denied {
+            if passiveStatus != .denied && passiveStatus != .staleRecord {
                 await ScreenCaptureManager.shared.prewarmWindowShareableContent()
             }
 
@@ -107,14 +119,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 onboardingController.showIfNeeded(settings: AppSettings.shared)
                 showedOnboarding = true
             } else if passiveStatus == .denied {
-                onboardingController.show(settings: AppSettings.shared)
+                onboardingController.show(
+                    settings: AppSettings.shared,
+                    initialState: .grantScreenRecording
+                )
                 showedOnboarding = true
-            } else if passiveStatus != .grantedWorking {
-                let status = await PermissionCoordinator.shared.runUserInitiatedValidation()
-                if status != .grantedWorking {
-                    onboardingController.show(settings: AppSettings.shared)
-                    showedOnboarding = true
-                }
+            } else if passiveStatus == .staleRecord {
+                onboardingController.show(
+                    settings: AppSettings.shared,
+                    initialState: .repairStalePermissionRecord
+                )
+                showedOnboarding = true
             }
 
             // Show nag once per launch if trial expired and unlicensed,
@@ -129,6 +144,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 "Passive permission diagnostics completed in \(permissionDuration, privacy: .public) ms"
             )
             appLaunchLogger.info("Launch flow ready in \(totalLaunchDuration, privacy: .public) ms")
+        }
+    }
+
+    private func registerCaptureObserver() {
+        if let captureObserver {
+            NotificationCenter.default.removeObserver(captureObserver)
+        }
+        captureObserver = NotificationCenter.default.addObserver(
+            forName: .captureCompleted,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard !AppSettings.shared.hasCompletedOnboarding else { return }
+                AppSettings.shared.hasCompletedOnboarding = true
+                AppSettings.shared.hasSeenWelcome = true
+                onboardingLogger.info("funnel_event=first_capture_completed")
+                self?.onboardingController.close()
+            }
         }
     }
 
@@ -165,6 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .cancelDelayedCapture:
             CapturePipeline.shared.cancelDelayedCapture()
         case .captureScroll:
+            OnboardingTipsController.shared.showIfNeeded(.scroll)
             CapturePipeline.shared.captureScroll()
         case .copyLastImage:
             CapturePipeline.shared.copyLastImage()
@@ -185,16 +220,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .redactLastCapture:
             handleRedactLastCapture()
         case .showHistory:
+            OnboardingTipsController.shared.showIfNeeded(.history)
             historyController.show(appState: AppState.shared)
         case .showSettings:
             PreferencesWindowController.shared.show()
         case .showPermissionRepair:
-            onboardingController.show(settings: AppSettings.shared)
+            showPermissionRepairWindow()
+        }
+    }
+
+    private func showPermissionRepairWindow() {
+        if AppMover.currentInstallState != .inApplications {
+            onboardingController.show(
+                settings: AppSettings.shared,
+                initialState: .installRequired
+            )
+            return
+        }
+
+        Task { @MainActor in
+            let status = await PermissionCoordinator.shared.refreshPassiveStatus()
+            let state: OnboardingFlowState
+            switch status {
+            case .denied:
+                state = .grantScreenRecording
+            case .needsRelaunch, .staleRecord, .repairing:
+                state = .repairStalePermissionRecord
+            case .grantedNeedsValidation, .working:
+                state = .completed
+            }
+            onboardingController.show(settings: AppSettings.shared, initialState: state)
         }
     }
 
     private func handleAnnotateLastCapture() {
         guard let screenshot = AppState.shared.lastScreenshot else { return }
+        OnboardingTipsController.shared.showIfNeeded(.edit)
         annotationController.show(image: screenshot.image) { annotatedImage in
             if let cgImage = annotatedImage.cgImage(
                 forProposedRect: nil, context: nil, hints: nil
@@ -230,11 +291,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleBeautifyLastCapture() {
         guard let screenshot = AppState.shared.lastScreenshot else { return }
+        OnboardingTipsController.shared.showIfNeeded(.edit)
         BeautifyPreviewController.shared.show(screenshot: screenshot)
     }
 
     private func handleRedactLastCapture() {
         guard let screenshot = AppState.shared.lastScreenshot else { return }
+        OnboardingTipsController.shared.showIfNeeded(.edit)
         let pii = AppState.shared.piiResult(for: screenshot.id)
         if let pii, !pii.detections.isEmpty {
             RedactionReviewController.shared.show(

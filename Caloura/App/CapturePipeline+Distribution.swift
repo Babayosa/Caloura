@@ -183,6 +183,7 @@ extension CapturePipeline {
                 do {
                     try await ClipboardManager.copyImage(screenshot)
                     await MainActor.run {
+                        OnboardingTipsController.shared.showIfNeeded(.share)
                         self.appState.statusMessage = "Copied image"
                     }
                 } catch {
@@ -196,6 +197,7 @@ extension CapturePipeline {
                 do {
                     _ = try await ScreenshotArtifactCoordinator.shared.saveCapture(screenshot)
                     await MainActor.run {
+                        OnboardingTipsController.shared.showIfNeeded(.share)
                         let phase = self.appState.previewPhase(for: screenshot.id)
                         let alreadyEnriched = phase == .enrichmentPending
                             || phase == .enrichmentComplete
@@ -217,6 +219,7 @@ extension CapturePipeline {
         case .markdown:
             do {
                 try ClipboardManager.copyAsMarkdown(screenshot)
+                OnboardingTipsController.shared.showIfNeeded(.share)
                 appState.statusMessage = "Copied as Markdown"
             } catch {
                 appState.statusMessage = error.localizedDescription
@@ -224,6 +227,7 @@ extension CapturePipeline {
         case .citation:
             do {
                 try ClipboardManager.copyWithCitation(screenshot)
+                OnboardingTipsController.shared.showIfNeeded(.share)
                 appState.statusMessage = "Copied with citation"
             } catch {
                 appState.statusMessage = error.localizedDescription
@@ -258,6 +262,7 @@ extension CapturePipeline {
             do {
                 try await ClipboardManager.copyImage(screenshot)
                 await MainActor.run {
+                    OnboardingTipsController.shared.showIfNeeded(.share)
                     self.appState.statusMessage = "Copied image"
                 }
             } catch {
@@ -272,6 +277,7 @@ extension CapturePipeline {
         guard let screenshot = appState.lastScreenshot else { return }
         do {
             try ClipboardManager.copyAsMarkdown(screenshot)
+            OnboardingTipsController.shared.showIfNeeded(.share)
             appState.statusMessage = "Copied as Markdown"
         } catch {
             appState.statusMessage = error.localizedDescription
@@ -282,6 +288,7 @@ extension CapturePipeline {
         guard let screenshot = appState.lastScreenshot else { return }
         do {
             try ClipboardManager.copyWithCitation(screenshot)
+            OnboardingTipsController.shared.showIfNeeded(.share)
             appState.statusMessage = "Copied with citation"
         } catch {
             appState.statusMessage = error.localizedDescription

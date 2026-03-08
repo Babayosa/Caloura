@@ -1,32 +1,47 @@
 import Foundation
 
-enum OnboardingStep: Int, CaseIterable {
-    case permission
-    case firstCapture
+enum OnboardingFlowState: String, Equatable {
+    case installRequired
+    case readyForFirstCapture
+    case grantScreenRecording
+    case waitingForSettingsReturn
+    case repairStalePermissionRecord
+    case completed
+
+    fileprivate var transitionIndex: Int {
+        switch self {
+        case .installRequired:
+            return 0
+        case .readyForFirstCapture:
+            return 1
+        case .grantScreenRecording, .waitingForSettingsReturn, .repairStalePermissionRecord:
+            return 2
+        case .completed:
+            return 3
+        }
+    }
 }
 
 struct OnboardingFlowModel {
-    private(set) var currentStep: OnboardingStep = .permission
-    private(set) var previousStep: OnboardingStep = .permission
+    private(set) var currentState: OnboardingFlowState
+    private(set) var previousState: OnboardingFlowState
 
-    var isFirstStep: Bool { currentStep == .permission }
-    var isLastStep: Bool { currentStep == .firstCapture }
-
-    mutating func next() {
-        guard let nextStep = OnboardingStep(rawValue: currentStep.rawValue + 1) else { return }
-        previousStep = currentStep
-        currentStep = nextStep
+    init(initialState: OnboardingFlowState = .readyForFirstCapture) {
+        self.currentState = initialState
+        self.previousState = initialState
     }
 
-    mutating func back() {
-        guard let previous = OnboardingStep(rawValue: currentStep.rawValue - 1) else { return }
-        previousStep = currentStep
-        currentStep = previous
+    var isCompleted: Bool {
+        currentState == .completed
     }
 
-    mutating func skipPermissionIfReady(_ permissionReady: Bool) {
-        guard permissionReady, currentStep == .permission else { return }
-        previousStep = currentStep
-        currentStep = .firstCapture
+    var transitionIsForward: Bool {
+        currentState.transitionIndex >= previousState.transitionIndex
+    }
+
+    mutating func transition(to state: OnboardingFlowState) {
+        guard state != currentState else { return }
+        previousState = currentState
+        currentState = state
     }
 }

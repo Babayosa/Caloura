@@ -1,7 +1,19 @@
 import AppKit
 
+enum AccessibilityState: Equatable {
+    case notRequested
+    case denied
+    case working
+}
+
 enum AccessibilityPermissionChecker {
-    static func isGranted() -> Bool { AXIsProcessTrusted() }
+    static func currentState() -> AccessibilityState {
+        AXIsProcessTrusted() ? .working : .denied
+    }
+
+    static func isGranted() -> Bool {
+        currentState() == .working
+    }
 
     static func openSystemSettings() {
         NSWorkspace.shared.open(

@@ -18,6 +18,8 @@ def build_manifest_from_info(
     info: dict,
     app_path: str,
     artifact_path: str,
+    sparkle_artifact_path: str = "",
+    manual_download_artifact_path: str = "",
     bundle_identifier: str | None = None,
     marketing_version: str | None = None,
     build_number: str | None = None,
@@ -54,6 +56,8 @@ def build_manifest_from_info(
         ),
         "app_path": app_path,
         "artifact_path": artifact_path,
+        "sparkle_artifact_path": sparkle_artifact_path or artifact_path,
+        "manual_download_artifact_path": manual_download_artifact_path,
     }
 
 
@@ -63,6 +67,8 @@ def main() -> int:
     parser.add_argument("--info-plist", help="Path to source Info.plist")
     parser.add_argument("--output", required=True, help="Path to write the manifest JSON")
     parser.add_argument("--artifact", help="Optional packaged artifact path")
+    parser.add_argument("--sparkle-artifact", help="Optional Sparkle update artifact path")
+    parser.add_argument("--manual-artifact", help="Optional manual download artifact path")
     parser.add_argument("--bundle-identifier", help="Resolved bundle identifier")
     parser.add_argument("--marketing-version", help="Resolved marketing version")
     parser.add_argument("--build-number", help="Resolved build number")
@@ -97,6 +103,13 @@ def main() -> int:
         info,
         app_path=app_path_value,
         artifact_path=str(Path(args.artifact)) if args.artifact else "",
+        sparkle_artifact_path=(
+            str(Path(args.sparkle_artifact))
+            if args.sparkle_artifact else str(Path(args.artifact)) if args.artifact else ""
+        ),
+        manual_download_artifact_path=(
+            str(Path(args.manual_artifact)) if args.manual_artifact else ""
+        ),
         bundle_identifier=args.bundle_identifier,
         marketing_version=args.marketing_version,
         build_number=args.build_number,

@@ -1,6 +1,17 @@
 import SwiftUI
 import os.log
 
+enum ContextualOnboardingTip: String, CaseIterable {
+    case history
+    case edit
+    case scroll
+    case share
+
+    fileprivate var defaultsKey: String {
+        "contextualOnboardingTip.\(rawValue)"
+    }
+}
+
 @MainActor
 final class AppSettings: ObservableObject {
     typealias LegacyLicenseMigration = @Sendable () -> LegacyKeychainReadResult
@@ -151,6 +162,14 @@ final class AppSettings: ObservableObject {
     var furthestDateSeen: Date? {
         get { defaults.object(forKey: Keys.furthestDateSeen) as? Date }
         set { defaults.set(newValue, forKey: Keys.furthestDateSeen) }
+    }
+
+    func hasSeenContextualTip(_ tip: ContextualOnboardingTip) -> Bool {
+        defaults.bool(forKey: tip.defaultsKey)
+    }
+
+    func markContextualTipSeen(_ tip: ContextualOnboardingTip) {
+        defaults.set(true, forKey: tip.defaultsKey)
     }
 
     private var licenseEntitlement: LicenseEntitlement? {

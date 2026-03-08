@@ -3,58 +3,85 @@ import os.log
 
 private let logger = Logger(subsystem: "com.caloura.app", category: "AppMover")
 
+enum AppInstallState: Equatable {
+    case inApplications
+    case needsMoveToApplications
+    case moving
+    case moveFailed(String)
+
+    var failureMessage: String? {
+        if case .moveFailed(let message) = self {
+            return message
+        }
+        return nil
+    }
+}
+
 @MainActor
 enum AppMover {
 
-    private static let applicationsPath = "/Applications/"
+    static let applicationsPath = "/Applications/"
 
     static var isInApplicationsFolder: Bool {
         Bundle.main.bundlePath.hasPrefix(applicationsPath)
     }
 
-    private static let suppressionKey = "AppMover.suppressMovePrompt"
+    static var currentInstallState: AppInstallState {
+        installState(forBundlePath: Bundle.main.bundlePath)
+    }
 
-    /// Prompts to move the app to /Applications if not already there.
-    /// Returns `true` if the app is relocating (caller should bail out of launch).
+    static func installState(forBundlePath bundlePath: String) -> AppInstallState {
+        bundlePath.hasPrefix(applicationsPath)
+            ? .inApplications
+            : .needsMoveToApplications
+    }
+
     @discardableResult
-    static func moveToApplicationsFolderIfNeeded() -> Bool {
-        guard !isInApplicationsFolder else { return false }
-        guard !UserDefaults.standard.bool(forKey: suppressionKey) else { return false }
+    static func moveToApplicationsFolder() -> AppInstallState {
+        guard case .needsMoveToApplications = currentInstallState else {
+            return .inApplications
+        }
+        return performMove()
+    }
 
-        let alert = NSAlert()
-        alert.messageText = "Move to Applications?"
-        alert.informativeText =
-            "Caloura needs to live in /Applications to receive automatic updates. " +
-            "Move it now?"
-        alert.addButton(withTitle: "Move to Applications")
-        alert.addButton(withTitle: "Not Now")
-        alert.addButton(withTitle: "Don't Ask Again")
-        alert.alertStyle = .informational
-
-        let response = alert.runModal()
-        switch response {
-        case .alertFirstButtonReturn:
-            return performMove()
-        case .alertThirdButtonReturn:
-            UserDefaults.standard.set(true, forKey: suppressionKey)
-            logger.info("User suppressed move-to-Applications prompt")
+    @discardableResult
+    static func relaunchFromApplicationsIfAvailable() -> Bool {
+        let destinationURL = applicationsBundleURL()
+        guard FileManager.default.fileExists(atPath: destinationURL.path) else {
             return false
-        default:
-            logger.info("User declined move to Applications")
+        }
+
+        do {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            process.arguments = ["-n", destinationURL.path]
+            try process.run()
+            NSApplication.shared.terminate(nil)
+            return true
+        } catch {
+            logger.error(
+                "Failed to relaunch installed copy: \(error.localizedDescription, privacy: .public)"
+            )
             return false
         }
     }
 
+    static func sourceBundlePath(bundle: Bundle = .main) -> String {
+        bundle.bundlePath
+    }
+
     // MARK: - Private
 
-    private static func performMove() -> Bool {
+    private static func applicationsBundleURL() -> URL {
+        let appName = Bundle.main.bundleURL.lastPathComponent
+        return URL(fileURLWithPath: applicationsPath).appendingPathComponent(appName)
+    }
+
+    private static func performMove() -> AppInstallState {
         let source = Bundle.main.bundlePath
-        let appName = (source as NSString).lastPathComponent
-        let destination = applicationsPath + appName
-
         let fileManager = FileManager.default
-
-        let destinationURL = URL(fileURLWithPath: destination)
+        let destinationURL = applicationsBundleURL()
+        let destination = destinationURL.path
 
         do {
             // Trash existing copy if present, keeping reference for rollback
@@ -81,43 +108,33 @@ enum AppMover {
 
             // Verify the copied bundle is intact
             let destInfoPlist = destination + "/Contents/Info.plist"
-            let destExecutable = destination + "/Contents/MacOS/" + appName.replacingOccurrences(of: ".app", with: "")
+            let executableName = destinationURL
+                .deletingPathExtension()
+                .lastPathComponent
+            let destExecutable = destination + "/Contents/MacOS/" + executableName
             guard fileManager.fileExists(atPath: destInfoPlist),
                   fileManager.fileExists(atPath: destExecutable) else {
                 // Remove incomplete destination bundle (M15)
                 try? fileManager.removeItem(at: destinationURL)
                 let msg = "Post-copy verification failed: destination bundle is incomplete"
                 logger.error("\(msg, privacy: .public)")
-                showError(NSError(domain: "AppMover", code: 1,
-                                  userInfo: [NSLocalizedDescriptionKey: msg]))
-                return false
+                return .moveFailed(msg)
             }
             logger.info("Post-copy verification passed")
 
             // Relaunch from new location
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            process.arguments = ["-n", destination]
+            process.arguments = ["-n", destinationURL.path]
             try process.run()
 
             // Terminate current instance
             NSApplication.shared.terminate(nil)
-            return true
+            return .moving
         } catch {
-            showError(error)
-            return false
+            let msg = "Failed to move to Applications: \(error.localizedDescription)"
+            logger.error("\(msg, privacy: .public)")
+            return .moveFailed(msg)
         }
-    }
-
-    private static func showError(_ error: Error) {
-        let msg = "Failed to move to Applications: \(error.localizedDescription)"
-        logger.error("\(msg, privacy: .public)")
-
-        let alert = NSAlert()
-        alert.messageText = "Move Failed"
-        alert.informativeText = msg
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
     }
 }

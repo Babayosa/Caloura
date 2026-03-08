@@ -24,9 +24,9 @@ final class PermissionCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.permissionUIModel.status, .denied)
     }
 
-    func testMismatchDetectionAndBannerSuppression() async {
+    func testStaleRecordDetectionAndBannerSuppression() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
-        let identity = PermissionTestHelpers.makeIdentity("mismatch")
+        let identity = PermissionTestHelpers.makeIdentity("stale")
         defaults.set("different-fingerprint", forKey: "permissionLastWorkingIdentityFingerprint")
 
         let coordinator = PermissionCoordinator(
@@ -41,19 +41,19 @@ final class PermissionCoordinatorTests: XCTestCase {
         )
 
         let firstStatus = await coordinator.refreshPassiveStatus()
-        XCTAssertEqual(firstStatus, .signatureMismatch)
-        XCTAssertTrue(coordinator.permissionUIModel.shouldShowSignatureMismatchBanner)
+        XCTAssertEqual(firstStatus, .staleRecord)
+        XCTAssertTrue(coordinator.permissionUIModel.shouldShowStaleRecordBanner)
 
-        await coordinator.markCurrentMismatchBannerShown()
+        await coordinator.markCurrentStaleRecordBannerShown()
         _ = await coordinator.refreshPassiveStatus()
-        XCTAssertFalse(coordinator.permissionUIModel.shouldShowSignatureMismatchBanner)
+        XCTAssertFalse(coordinator.permissionUIModel.shouldShowStaleRecordBanner)
     }
 
     func testCaptureFailureAlertIsDedupedByCooldown() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         var alertCount = 0
         var statusMessage = ""
-        var now = Date(timeIntervalSince1970: 3_000)
+        var currentDate = Date(timeIntervalSince1970: 3_000)
 
         let coordinator = PermissionCoordinator(
             defaults: defaults,
@@ -63,7 +63,7 @@ final class PermissionCoordinatorTests: XCTestCase {
             permissionRequester: { true },
             identityProvider: { PermissionTestHelpers.makeIdentity("cooldown") },
             statusMessageSink: { statusMessage = $0 },
-            now: { now }
+            now: { currentDate }
         )
 
         await coordinator.handleCapturePermissionFailure()
@@ -71,7 +71,7 @@ final class PermissionCoordinatorTests: XCTestCase {
         XCTAssertEqual(alertCount, 1)
         XCTAssertFalse(statusMessage.isEmpty)
 
-        now = now.addingTimeInterval(50)
+        currentDate = currentDate.addingTimeInterval(50)
         await coordinator.handleCapturePermissionFailure()
         XCTAssertEqual(alertCount, 2)
     }
@@ -93,13 +93,13 @@ final class PermissionCoordinatorTests: XCTestCase {
         )
 
         let firstStatus = await firstCoordinator.runUserInitiatedValidation()
-        XCTAssertEqual(firstStatus, .grantedNeedsRelaunch)
+        XCTAssertEqual(firstStatus, .needsRelaunch)
 
         interactiveAuthorized = true
         let secondStatus = await firstCoordinator.runUserInitiatedValidation()
-        XCTAssertEqual(secondStatus, .grantedWorking)
+        XCTAssertEqual(secondStatus, .working)
 
-        let mismatchCoordinator = PermissionCoordinator(
+        let staleCoordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
             interactiveCheck: { false },
@@ -110,13 +110,11 @@ final class PermissionCoordinatorTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 4_100) }
         )
 
-        let mismatchStatus = await mismatchCoordinator.refreshPassiveStatus()
-        XCTAssertEqual(mismatchStatus, .signatureMismatch)
+        let staleStatus = await staleCoordinator.refreshPassiveStatus()
+        XCTAssertEqual(staleStatus, .staleRecord)
     }
 
-    // MARK: - Auto-Repair Tests
-
-    func testRunUserInitiatedValidation_autoRepairsViaReplayd() async {
+    func testRunUserInitiatedValidationAutoRepairsViaReplayd() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let identity = PermissionTestHelpers.makeIdentity("repair-ok")
         var repairCalled = false
@@ -124,7 +122,7 @@ final class PermissionCoordinatorTests: XCTestCase {
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
-            interactiveCheck: { false },       // SCK fails initially
+            interactiveCheck: { false },
             alertPresenter: { _ in },
             permissionRequester: { true },
             identityProvider: { identity },
@@ -132,18 +130,18 @@ final class PermissionCoordinatorTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 5_000) },
             repairSCKAccess: {
                 repairCalled = true
-                return true                     // repair succeeds
+                return true
             }
         )
 
         let status = await coordinator.runUserInitiatedValidation()
 
         XCTAssertTrue(repairCalled)
-        XCTAssertEqual(status, .grantedWorking)
-        XCTAssertEqual(coordinator.permissionUIModel.status, .grantedWorking)
+        XCTAssertEqual(status, .working)
+        XCTAssertEqual(coordinator.permissionUIModel.status, .working)
     }
 
-    func testRunUserInitiatedValidation_repairFails_needsRelaunch() async {
+    func testRunUserInitiatedValidationRepairFailsNeedsRelaunch() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let identity = PermissionTestHelpers.makeIdentity("repair-fail")
 
@@ -156,35 +154,68 @@ final class PermissionCoordinatorTests: XCTestCase {
             identityProvider: { identity },
             statusMessageSink: { _ in },
             now: { Date(timeIntervalSince1970: 5_100) },
-            repairSCKAccess: { false }          // repair fails
+            repairSCKAccess: { false }
         )
 
         let status = await coordinator.runUserInitiatedValidation()
 
-        XCTAssertEqual(status, .grantedNeedsRelaunch)
+        XCTAssertEqual(status, .needsRelaunch)
     }
 
-    func testHandleCapturePermissionFailure_silentRepair_noAlert() async {
+    func testHandleCapturePermissionFailureSilentRepairNoAlert() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let identity = PermissionTestHelpers.makeIdentity("silent-repair")
         var alertCount = 0
 
         let coordinator = PermissionCoordinator(
             defaults: defaults,
-            passiveCheck: { true },             // CG granted
+            passiveCheck: { true },
             interactiveCheck: { false },
             alertPresenter: { _ in alertCount += 1 },
             permissionRequester: { true },
             identityProvider: { identity },
             statusMessageSink: { _ in },
             now: { Date(timeIntervalSince1970: 6_000) },
-            repairSCKAccess: { true }           // silent repair succeeds
+            repairSCKAccess: { true }
         )
 
         await coordinator.handleCapturePermissionFailure()
 
-        XCTAssertEqual(alertCount, 0, "Alert should not show when silent repair succeeds")
-        XCTAssertEqual(coordinator.permissionUIModel.status, .grantedWorking)
+        XCTAssertEqual(alertCount, 0)
+        XCTAssertEqual(coordinator.permissionUIModel.status, .working)
+    }
+
+    func testRevalidateAfterSettingsReturnPollsUntilGrantAppears() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        let identity = PermissionTestHelpers.makeIdentity("return")
+        var passiveChecks = 0
+        var interactiveChecks = 0
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: {
+                passiveChecks += 1
+                return passiveChecks >= 2
+            },
+            interactiveCheck: {
+                interactiveChecks += 1
+                return true
+            },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { identity },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 7_000 + Double(passiveChecks)) }
+        )
+
+        let status = await coordinator.revalidateAfterSettingsReturn(
+            timeoutSeconds: 3,
+            pollIntervalNanoseconds: 1_000_000
+        )
+
+        XCTAssertEqual(status, .working)
+        XCTAssertGreaterThanOrEqual(passiveChecks, 2)
+        XCTAssertEqual(interactiveChecks, 1)
     }
 
     func testPerformTCCResetAndRelaunch() async {
@@ -200,14 +231,14 @@ final class PermissionCoordinatorTests: XCTestCase {
             permissionRequester: { true },
             identityProvider: { PermissionTestHelpers.makeIdentity("tcc-reset") },
             statusMessageSink: { _ in },
-            now: { Date(timeIntervalSince1970: 7_000) },
+            now: { Date(timeIntervalSince1970: 8_000) },
             resetTCCEntry: { resetCalled = true },
             relaunchApp: { relaunchCalled = true }
         )
 
         await coordinator.performTCCResetAndRelaunch()
 
-        XCTAssertTrue(resetCalled, "resetTCCEntry should be called")
-        XCTAssertTrue(relaunchCalled, "relaunchApp should be called")
+        XCTAssertTrue(resetCalled)
+        XCTAssertTrue(relaunchCalled)
     }
 }

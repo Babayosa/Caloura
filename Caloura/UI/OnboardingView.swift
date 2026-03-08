@@ -6,20 +6,35 @@ let onboardingLogger = Logger(subsystem: "com.caloura.app", category: "Onboardin
 struct OnboardingView: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var permissionCoordinator = PermissionCoordinator.shared
-    @State var flow = OnboardingFlowModel()
-    @State var hasAutoSkippedPermissionStep = false
+    @State var flow: OnboardingFlowModel
+    @State var installState: AppInstallState
     @State var isCheckingPermission = false
-    @State var isAwaitingAutoCheckAfterGrant = false
     @State var iconAppeared = false
-    var onComplete: () -> Void
+
+    private let initialState: OnboardingFlowState
+    private let onDismiss: () -> Void
+    private let onStartFirstCapture: () -> Void
+
+    init(
+        settings: AppSettings,
+        initialState: OnboardingFlowState,
+        onDismiss: @escaping () -> Void,
+        onStartFirstCapture: @escaping () -> Void
+    ) {
+        self.settings = settings
+        self.initialState = initialState
+        self.onDismiss = onDismiss
+        self.onStartFirstCapture = onStartFirstCapture
+        _flow = State(initialValue: OnboardingFlowModel(initialState: initialState))
+        _installState = State(initialValue: AppMover.currentInstallState)
+    }
 
     var permissionPresentation: OnboardingPermissionPresentation {
         OnboardingPermissionPresentation.from(permissionCoordinator.permissionUIModel)
     }
 
-    /// Transition that moves in correct direction based on navigation
     private var stepTransition: AnyTransition {
-        let isForward = flow.currentStep.rawValue > flow.previousStep.rawValue
+        let isForward = flow.transitionIsForward
         return .asymmetric(
             insertion: .move(edge: isForward ? .trailing : .leading).combined(with: .opacity),
             removal: .move(edge: isForward ? .leading : .trailing).combined(with: .opacity)
@@ -28,11 +43,10 @@ struct OnboardingView: View {
 
     var body: some View {
         ZStack {
-            // Warm background gradient
             LinearGradient(
                 colors: [
                     Color(nsColor: .windowBackgroundColor),
-                    Color.orange.opacity(0.04)
+                    Color.orange.opacity(0.05)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -40,173 +54,212 @@ struct OnboardingView: View {
             .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                dotStepper
-                    .padding(.top, 28)
+                topLabel
+                    .padding(.top, 24)
 
                 Spacer()
 
                 Group {
-                    switch flow.currentStep {
-                    case .permission:
+                    switch flow.currentState {
+                    case .installRequired:
+                        installStep
+                    case .readyForFirstCapture:
+                        readyForFirstCaptureStep
+                    case .grantScreenRecording, .waitingForSettingsReturn, .repairStalePermissionRecord:
                         permissionStep
-                    case .firstCapture:
-                        firstCaptureStep
+                    case .completed:
+                        completionStep
                     }
                 }
-                .id(flow.currentStep)
+                .id(flow.currentState)
                 .transition(stepTransition)
 
                 Spacer()
-
-                navigationFooter
-                    .padding(.horizontal, 28)
-                    .padding(.bottom, 28)
             }
+            .padding(.bottom, 28)
         }
-        .frame(width: 540, height: 460)
+        .frame(width: 560, height: 480)
         .onAppear {
-            refreshPermissionStatus()
+            onboardingLogger.info(
+                "funnel_event=onboarding_opened state=\(initialState.rawValue, privacy: .public)"
+            )
+            syncInstallState()
+            syncPermissionStateOnAppear()
             withAnimation(.spring(response: 0.6, dampingFraction: 0.7)) {
                 iconAppeared = true
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refreshPermissionStatus()
+            handleDidBecomeActive()
         }
-        .onChange(of: permissionCoordinator.permissionUIModel.status) { _, status in
+    }
+
+    private var topLabel: some View {
+        Text(labelText(for: flow.currentState))
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .tracking(1.4)
+            .textCase(.uppercase)
+    }
+
+    private func labelText(for state: OnboardingFlowState) -> String {
+        switch state {
+        case .installRequired:
+            return "Install"
+        case .readyForFirstCapture:
+            return "First Capture"
+        case .grantScreenRecording, .waitingForSettingsReturn, .repairStalePermissionRecord:
+            return "Permissions"
+        case .completed:
+            return "Ready"
+        }
+    }
+
+    private func syncInstallState() {
+        installState = AppMover.currentInstallState
+        if installState == .inApplications && flow.currentState == .installRequired {
+            transition(to: .readyForFirstCapture)
+        }
+    }
+
+    private func syncPermissionStateOnAppear() {
+        guard flow.currentState != .installRequired else { return }
+        guard initialState != .readyForFirstCapture else { return }
+        Task { @MainActor in
+            let status = await permissionCoordinator.refreshPassiveStatus()
             handlePermissionStatus(status)
         }
     }
 
-    // MARK: - Dot Stepper
+    private func handleDidBecomeActive() {
+        syncInstallState()
+        guard flow.currentState != .installRequired else { return }
 
-    private var dotStepper: some View {
-        HStack(spacing: 12) {
-            ForEach(OnboardingStep.allCases, id: \.rawValue) { step in
-                VStack(spacing: 6) {
-                    Circle()
-                        .fill(step.rawValue <= flow.currentStep.rawValue
-                              ? Color.accentColor
-                              : Color.gray.opacity(0.25))
-                        .frame(width: 8, height: 8)
-                        .scaleEffect(step == flow.currentStep ? 1.3 : 1.0)
-                        .animation(
-                            .spring(response: 0.4, dampingFraction: 0.6),
-                            value: flow.currentStep
-                        )
-
-                    if step == flow.currentStep {
-                        Text(step == .permission ? "Setup" : "Ready")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .transition(.opacity.combined(with: .scale))
-                    }
-                }
-            }
+        if flow.currentState == .waitingForSettingsReturn {
+            revalidateAfterSettingsReturn()
+            return
         }
-    }
 
-    // MARK: - Navigation Footer
-
-    private var navigationFooter: some View {
-        HStack {
-            if !flow.isFirstStep {
-                Button {
-                    navigateBack()
-                } label: {
-                    Label("Back", systemImage: "chevron.left")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            if flow.isLastStep {
-                Button {
-                    finishOnboarding(startCapture: false)
-                } label: {
-                    Label("Finish", systemImage: "chevron.right")
-                }
-                .buttonStyle(.bordered)
-            } else {
-                Button {
-                    navigateNext()
-                } label: {
-                    Label("Continue", systemImage: "chevron.right")
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(permissionPresentation.detail != .working)
-            }
-        }
-    }
-
-    // MARK: - Navigation
-
-    func navigate(to step: OnboardingStep) {
-        withAnimation(.easeInOut(duration: 0.3)) {
-            if step.rawValue > flow.currentStep.rawValue {
-                flow.next()
-            } else {
-                flow.back()
-            }
-        }
-    }
-
-    private func navigateNext() {
-        guard !flow.isLastStep else { return }
-        navigate(to: .firstCapture)
-    }
-
-    private func navigateBack() {
-        guard !flow.isFirstStep else { return }
-        navigate(to: .permission)
-    }
-
-    func finishOnboarding(startCapture: Bool) {
-        settings.hasCompletedOnboarding = true
-        settings.hasSeenWelcome = true
-        onComplete()
-
-        if startCapture {
-            DispatchQueue.main.async {
-                AppCommandRouter.shared.dispatch(.captureArea)
-            }
-        }
-    }
-
-    private func refreshPermissionStatus() {
-        Task { @MainActor in
-            if isAwaitingAutoCheckAfterGrant {
-                runUserInitiatedValidation()
-            } else {
+        if flow.currentState == .grantScreenRecording || flow.currentState == .repairStalePermissionRecord {
+            Task { @MainActor in
                 let status = await permissionCoordinator.refreshPassiveStatus()
                 handlePermissionStatus(status)
             }
         }
     }
 
-    func runUserInitiatedValidation() {
+    private func transition(to state: OnboardingFlowState) {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            flow.transition(to: state)
+        }
+    }
+
+    func moveToApplications() {
+        onboardingLogger.info("funnel_event=move_to_applications_requested")
+        installState = .moving
+        let result = AppMover.moveToApplicationsFolder()
+        installState = result
+        if case .moveFailed = result {
+            onboardingLogger.error("funnel_event=move_to_applications_failed")
+        }
+    }
+
+    func startFirstCapture() {
+        onboardingLogger.info("funnel_event=first_capture_requested")
+        Task { @MainActor in
+            let passiveStatus = await permissionCoordinator.refreshPassiveStatus()
+            switch passiveStatus {
+            case .denied:
+                requestScreenRecording()
+            case .grantedNeedsValidation:
+                runUserInitiatedValidation(launchCaptureOnSuccess: true)
+            case .working:
+                launchFirstCapture()
+            case .needsRelaunch, .staleRecord, .repairing:
+                handlePermissionStatus(passiveStatus)
+            }
+        }
+    }
+
+    func requestScreenRecording() {
+        guard !isCheckingPermission else { return }
+        onboardingLogger.info("funnel_event=screen_recording_prompt_requested")
+        _ = permissionCoordinator.requestPermissionFromSystem()
+        transition(to: .waitingForSettingsReturn)
+    }
+
+    func runUserInitiatedValidation(launchCaptureOnSuccess: Bool) {
         guard !isCheckingPermission else { return }
         isCheckingPermission = true
         Task { @MainActor in
             defer { isCheckingPermission = false }
             let status = await permissionCoordinator.runUserInitiatedValidation()
-            handlePermissionStatus(status)
-            isAwaitingAutoCheckAfterGrant = false
+            handlePermissionStatus(status, launchCaptureOnSuccess: launchCaptureOnSuccess)
         }
     }
 
-    private func handlePermissionStatus(_ status: PermissionStatus) {
-        let desc = String(describing: status)
-        onboardingLogger.info("Permission status changed: \(desc, privacy: .public)")
-        if status == .grantedWorking && !hasAutoSkippedPermissionStep {
-            hasAutoSkippedPermissionStep = true
-            flow.skipPermissionIfReady(true)
+    func revalidateAfterSettingsReturn() {
+        guard !isCheckingPermission else { return }
+        isCheckingPermission = true
+        onboardingLogger.info("funnel_event=screen_recording_settings_returned")
+        Task { @MainActor in
+            defer { isCheckingPermission = false }
+            let status = await permissionCoordinator.revalidateAfterSettingsReturn()
+            handlePermissionStatus(status, launchCaptureOnSuccess: !settings.hasCompletedOnboarding)
         }
-        if status == .grantedWorking {
-            isAwaitingAutoCheckAfterGrant = false
+    }
+
+    func handlePermissionStatus(
+        _ status: ScreenRecordingState,
+        launchCaptureOnSuccess: Bool = false
+    ) {
+        onboardingLogger.info(
+            "permission_status state=\(String(describing: status), privacy: .public)"
+        )
+
+        switch status {
+        case .working:
+            onboardingLogger.info("funnel_event=screen_recording_working")
+            if launchCaptureOnSuccess {
+                launchFirstCapture()
+            } else {
+                transition(to: .completed)
+            }
+        case .denied:
+            transition(to: .grantScreenRecording)
+        case .grantedNeedsValidation:
+            if launchCaptureOnSuccess {
+                launchFirstCapture()
+            } else if settings.hasCompletedOnboarding {
+                transition(to: .completed)
+            } else {
+                transition(to: .grantScreenRecording)
+            }
+        case .needsRelaunch, .staleRecord, .repairing:
+            transition(to: .repairStalePermissionRecord)
         }
+    }
+
+    func launchInstalledCopy() {
+        if AppMover.relaunchFromApplicationsIfAvailable() {
+            onboardingLogger.info("funnel_event=relaunch_installed_copy_requested")
+            return
+        }
+        installState = .moveFailed("No /Applications copy is available yet. Move Caloura there first.")
+    }
+
+    func launchFirstCapture() {
+        settings.hasSeenWelcome = true
+        transition(to: .completed)
+        onDismiss()
+        DispatchQueue.main.async {
+            self.onStartFirstCapture()
+        }
+    }
+
+    func dismissWindow() {
+        settings.hasSeenWelcome = true
+        onDismiss()
     }
 }
 
@@ -226,22 +279,129 @@ final class OnboardingWindowController {
 
     func showIfNeeded(settings: AppSettings) {
         guard !settings.hasCompletedOnboarding else { return }
-        show(settings: settings)
+        show(settings: settings, initialState: .readyForFirstCapture)
     }
 
-    func show(settings: AppSettings) {
+    func show(settings: AppSettings, initialState: OnboardingFlowState = .readyForFirstCapture) {
         let config = SingleWindowPresenter<OnboardingView>.WindowConfig(
             title: "Welcome to Caloura",
-            size: CGSize(width: 540, height: 460)
+            size: CGSize(width: 560, height: 480)
         )
         presenter.show(config: config) {
-            OnboardingView(settings: settings) { [weak self] in
-                self?.presenter.close()
-            }
+            OnboardingView(
+                settings: settings,
+                initialState: initialState,
+                onDismiss: { [weak self] in
+                    self?.presenter.close()
+                },
+                onStartFirstCapture: {
+                    AppCommandRouter.shared.dispatch(.captureArea)
+                }
+            )
         }
     }
 
     func close() {
         presenter.close()
+    }
+}
+
+@MainActor
+final class OnboardingTipsController {
+    static let shared = OnboardingTipsController(settings: .shared)
+
+    private let settings: AppSettings
+    private let presenter = SingleWindowPresenter<ContextualTipView>()
+    private var hasShownTipThisSession = false
+
+    init(settings: AppSettings) {
+        self.settings = settings
+    }
+
+    func showIfNeeded(_ tip: ContextualOnboardingTip) {
+        guard settings.hasCompletedOnboarding else { return }
+        guard !settings.hasSeenContextualTip(tip) else { return }
+        guard !hasShownTipThisSession else { return }
+
+        hasShownTipThisSession = true
+        settings.markContextualTipSeen(tip)
+        onboardingLogger.info("funnel_event=contextual_tip_shown tip=\(tip.rawValue, privacy: .public)")
+
+        let content = ContextualTipContent.content(for: tip)
+        let config = SingleWindowPresenter<ContextualTipView>.WindowConfig(
+            title: "Caloura Tip",
+            size: CGSize(width: 360, height: 220)
+        )
+        presenter.show(config: config) {
+            ContextualTipView(
+                content: content,
+                onDismiss: { [weak self] in
+                    self?.presenter.close()
+                }
+            )
+        }
+    }
+}
+
+private struct ContextualTipContent {
+    let symbol: String
+    let title: String
+    let body: String
+
+    static func content(for tip: ContextualOnboardingTip) -> ContextualTipContent {
+        switch tip {
+        case .history:
+            return ContextualTipContent(
+                symbol: "clock.arrow.circlepath",
+                title: "History keeps recent captures searchable",
+                body: "Open History to find, preview, and reuse the screenshots you just took without capturing them again."
+            )
+        case .edit:
+            return ContextualTipContent(
+                symbol: "pencil.tip.crop.circle",
+                title: "Edit the capture you already have",
+                body: "Annotate, Beautify, and Redact are all available from Quick Access and the More menu after every shot."
+            )
+        case .scroll:
+            return ContextualTipContent(
+                symbol: "rectangle.and.hand.point.up.left.fill",
+                title: "Scroll Capture asks for Accessibility only now",
+                body: "Grant Accessibility when you need scrolling, not during first launch, so the rest of Caloura stays fast and simple."
+            )
+        case .share:
+            return ContextualTipContent(
+                symbol: "square.and.arrow.up.circle.fill",
+                title: "Sharing is built into the first workflow",
+                body: "Copy, save, Markdown, and citation actions are available immediately after capture from Quick Access and the menu."
+            )
+        }
+    }
+}
+
+private struct ContextualTipView: View {
+    let content: ContextualTipContent
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: content.symbol)
+                .font(.system(size: 40))
+                .foregroundStyle(Color.accentColor)
+
+            Text(content.title)
+                .font(.title3.weight(.semibold))
+                .multilineTextAlignment(.center)
+
+            Text(content.body)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 8)
+
+            Button("Got It", action: onDismiss)
+                .buttonStyle(.borderedProminent)
+        }
+        .padding(28)
+        .frame(width: 360, height: 220)
     }
 }

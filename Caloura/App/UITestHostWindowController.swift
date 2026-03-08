@@ -227,7 +227,10 @@ final class UITestHostWindowController: NSWindowController {
     }
 
     @objc private func showPermissionRepair() {
-        onboardingController.show(settings: AppSettings.shared)
+        onboardingController.show(
+            settings: AppSettings.shared,
+            initialState: .grantScreenRecording
+        )
         updateState("permission-repair-visible", detail: "Onboarding repair window opened")
     }
 

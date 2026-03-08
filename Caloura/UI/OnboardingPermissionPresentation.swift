@@ -2,15 +2,16 @@ import Foundation
 
 enum PermissionDetail: Equatable {
     case working
-    case grantedNotWorking
+    case grantedNeedsValidation
+    case needsRelaunch
     case notGranted
-    case signatureMismatch
+    case staleRecord
     case repairing
 }
 
 struct OnboardingPermissionPresentation: Equatable {
     let detail: PermissionDetail
-    let shouldShowMismatchBanner: Bool
+    let shouldShowStaleRecordBanner: Bool
     let showsGrantButton: Bool
     let showsCheckAgainButton: Bool
     let showsRepairButton: Bool
@@ -21,62 +22,77 @@ struct OnboardingPermissionPresentation: Equatable {
     static func from(_ uiModel: PermissionUIModel) -> OnboardingPermissionPresentation {
         let detail: PermissionDetail
         switch uiModel.status {
-        case .grantedWorking:
+        case .working:
             detail = .working
-        case .grantedNeedsRelaunch:
-            detail = .grantedNotWorking
-        case .signatureMismatch:
-            detail = .signatureMismatch
+        case .grantedNeedsValidation:
+            detail = .grantedNeedsValidation
+        case .needsRelaunch:
+            detail = .needsRelaunch
+        case .staleRecord:
+            detail = .staleRecord
         case .repairing:
             detail = .repairing
-        case .denied, .unknown:
+        case .denied:
             detail = .notGranted
         }
 
         let statusHeadline: String
         let statusMessage: String
         let showsGrantButton: Bool
+        let showsCheckAgainButton: Bool
         let showsRepairButton: Bool
         let showsResetRelaunchButton: Bool
 
         switch detail {
         case .working:
-            statusHeadline = "Permission granted"
-            statusMessage = "You're ready to capture screenshots."
+            statusHeadline = "Screen Recording ready"
+            statusMessage = "Caloura is ready to capture screenshots."
             showsGrantButton = false
+            showsCheckAgainButton = false
             showsRepairButton = false
             showsResetRelaunchButton = false
-        case .grantedNotWorking:
-            statusHeadline = "Permission needs repair"
-            statusMessage = uiModel.guidanceText ?? "Relaunch Caloura to finish applying access."
+        case .grantedNeedsValidation:
+            statusHeadline = "Finish validation with a capture"
+            statusMessage = uiModel.guidanceText ?? "Start a capture to confirm Screen Recording is fully available."
             showsGrantButton = false
+            showsCheckAgainButton = true
+            showsRepairButton = false
+            showsResetRelaunchButton = false
+        case .needsRelaunch:
+            statusHeadline = "One relaunch still needed"
+            statusMessage = uiModel.guidanceText ?? "Relaunch Caloura to finish applying Screen Recording access."
+            showsGrantButton = false
+            showsCheckAgainButton = false
             showsRepairButton = true
             showsResetRelaunchButton = true
         case .notGranted:
-            statusHeadline = "Permission not granted yet"
-            statusMessage = "You can continue now and grant this anytime."
+            statusHeadline = "Screen Recording not granted yet"
+            statusMessage = uiModel.guidanceText ?? "Grant Screen Recording when you take your first screenshot."
             showsGrantButton = true
+            showsCheckAgainButton = false
             showsRepairButton = false
             showsResetRelaunchButton = false
-        case .signatureMismatch:
-            statusHeadline = "Permission tied to a different build"
-            statusMessage = uiModel.guidanceText ?? "Use /Applications/Caloura.app or re-grant for this build."
-            showsGrantButton = true
-            showsRepairButton = false
-            showsResetRelaunchButton = false
-        case .repairing:
-            statusHeadline = "Repairing..."
-            statusMessage = uiModel.guidanceText ?? "Restarting screen recording service."
+        case .staleRecord:
+            statusHeadline = "macOS trusts a different Caloura copy"
+            statusMessage = uiModel.guidanceText ?? "Use /Applications/Caloura.app, then refresh Screen Recording for that copy."
             showsGrantButton = false
+            showsCheckAgainButton = true
+            showsRepairButton = true
+            showsResetRelaunchButton = true
+        case .repairing:
+            statusHeadline = "Repairing Screen Recording"
+            statusMessage = uiModel.guidanceText ?? "Restarting the screen recording service."
+            showsGrantButton = false
+            showsCheckAgainButton = false
             showsRepairButton = false
             showsResetRelaunchButton = false
         }
 
         return OnboardingPermissionPresentation(
             detail: detail,
-            shouldShowMismatchBanner: uiModel.shouldShowSignatureMismatchBanner,
+            shouldShowStaleRecordBanner: uiModel.shouldShowStaleRecordBanner,
             showsGrantButton: showsGrantButton,
-            showsCheckAgainButton: detail != .repairing,
+            showsCheckAgainButton: showsCheckAgainButton,
             showsRepairButton: showsRepairButton,
             showsResetRelaunchButton: showsResetRelaunchButton,
             statusHeadline: statusHeadline,

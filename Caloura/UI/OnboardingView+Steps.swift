@@ -1,113 +1,248 @@
 import SwiftUI
 
-// MARK: - OnboardingView Step Content
-
 extension OnboardingView {
 
-    // MARK: - Permission Step
+    var installStep: some View {
+        VStack(spacing: 22) {
+            heroIcon(symbol: "arrow.down.app.fill", tint: .orange)
 
-    var permissionStep: some View {
+            VStack(spacing: 10) {
+                Text("Install Caloura in Applications")
+                    .font(.title2)
+                    .fontWeight(.bold)
+
+                Text("Finish the install first so Screen Recording, updates, and the first-launch experience all stay attached to the same app copy.")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 44)
+            }
+
+            infoCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    installRow(
+                        title: "Current location",
+                        value: AppMover.sourceBundlePath()
+                    )
+                    installRow(
+                        title: "Recommended location",
+                        value: "/Applications/Caloura.app"
+                    )
+
+                    if installState == .moving {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Moving Caloura and relaunching the installed copy…")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    if let failure = installState.failureMessage {
+                        Text(failure)
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+            }
+
+            HStack(spacing: 12) {
+                Button("Quit") {
+                    NSApp.terminate(nil)
+                }
+                .buttonStyle(.bordered)
+
+                Button("Move to Applications") {
+                    moveToApplications()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            }
+        }
+        .padding(.horizontal, 28)
+    }
+
+    var readyForFirstCaptureStep: some View {
         VStack(spacing: 20) {
             if let appIcon = NSApp.applicationIconImage {
                 Image(nsImage: appIcon)
                     .resizable()
-                    .frame(width: 80, height: 80)
-                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-                    .scaleEffect(iconAppeared ? 1.0 : 0.5)
+                    .frame(width: 84, height: 84)
+                    .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+                    .scaleEffect(iconAppeared ? 1.0 : 0.7)
                     .opacity(iconAppeared ? 1.0 : 0.0)
             }
 
-            VStack(spacing: 8) {
-                Text("Welcome to Caloura")
+            VStack(spacing: 10) {
+                Text("Take your first screenshot")
                     .font(.title2)
                     .fontWeight(.bold)
 
-                Text("One quick step before you start capturing.")
+                Text("Start with one capture. Caloura will ask for Screen Recording only when it is actually needed, then get you straight into capture mode.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                    .padding(.horizontal, 44)
             }
 
-            permissionCard
-                .padding(.horizontal, 32)
+            shortcutsCard
+
+            HStack(spacing: 12) {
+                Button("Not Now") {
+                    dismissWindow()
+                }
+                .buttonStyle(.bordered)
+
+                Button("Take Your First Screenshot") {
+                    startFirstCapture()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            }
+        }
+        .padding(.horizontal, 28)
+    }
+
+    var permissionStep: some View {
+        VStack(spacing: 20) {
+            heroIcon(symbol: permissionSymbol, tint: permissionTint)
+
+            VStack(spacing: 10) {
+                Text(permissionTitle)
+                    .font(.title2)
+                    .fontWeight(.bold)
+
+                Text(permissionBody)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 44)
+            }
+
+            infoCard {
+                VStack(spacing: 14) {
+                    permissionStatusRow
+
+                    if permissionPresentation.shouldShowStaleRecordBanner {
+                        staleRecordBanner
+                    }
+                }
+            }
+
+            permissionActions
+        }
+        .padding(.horizontal, 28)
+    }
+
+    var completionStep: some View {
+        VStack(spacing: 18) {
+            heroIcon(symbol: "checkmark.circle.fill", tint: .green)
+
+            Text(settings.hasCompletedOnboarding ? "Permission repaired" : "Starting your first capture…")
+                .font(.title2)
+                .fontWeight(.bold)
+
+            Text(settings.hasCompletedOnboarding
+                 ? "Caloura is ready again."
+                 : "The overlay will appear in a moment.")
+                .font(.body)
+                .foregroundStyle(.secondary)
+
+            ProgressView()
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 28)
+    }
+
+    private var permissionSymbol: String {
+        switch flow.currentState {
+        case .waitingForSettingsReturn:
+            return "arrow.triangle.2.circlepath.circle.fill"
+        case .repairStalePermissionRecord:
+            return "exclamationmark.triangle.fill"
+        default:
+            return "lock.shield.fill"
         }
     }
 
-    // MARK: - Permission Card
-
-    var permissionCard: some View {
-        VStack(spacing: 12) {
-            permissionStatusRow
-
-            permissionActionButtons
-
-            if isAwaitingAutoCheckAfterGrant {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Auto-checking permission...")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-            }
+    private var permissionTint: Color {
+        switch flow.currentState {
+        case .repairStalePermissionRecord:
+            return .orange
+        case .waitingForSettingsReturn:
+            return .blue
+        default:
+            return .accentColor
         }
-        .padding(16)
-        .background(
-            .ultraThinMaterial,
-            in: RoundedRectangle(cornerRadius: 12)
-        )
-        .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
+    }
+
+    private var permissionTitle: String {
+        switch flow.currentState {
+        case .waitingForSettingsReturn:
+            return "Finish Screen Recording in System Settings"
+        case .repairStalePermissionRecord:
+            return permissionPresentation.detail == .staleRecord
+                ? "Fix the Screen Recording record"
+                : "Finish applying Screen Recording"
+        default:
+            return "Grant Screen Recording when you’re ready"
+        }
+    }
+
+    private var permissionBody: String {
+        switch flow.currentState {
+        case .waitingForSettingsReturn:
+            return "Enable Caloura in System Settings, then return here. Caloura will re-check automatically as soon as you come back."
+        case .repairStalePermissionRecord:
+            return permissionPresentation.detail == .staleRecord
+                ? "macOS is still pointing Screen Recording at a different Caloura copy. Use the installed app and refresh the permission once."
+                : "macOS has the permission record, but the current app process still needs a clean relaunch."
+        default:
+            return "Caloura only asks for Screen Recording when you start a real capture."
+        }
     }
 
     @ViewBuilder
-    var permissionStatusRow: some View {
+    private var permissionStatusRow: some View {
         switch permissionPresentation.detail {
         case .working:
-            Label(
-                permissionPresentation.statusHeadline,
-                systemImage: "checkmark.circle.fill"
-            )
-            .foregroundStyle(.green)
+            Label(permissionPresentation.statusHeadline, systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
             Text(permissionPresentation.statusMessage)
                 .font(.callout)
                 .foregroundStyle(.secondary)
-        case .grantedNotWorking:
-            Label(
-                permissionPresentation.statusHeadline,
-                systemImage: "exclamationmark.circle.fill"
-            )
-            .foregroundStyle(.orange)
+        case .grantedNeedsValidation:
+            Label(permissionPresentation.statusHeadline, systemImage: "scope")
+                .foregroundStyle(.blue)
+            Text(permissionPresentation.statusMessage)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        case .needsRelaunch:
+            Label(permissionPresentation.statusHeadline, systemImage: "arrow.clockwise.circle.fill")
+                .foregroundStyle(.orange)
             Text(permissionPresentation.statusMessage)
                 .font(.callout)
                 .foregroundStyle(.orange)
                 .multilineTextAlignment(.center)
         case .notGranted:
-            Label(
-                permissionPresentation.statusHeadline,
-                systemImage: "lock.shield"
-            )
-            .foregroundStyle(.orange)
-            .font(.callout)
+            Label(permissionPresentation.statusHeadline, systemImage: "lock.shield")
+                .foregroundStyle(Color.accentColor)
             Text(permissionPresentation.statusMessage)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-        case .signatureMismatch:
-            Label(
-                permissionPresentation.statusHeadline,
-                systemImage: "exclamationmark.triangle.fill"
-            )
-            .foregroundStyle(.orange)
-            .font(.callout)
+        case .staleRecord:
+            Label(permissionPresentation.statusHeadline, systemImage: "externaldrive.badge.exclamationmark")
+                .foregroundStyle(.orange)
             Text(permissionPresentation.statusMessage)
                 .font(.callout)
                 .foregroundStyle(.orange)
                 .multilineTextAlignment(.center)
-            if permissionPresentation.shouldShowMismatchBanner {
-                mismatchBanner
-            }
         case .repairing:
-            Label("Repairing...", systemImage: "gear.badge.questionmark")
+            Label(permissionPresentation.statusHeadline, systemImage: "gearshape.2.fill")
                 .foregroundStyle(.blue)
             ProgressView()
                 .controlSize(.small)
@@ -117,132 +252,143 @@ extension OnboardingView {
         }
     }
 
-    var mismatchBanner: some View {
-        Text("If you run both Xcode and public builds, "
-             + "macOS may authorize one build but deny the other.")
+    private var staleRecordBanner: some View {
+        Text("If you moved Caloura after granting access, open the installed copy from /Applications before re-checking.")
             .font(.footnote)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
             .padding(.horizontal, 4)
             .onAppear {
                 Task { @MainActor in
-                    await permissionCoordinator.markCurrentMismatchBannerShown()
+                    await permissionCoordinator.markCurrentStaleRecordBannerShown()
                 }
             }
     }
 
     @ViewBuilder
-    var permissionActionButtons: some View {
-        HStack(spacing: 10) {
-            if permissionPresentation.showsGrantButton {
-                Button("Grant Permission") {
-                    guard !isCheckingPermission,
-                          !isAwaitingAutoCheckAfterGrant else { return }
-                    _ = permissionCoordinator.requestPermissionFromSystem()
-                    isAwaitingAutoCheckAfterGrant = true
+    private var permissionActions: some View {
+        switch flow.currentState {
+        case .waitingForSettingsReturn:
+            VStack(spacing: 10) {
+                if isCheckingPermission {
+                    ProgressView("Checking Screen Recording…")
+                        .controlSize(.small)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(isCheckingPermission || isAwaitingAutoCheckAfterGrant)
-            }
 
-            if permissionPresentation.showsRepairButton {
-                Button("Try Repair") {
-                    runUserInitiatedValidation()
+                Button("Check Again") {
+                    revalidateAfterSettingsReturn()
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(isCheckingPermission)
             }
+        case .repairStalePermissionRecord:
+            HStack(spacing: 12) {
+                if permissionPresentation.detail == .staleRecord {
+                    Button("Open /Applications Copy") {
+                        launchInstalledCopy()
+                    }
+                    .buttonStyle(.bordered)
+                }
 
-            if permissionPresentation.showsResetRelaunchButton {
-                Button("Reset & Relaunch") {
-                    Task { @MainActor in
-                        await permissionCoordinator.performTCCResetAndRelaunch()
+                if permissionPresentation.showsResetRelaunchButton {
+                    Button("Reset & Relaunch") {
+                        Task { @MainActor in
+                            await permissionCoordinator.performTCCResetAndRelaunch()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                Button(permissionPresentation.showsRepairButton ? "Check Again" : "Done") {
+                    if permissionPresentation.showsRepairButton || permissionPresentation.showsCheckAgainButton {
+                        runUserInitiatedValidation(launchCaptureOnSuccess: false)
+                    } else {
+                        dismissWindow()
                     }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderedProminent)
+                .disabled(isCheckingPermission)
             }
-
-            if permissionPresentation.showsCheckAgainButton {
-                let checking = isCheckingPermission || isAwaitingAutoCheckAfterGrant
-                Button(checking ? "Checking..." : "Check Again") {
-                    runUserInitiatedValidation()
+        default:
+            HStack(spacing: 12) {
+                Button("Not Now") {
+                    dismissWindow()
                 }
                 .buttonStyle(.bordered)
-                .disabled(checking)
+
+                Button("Grant Screen Recording") {
+                    requestScreenRecording()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
             }
         }
     }
 
-    // MARK: - First Capture Step
-
-    var firstCaptureStep: some View {
-        VStack(spacing: 18) {
-            ZStack {
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [Color.green.opacity(0.2), Color.clear],
-                            center: .center,
-                            startRadius: 0,
-                            endRadius: 40
-                        )
+    private func heroIcon(symbol: String, tint: Color) -> some View {
+        ZStack {
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [tint.opacity(0.22), .clear],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 44
                     )
-                    .frame(width: 80, height: 80)
+                )
+                .frame(width: 88, height: 88)
 
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 48))
-                    .foregroundStyle(.green)
-                    .symbolEffect(.bounce, value: flow.currentStep)
-            }
-
-            Text("You\u{2019}re all set!")
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text("Caloura is ready to capture. Here are your shortcuts:")
-                .font(.body)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-
-            shortcutsCard
-
-            Button {
-                finishOnboarding(startCapture: true)
-            } label: {
-                Text("Take Your First Screenshot")
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            Image(systemName: symbol)
+                .font(.system(size: 48))
+                .foregroundStyle(tint)
+                .symbolEffect(.bounce, value: flow.currentState)
         }
     }
 
-    // MARK: - Shortcuts Card
+    private func infoCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 12) {
+            content()
+        }
+        .padding(18)
+        .frame(maxWidth: 430)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.06), radius: 8, y: 2)
+    }
+
+    private func installRow(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+            Text(value)
+                .font(.system(.footnote, design: .monospaced))
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
     var shortcutsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            shortcutRow(
-                keys: "\u{2318}\u{21E7}4",
-                action: "Capture Area",
-                description: "Select any region"
-            )
-            shortcutRow(
-                keys: "\u{2318}\u{21E7}5",
-                action: "Capture Window",
-                description: "Click any window"
-            )
-            shortcutRow(
-                keys: "\u{2318}\u{21E7}3",
-                action: "Capture Full Screen",
-                description: "Entire display"
-            )
+        infoCard {
+            VStack(alignment: .leading, spacing: 12) {
+                shortcutRow(
+                    keys: "\u{2318}\u{21E7}4",
+                    action: "Capture Area",
+                    description: "Select any region"
+                )
+                shortcutRow(
+                    keys: "\u{2318}\u{21E7}5",
+                    action: "Capture Window",
+                    description: "Click any window"
+                )
+                shortcutRow(
+                    keys: "\u{2318}\u{21E7}3",
+                    action: "Capture Full Screen",
+                    description: "Entire display"
+                )
+            }
         }
-        .padding(16)
-        .background(
-            .ultraThinMaterial,
-            in: RoundedRectangle(cornerRadius: 12)
-        )
-        .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
     }
 
     func shortcutRow(
@@ -258,21 +404,20 @@ extension OnboardingView {
                         .frame(minWidth: 28, minHeight: 28)
                         .background(
                             RoundedRectangle(cornerRadius: 6)
-                                .fill(Color.gray.opacity(0.15))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                                .fill(Color(nsColor: .controlBackgroundColor))
                         )
                 }
             }
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(action)
-                    .foregroundStyle(.primary)
+                    .font(.body.weight(.medium))
                 Text(description)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Spacer()
         }
     }
 }

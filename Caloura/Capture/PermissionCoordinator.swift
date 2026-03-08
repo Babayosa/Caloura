@@ -26,19 +26,21 @@ private struct SecRequirementHandle {
     }
 }
 
-enum PermissionStatus: Equatable {
-    case unknown
-    case grantedWorking
-    case grantedNeedsRelaunch
+enum ScreenRecordingState: Equatable {
     case denied
-    case signatureMismatch
+    case grantedNeedsValidation
+    case working
+    case needsRelaunch
+    case staleRecord
     case repairing
 }
 
+typealias PermissionStatus = ScreenRecordingState
+
 struct PermissionUIModel: Equatable {
-    var status: PermissionStatus = .unknown
+    var status: ScreenRecordingState = .grantedNeedsValidation
     var guidanceText: String?
-    var shouldShowSignatureMismatchBanner: Bool = false
+    var shouldShowStaleRecordBanner: Bool = false
     var isAlertCooldownActive: Bool = false
 }
 
@@ -197,7 +199,7 @@ final class PermissionCoordinator: ObservableObject {
 
     private enum Keys {
         static let lastWorkingIdentityFingerprint = "permissionLastWorkingIdentityFingerprint"
-        static let lastShownMismatchIdentityFingerprint = "permissionLastShownMismatchIdentityFingerprint"
+        static let lastShownStaleRecordIdentityFingerprint = "permissionLastShownMismatchIdentityFingerprint"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -242,7 +244,7 @@ final class PermissionCoordinator: ObservableObject {
 
     /// Perform a non-interactive permission check and update the published UI model.
     @discardableResult
-    func refreshPassiveStatus() async -> PermissionStatus {
+    func refreshPassiveStatus() async -> ScreenRecordingState {
         let identity = await identityProvider()
         let cgGranted = passiveCheck()
         let execPath = identity.executablePath
@@ -251,13 +253,15 @@ final class PermissionCoordinator: ObservableObject {
             + " path=\(execPath) signing=\(signingType)"
         logger.info("\(passiveMsg, privacy: .public)")
 
-        let status: PermissionStatus
+        let status: ScreenRecordingState
         if !cgGranted {
             status = .denied
-        } else if isIdentityMismatch(identity) {
-            status = .signatureMismatch
+        } else if isStalePermissionRecord(identity) {
+            status = .staleRecord
+        } else if isKnownWorkingIdentity(identity) {
+            status = .working
         } else {
-            status = .grantedWorking
+            status = .grantedNeedsValidation
         }
         updateUIModel(status: status, identity: identity)
         return status
@@ -266,7 +270,7 @@ final class PermissionCoordinator: ObservableObject {
     /// Run a full interactive validation (CG + SCK) triggered by an explicit user action.
     /// Automatically attempts replayd repair if SCK fails but CG is granted.
     @discardableResult
-    func runUserInitiatedValidation() async -> PermissionStatus {
+    func runUserInitiatedValidation() async -> ScreenRecordingState {
         let identity = await identityProvider()
         let cgGranted = passiveCheck()
         logger.info("interactive_check_start cg_granted=\(cgGranted, privacy: .public)")
@@ -281,8 +285,8 @@ final class PermissionCoordinator: ObservableObject {
 
         if sckAuthorized {
             defaults.set(identity.fingerprint, forKey: Keys.lastWorkingIdentityFingerprint)
-            updateUIModel(status: .grantedWorking, identity: identity)
-            return .grantedWorking
+            updateUIModel(status: .working, identity: identity)
+            return .working
         }
 
         // SCK failed — attempt auto-repair via replayd restart
@@ -293,15 +297,15 @@ final class PermissionCoordinator: ObservableObject {
 
         if repaired {
             defaults.set(identity.fingerprint, forKey: Keys.lastWorkingIdentityFingerprint)
-            updateUIModel(status: .grantedWorking, identity: identity)
-            return .grantedWorking
+            updateUIModel(status: .working, identity: identity)
+            return .working
         }
 
-        let status: PermissionStatus
-        if isIdentityMismatch(identity) {
-            status = .signatureMismatch
+        let status: ScreenRecordingState
+        if isStalePermissionRecord(identity) {
+            status = .staleRecord
         } else {
-            status = .grantedNeedsRelaunch
+            status = .needsRelaunch
         }
 
         updateUIModel(status: status, identity: identity)
@@ -312,6 +316,30 @@ final class PermissionCoordinator: ObservableObject {
     func requestPermissionFromSystem() -> Bool {
         logger.info("request_permission user_initiated=true")
         return permissionRequester()
+    }
+
+    /// Poll passive TCC state after the user returns from System Settings,
+    /// then run one interactive validation once macOS reports access.
+    @discardableResult
+    func revalidateAfterSettingsReturn(
+        timeoutSeconds: TimeInterval = 4,
+        pollIntervalNanoseconds: UInt64 = 350_000_000
+    ) async -> ScreenRecordingState {
+        let deadline = now().addingTimeInterval(timeoutSeconds)
+
+        while now() < deadline {
+            let passiveStatus = await refreshPassiveStatus()
+            switch passiveStatus {
+            case .denied:
+                try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
+            case .staleRecord:
+                return .staleRecord
+            case .grantedNeedsValidation, .working, .needsRelaunch, .repairing:
+                return await runUserInitiatedValidation()
+            }
+        }
+
+        return await refreshPassiveStatus()
     }
 
     /// Handle a capture failure due to missing permission, showing an alert if not rate-limited.
@@ -327,7 +355,7 @@ final class PermissionCoordinator: ObservableObject {
             if repaired {
                 logger.info("silent_repair_success — no alert needed")
                 defaults.set(identity.fingerprint, forKey: Keys.lastWorkingIdentityFingerprint)
-                updateUIModel(status: .grantedWorking, identity: identity)
+                updateUIModel(status: .working, identity: identity)
                 return
             }
         }
@@ -368,22 +396,25 @@ final class PermissionCoordinator: ObservableObject {
         relaunchApp()
     }
 
-    /// Record that the signature-mismatch banner has been shown for the current identity.
-    func markCurrentMismatchBannerShown() async {
+    /// Record that the stale-record banner has been shown for the current identity.
+    func markCurrentStaleRecordBannerShown() async {
         let identity = await identityProvider()
-        defaults.set(identity.fingerprint, forKey: Keys.lastShownMismatchIdentityFingerprint)
-        if permissionUIModel.status == .signatureMismatch {
-            permissionUIModel.shouldShowSignatureMismatchBanner = false
+        defaults.set(identity.fingerprint, forKey: Keys.lastShownStaleRecordIdentityFingerprint)
+        if permissionUIModel.status == .staleRecord {
+            permissionUIModel.shouldShowStaleRecordBanner = false
         }
-        logger.info("mismatch_banner_marked_shown fingerprint=\(identity.fingerprint, privacy: .private(mask: .hash))")
+        logger.info("stale_record_banner_marked_shown fingerprint=\(identity.fingerprint, privacy: .private(mask: .hash))")
     }
 
-    private func alertState(for status: PermissionStatus) -> ScreenCaptureManager.PermissionState {
+    private func alertState(for status: ScreenRecordingState) -> ScreenCaptureManager.PermissionState {
         switch status {
         case .denied:
             return .neverGranted
-        case .signatureMismatch,
-             .grantedNeedsRelaunch, .grantedWorking, .unknown, .repairing:
+        case .staleRecord,
+             .needsRelaunch,
+             .grantedNeedsValidation,
+             .working,
+             .repairing:
             return .grantedButFailing
         }
     }
@@ -410,57 +441,73 @@ final class PermissionCoordinator: ObservableObject {
         }
     }
 
-    private func isIdentityMismatch(_ identity: PermissionIdentity) -> Bool {
-        guard let lastWorkingFingerprint = defaults.string(forKey: Keys.lastWorkingIdentityFingerprint),
-              !lastWorkingFingerprint.isEmpty else {
+    private func knownWorkingFingerprint() -> String? {
+        guard let fingerprint = defaults.string(forKey: Keys.lastWorkingIdentityFingerprint),
+              !fingerprint.isEmpty else {
+            return nil
+        }
+        return fingerprint
+    }
+
+    private func isKnownWorkingIdentity(_ identity: PermissionIdentity) -> Bool {
+        knownWorkingFingerprint() == identity.fingerprint
+    }
+
+    private func isStalePermissionRecord(_ identity: PermissionIdentity) -> Bool {
+        guard let lastWorkingFingerprint = knownWorkingFingerprint() else {
             return false
         }
         return lastWorkingFingerprint != identity.fingerprint
     }
 
-    private func updateUIModel(status: PermissionStatus, identity: PermissionIdentity) {
-        let shouldShowMismatchBanner = shouldShowMismatchBanner(for: identity, status: status)
+    private func updateUIModel(status: ScreenRecordingState, identity: PermissionIdentity) {
+        let shouldShowStaleRecordBanner = shouldShowStaleRecordBanner(for: identity, status: status)
         let guidance = guidance(for: status, identity: identity)
         let cooldownActive = isCooldownActive(at: now())
         permissionUIModel = PermissionUIModel(
             status: status,
             guidanceText: guidance,
-            shouldShowSignatureMismatchBanner: shouldShowMismatchBanner,
+            shouldShowStaleRecordBanner: shouldShowStaleRecordBanner,
             isAlertCooldownActive: cooldownActive
         )
     }
 
-    private func shouldShowMismatchBanner(for identity: PermissionIdentity, status: PermissionStatus) -> Bool {
-        guard status == .signatureMismatch else { return false }
-        let alreadyShownForIdentity = defaults.string(forKey: Keys.lastShownMismatchIdentityFingerprint)
+    private func shouldShowStaleRecordBanner(
+        for identity: PermissionIdentity,
+        status: ScreenRecordingState
+    ) -> Bool {
+        guard status == .staleRecord else { return false }
+        let alreadyShownForIdentity = defaults.string(forKey: Keys.lastShownStaleRecordIdentityFingerprint)
         return alreadyShownForIdentity != identity.fingerprint
     }
 
-    private func guidance(for status: PermissionStatus, identity: PermissionIdentity) -> String? {
+    private func guidance(for status: ScreenRecordingState, identity: PermissionIdentity) -> String? {
         switch status {
-        case .signatureMismatch:
-            return "Permission appears tied to a different app build. "
-                + "For stable behavior, use /Applications/Caloura.app "
-                + "or re-grant Screen Recording for this build in System Settings."
-        case .grantedNeedsRelaunch:
+        case .staleRecord:
+            return "macOS appears to trust a different Caloura copy. "
+                + "Open /Applications/Caloura.app, then re-grant Screen Recording for that copy if needed."
+        case .needsRelaunch:
             return "Screen Recording is granted, but macOS needs a Caloura relaunch to fully apply it."
         case .denied:
             return "Caloura needs Screen Recording access to capture screenshots."
+        case .grantedNeedsValidation:
+            return "Screen Recording looks granted. Start a capture to finish validation."
         case .repairing:
             return "Restarting screen recording service."
-        case .grantedWorking, .unknown:
+        case .working:
             return nil
         }
     }
 
-    private func nonBlockingMessage(for status: PermissionStatus) -> String {
+    private func nonBlockingMessage(for status: ScreenRecordingState) -> String {
         switch status {
-        case .signatureMismatch:
-            return "Screen Recording permission may be tied to a different build. "
-                + "Open System Settings to re-grant for this build."
+        case .staleRecord:
+            return "Screen Recording appears tied to a different Caloura copy. Open /Applications/Caloura.app and try again."
         case .denied:
             return "Screen Recording permission required. Open System Settings to continue capturing."
-        case .grantedNeedsRelaunch, .grantedWorking, .unknown, .repairing:
+        case .needsRelaunch:
+            return "macOS still needs Caloura to relaunch before capture is available."
+        case .grantedNeedsValidation, .working, .repairing:
             return "Screen Recording is still initializing. Try again in a moment."
         }
     }

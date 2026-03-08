@@ -5,9 +5,7 @@ import XCTest
 @MainActor
 final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
 
-    // MARK: - refreshPassiveStatus repeated calls
-
-    func testRepeatedRefreshPassiveStatus_stableResult() async {
+    func testRepeatedRefreshPassiveStatusStableResult() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let coordinator = PermissionCoordinator(
             defaults: defaults,
@@ -20,24 +18,16 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 10_000) }
         )
 
-        // Call refreshPassiveStatus many times in rapid succession
-        var results: [PermissionStatus] = []
+        var results: [ScreenRecordingState] = []
         for _ in 0..<20 {
             let status = await coordinator.refreshPassiveStatus()
             results.append(status)
         }
 
-        // All results should be identical
-        let firstResult = results[0]
-        for (index, result) in results.enumerated() {
-            XCTAssertEqual(
-                result, firstResult,
-                "Result at call \(index) differs from first call"
-            )
-        }
+        XCTAssertTrue(results.allSatisfy { $0 == .grantedNeedsValidation })
     }
 
-    func testRepeatedRefreshPassiveStatus_deniedIsStable() async {
+    func testRepeatedRefreshPassiveStatusDeniedIsStable() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let coordinator = PermissionCoordinator(
             defaults: defaults,
@@ -55,37 +45,31 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             XCTAssertEqual(status, .denied)
         }
 
-        XCTAssertEqual(
-            coordinator.permissionUIModel.status,
-            .denied
-        )
+        XCTAssertEqual(coordinator.permissionUIModel.status, .denied)
     }
 
-    // MARK: - refreshPassiveStatus does not crash
-
-    func testRefreshPassiveStatus_doesNotCrashWithGranted() async {
+    func testRefreshPassiveStatusReturnsKnownWorkingForCurrentFingerprint() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
+        let identity = PermissionTestHelpers.makeIdentity("granted")
+        defaults.set(identity.fingerprint, forKey: "permissionLastWorkingIdentityFingerprint")
+
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
             interactiveCheck: { true },
             alertPresenter: { _ in  },
             permissionRequester: { true },
-            identityProvider: { PermissionTestHelpers.makeIdentity("granted") },
+            identityProvider: { identity },
             statusMessageSink: { _ in },
             now: { Date(timeIntervalSince1970: 12_000) }
         )
 
         let status = await coordinator.refreshPassiveStatus()
-        // Should return a valid status without crashing
-        XCTAssertNotEqual(status, .unknown)
+        XCTAssertEqual(status, .working)
     }
 
-    // MARK: - UI model consistency after repeated calls
-
-    func testUIModelConsistency_afterRepeatedRefreshCalls() async {
+    func testUIModelConsistencyAfterRepeatedRefreshCalls() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
-        var callCount = 0
         let coordinator = PermissionCoordinator(
             defaults: defaults,
             passiveCheck: { true },
@@ -93,28 +77,21 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             alertPresenter: { _ in  },
             permissionRequester: { true },
             identityProvider: { PermissionTestHelpers.makeIdentity("uimodel") },
-            statusMessageSink: { _ in callCount += 1 },
+            statusMessageSink: { _ in },
             now: { Date(timeIntervalSince1970: 13_000) }
         )
 
-        // Rapid-fire calls should not cause inconsistent state
         for _ in 0..<10 {
             _ = await coordinator.refreshPassiveStatus()
         }
 
         let model = coordinator.permissionUIModel
-        // Status and banner should be consistent
-        if model.status != .signatureMismatch {
-            XCTAssertFalse(
-                model.shouldShowSignatureMismatchBanner,
-                "Banner should not show when status is not mismatch"
-            )
+        if model.status != .staleRecord {
+            XCTAssertFalse(model.shouldShowStaleRecordBanner)
         }
     }
 
-    // MARK: - Mismatch detection stability
-
-    func testMismatchDetection_repeatedCalls_stableBanner() async {
+    func testStaleRecordDetectionRepeatedCallsStableBanner() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let identity = PermissionTestHelpers.makeIdentity("mismatch-stable")
         defaults.set(
@@ -133,28 +110,18 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 14_000) }
         )
 
-        // First call should detect mismatch
         let first = await coordinator.refreshPassiveStatus()
-        XCTAssertEqual(first, .signatureMismatch)
-        XCTAssertTrue(
-            coordinator.permissionUIModel
-                .shouldShowSignatureMismatchBanner
-        )
+        XCTAssertEqual(first, .staleRecord)
+        XCTAssertTrue(coordinator.permissionUIModel.shouldShowStaleRecordBanner)
 
-        // Subsequent calls should remain stable
         for _ in 0..<10 {
             let status = await coordinator.refreshPassiveStatus()
-            XCTAssertEqual(status, .signatureMismatch)
-            XCTAssertTrue(
-                coordinator.permissionUIModel
-                    .shouldShowSignatureMismatchBanner
-            )
+            XCTAssertEqual(status, .staleRecord)
+            XCTAssertTrue(coordinator.permissionUIModel.shouldShowStaleRecordBanner)
         }
     }
 
-    // MARK: - handleCapturePermissionFailure repeated rapid calls
-
-    func testHandleCapturePermissionFailure_rapidCalls_dedupe() async {
+    func testHandleCapturePermissionFailureRapidCallsDedupe() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         var alertCount = 0
         let coordinator = PermissionCoordinator(
@@ -168,15 +135,10 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 15_000) }
         )
 
-        // Rapid calls within cooldown window should only trigger
-        // one alert
         for _ in 0..<10 {
             await coordinator.handleCapturePermissionFailure()
         }
 
-        XCTAssertEqual(
-            alertCount, 1,
-            "Only one alert should be shown within cooldown window"
-        )
+        XCTAssertEqual(alertCount, 1)
     }
 }

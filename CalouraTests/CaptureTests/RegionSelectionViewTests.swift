@@ -9,8 +9,12 @@ final class RegionSelectionViewTests: XCTestCase {
 
         view.isDimmingSuppressed = true
 
-        let dimmingLayer = view.layer!.sublayers![1] as! CAShapeLayer
-        let hintContainer = view.layer!.sublayers![4]
+        guard let dimmingLayer = view.layer?.sublayers?[1] as? CAShapeLayer else {
+            return XCTFail("Expected dimming layer")
+        }
+        guard let hintContainer = view.layer?.sublayers?[4] else {
+            return XCTFail("Expected hint container layer")
+        }
         XCTAssertEqual(dimmingLayer.opacity, 0)
         XCTAssertEqual(hintContainer.opacity, 0)
     }
@@ -21,8 +25,12 @@ final class RegionSelectionViewTests: XCTestCase {
 
         view.isDimmingSuppressed = false
 
-        let dimmingLayer = view.layer!.sublayers![1] as! CAShapeLayer
-        let hintContainer = view.layer!.sublayers![4]
+        guard let dimmingLayer = view.layer?.sublayers?[1] as? CAShapeLayer else {
+            return XCTFail("Expected dimming layer")
+        }
+        guard let hintContainer = view.layer?.sublayers?[4] else {
+            return XCTFail("Expected hint container layer")
+        }
         XCTAssertEqual(dimmingLayer.opacity, 1)
         XCTAssertEqual(hintContainer.opacity, 1)
     }
@@ -37,7 +45,9 @@ final class RegionSelectionViewTests: XCTestCase {
         XCTAssertNotNil(view.frozenImage)
         XCTAssertFalse(view.isDimmingSuppressed)
 
-        let dimmingLayer = view.layer!.sublayers![1] as! CAShapeLayer
+        guard let dimmingLayer = view.layer?.sublayers?[1] as? CAShapeLayer else {
+            return XCTFail("Expected dimming layer")
+        }
         XCTAssertEqual(dimmingLayer.opacity, 1)
     }
 }

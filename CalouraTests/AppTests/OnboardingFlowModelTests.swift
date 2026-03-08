@@ -1,35 +1,49 @@
 import XCTest
 @testable import Caloura
 
+@MainActor
 final class OnboardingFlowModelTests: XCTestCase {
 
-    func testStartsOnPermissionStep() {
+    func testStartsOnReadyForFirstCapture() {
         let flow = OnboardingFlowModel()
-        XCTAssertEqual(flow.currentStep, .permission)
-        XCTAssertTrue(flow.isFirstStep)
-        XCTAssertFalse(flow.isLastStep)
+        XCTAssertEqual(flow.currentState, .readyForFirstCapture)
+        XCTAssertFalse(flow.isCompleted)
+        XCTAssertTrue(flow.transitionIsForward)
     }
 
-    func testSkipPermissionWhenReadyMovesToFirstCapture() {
+    func testTransitionToPermissionRepairMovesForward() {
         var flow = OnboardingFlowModel()
-        flow.skipPermissionIfReady(true)
+        flow.transition(to: .repairStalePermissionRecord)
 
-        XCTAssertEqual(flow.currentStep, .firstCapture)
-        XCTAssertTrue(flow.isLastStep)
+        XCTAssertEqual(flow.currentState, .repairStalePermissionRecord)
+        XCTAssertEqual(flow.previousState, .readyForFirstCapture)
+        XCTAssertTrue(flow.transitionIsForward)
     }
 
-    func testNextMovesToFirstCapture() {
-        var flow = OnboardingFlowModel()
-        flow.next()
+    func testTransitionBackToInstallMovesBackward() {
+        var flow = OnboardingFlowModel(initialState: .repairStalePermissionRecord)
+        flow.transition(to: .installRequired)
 
-        XCTAssertEqual(flow.currentStep, .firstCapture)
+        XCTAssertEqual(flow.currentState, .installRequired)
+        XCTAssertEqual(flow.previousState, .repairStalePermissionRecord)
+        XCTAssertFalse(flow.transitionIsForward)
     }
 
-    func testBackReturnsToPermission() {
-        var flow = OnboardingFlowModel()
-        flow.next()
-        flow.back()
+    func testCompletedStateIsMarkedCompleted() {
+        var flow = OnboardingFlowModel(initialState: .readyForFirstCapture)
+        flow.transition(to: .completed)
 
-        XCTAssertEqual(flow.currentStep, .permission)
+        XCTAssertTrue(flow.isCompleted)
+    }
+
+    func testInstallStateDetectionUsesApplicationsPath() {
+        XCTAssertEqual(
+            AppMover.installState(forBundlePath: "/Applications/Caloura.app"),
+            .inApplications
+        )
+        XCTAssertEqual(
+            AppMover.installState(forBundlePath: "/Users/b/Downloads/Caloura.app"),
+            .needsMoveToApplications
+        )
     }
 }

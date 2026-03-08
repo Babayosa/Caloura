@@ -91,6 +91,18 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: Fixed band windows work in the middle of a long feed but fail on the last partial frame, which is where separator lines and premature bottom detection show up.
 - **Example**: `ScrollCaptureHelpers.meanBandDifference(...)` now derives `bandHeight` and `effectiveBandCount` from `usableHeight` so near-bottom frame pairs still produce a valid displacement estimate.
 
+## Onboarding / Distribution
+
+### [Graduated] Direct-download macOS apps should ship in a Finder-style DMG
+- **Rule**: For manual website downloads, distribute a signed/notarized DMG that contains the app plus an `/Applications` shortcut, and reserve ZIP artifacts for updater channels like Sparkle.
+- **Context**: Launching a freshly unzipped app from Downloads leaves install path and translocation state unstable, which turns first-run onboarding and TCC repair into guesswork.
+- **Example**: Caloura now publishes a branded DMG for manual installs, keeps ZIP output for Sparkle, and blocks onboarding on moving the app into `/Applications` first.
+
+### [Graduated] Passive Screen Recording grant is not the same as a working capture copy
+- **Rule**: Treat `CGPreflightScreenCaptureAccess()` as a coarse grant check only; do not mark Screen Recording as working until the current installed app copy succeeds at real ScreenCaptureKit validation.
+- **Context**: TCC can report a grant for a stale or moved app record even when the active app bundle still cannot capture, especially after duplicate copies or path changes.
+- **Example**: `PermissionCoordinator` now distinguishes `grantedNeedsValidation`, `working`, `needsRelaunch`, and `staleRecord`, and onboarding waits for interactive validation after the user returns from System Settings.
+
 ## Persistence / Data Integrity
 
 ### Async history saves need monotonic revisions

@@ -80,7 +80,7 @@ extension CapturePipeline {
         // Brief delay to let overlay dismiss and frontmost app restore.
         try? await Task.sleep(nanoseconds: 200_000_000)
 
-        guard AccessibilityPermissionChecker.isGranted() else {
+        guard AccessibilityPermissionChecker.currentState() == .working else {
             let alert = NSAlert()
             alert.messageText = "Accessibility Permission Required"
             alert.informativeText = "Scroll Capture needs Accessibility access to "

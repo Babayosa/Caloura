@@ -103,6 +103,21 @@ Running log of completed tasks. Read this to understand what changed before your
 **Decisions Made:**
 - Appcast and website publish completed; Gumroad upload still manual
 
+## Task 11: Install-first onboarding + DMG distribution
+**Status:** Complete  
+**Branch:** codex/task-11-install-first-onboarding  
+**Changes:**
+- Replaced the old `AppMover` alert + permission wizard with an install-first onboarding flow that gates startup on `/Applications`, drives the first session to the first capture CTA, and revalidates Screen Recording only after explicit user action or return from System Settings
+- Split Screen Recording status into `denied`, `grantedNeedsValidation`, `working`, `needsRelaunch`, `staleRecord`, and `repairing`, keeping stale-copy detection inside `PermissionCoordinator` instead of mixing it into install flow
+- Added lightweight contextual onboarding tips for history, edits, scroll capture, and sharing after activation
+- Extended release/publish/public-QA scripts to produce a notarized DMG for manual download while keeping the ZIP path for Sparkle
+- Updated README + public-download runbook and added Task 11 spec
+
+**Decisions Made:**
+- First-run users launched outside `/Applications` are blocked on install and do not proceed into permission setup or capture registration
+- Passive CoreGraphics grant is no longer treated as “working” for the current app copy until interactive ScreenCaptureKit validation succeeds
+- Manual download distribution is now DMG-first; Sparkle remains ZIP-backed
+
 ---
 
 ## Task 04: Codex scope + codemap refresh

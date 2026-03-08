@@ -26,9 +26,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-DOWNLOAD_URL="https://caloura.app/releases/Caloura-${VERSION}.zip"
-ZIP_PATH="${TMPDIR:-/tmp}/Caloura-${VERSION}.zip"
-UNZIP_DIR="${TMPDIR:-/tmp}/Caloura-public-${VERSION}"
+DMG_DOWNLOAD_URL="https://caloura.app/releases/Caloura-${VERSION}.dmg"
+ZIP_DOWNLOAD_URL="https://caloura.app/releases/Caloura-${VERSION}.zip"
+DMG_PATH="${TMPDIR:-/tmp}/Caloura-${VERSION}.dmg"
+DMG_MOUNT="${TMPDIR:-/tmp}/Caloura-public-${VERSION}-mount"
 
 print_header() {
   echo ""
@@ -42,6 +43,12 @@ require_version() {
     echo ""
     usage
     exit 1
+  fi
+}
+
+detach_dmg_if_needed() {
+  if mount | grep -q "on ${DMG_MOUNT} "; then
+    hdiutil detach "$DMG_MOUNT" >/dev/null 2>&1 || true
   fi
 }
 
@@ -69,54 +76,66 @@ verify_public_artifacts() {
   require_version "verify"
   print_header "Phase 1: Verify Public Artifact + Appcast"
   echo "Version under test: ${VERSION}"
-  echo "Download URL HEAD:"
-  curl -I "$DOWNLOAD_URL"
+  echo "Manual download HEAD:"
+  curl -I "$DMG_DOWNLOAD_URL"
 
   echo ""
-  echo "Appcast matches (version + URL + sparkle versions):"
-  curl -s "$APPCAST_URL" | grep -n "Version ${VERSION}\\|Caloura-${VERSION}\\.zip\\|sparkle:version"
+  echo "Sparkle artifact HEAD:"
+  curl -I "$ZIP_DOWNLOAD_URL"
+
+  echo ""
+  echo "Appcast matches (version + ZIP URL + sparkle versions):"
+  curl -s "$APPCAST_URL" | grep -n "Version ${VERSION}\\|Caloura-${VERSION}\\.zip\\|sparkle:version\\|sparkle:shortVersionString\\|sparkle:minimumSystemVersion"
 }
 
 install_public_app() {
   require_version "install"
-  print_header "Download + Install Public App"
-  rm -f "$ZIP_PATH"
-  rm -rf "$UNZIP_DIR"
+  print_header "Download DMG + Install Public App"
+  rm -f "$DMG_PATH"
+  rm -rf "$DMG_MOUNT"
+  mkdir -p "$DMG_MOUNT"
 
-  curl -L "$DOWNLOAD_URL" -o "$ZIP_PATH"
+  curl -L "$DMG_DOWNLOAD_URL" -o "$DMG_PATH"
 
-  # Verify ZIP integrity
-  local zip_size
-  zip_size=$(stat -f '%z' "$ZIP_PATH" 2>/dev/null || echo "0")
-  if [[ "$zip_size" -lt 1000 ]]; then
-    echo "ERROR: Downloaded ZIP is suspiciously small (${zip_size} bytes)"
+  local dmg_size
+  dmg_size=$(stat -f '%z' "$DMG_PATH" 2>/dev/null || echo "0")
+  if [[ "$dmg_size" -lt 1000 ]]; then
+    echo "ERROR: Downloaded DMG is suspiciously small (${dmg_size} bytes)"
     exit 1
   fi
-  echo "  ZIP size: ${zip_size} bytes"
-  echo "  SHA256: $(shasum -a 256 "$ZIP_PATH" | awk '{print $1}')"
+  echo "  DMG size: ${dmg_size} bytes"
+  echo "  SHA256: $(shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
 
-  mkdir -p "$UNZIP_DIR"
-  ditto -x -k "$ZIP_PATH" "$UNZIP_DIR"
+  hdiutil attach "$DMG_PATH" -nobrowse -mountpoint "$DMG_MOUNT" >/dev/null
 
-  if [ ! -d "$UNZIP_DIR/Caloura.app" ]; then
-    echo "ERROR: Expected app not found after unzip: $UNZIP_DIR/Caloura.app"
+  if [[ ! -d "$DMG_MOUNT/Caloura.app" ]]; then
+    echo "ERROR: Expected app not found in DMG: $DMG_MOUNT/Caloura.app"
+    detach_dmg_if_needed
     exit 1
   fi
 
-  # Verify code signature on extracted app
-  if ! codesign --verify --deep --strict "$UNZIP_DIR/Caloura.app" 2>/dev/null; then
-    echo "WARNING: Code signature verification failed on downloaded app"
+  if [[ ! -L "$DMG_MOUNT/Applications" ]]; then
+    echo "ERROR: Expected Applications symlink not found in DMG"
+    detach_dmg_if_needed
+    exit 1
+  fi
+
+  if ! codesign --verify --deep --strict "$DMG_MOUNT/Caloura.app" 2>/dev/null; then
+    echo "WARNING: Code signature verification failed on mounted app"
   else
     echo "  Code signature: valid"
   fi
 
   rm -rf "$INSTALL_PATH"
-  cp -R "$UNZIP_DIR/Caloura.app" "$INSTALL_PATH"
+  ditto "$DMG_MOUNT/Caloura.app" "$INSTALL_PATH"
   if [[ "${KEEP_QUARANTINE:-0}" = "1" ]]; then
     echo "KEEP_QUARANTINE=1 set: leaving quarantine attribute intact for Gatekeeper validation."
   else
     xattr -dr com.apple.quarantine "$INSTALL_PATH" || true
   fi
+
+  detach_dmg_if_needed
+  rm -rf "$DMG_MOUNT"
 
   echo "Installed: $INSTALL_PATH"
   /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INSTALL_PATH/Contents/Info.plist" 2>/dev/null || true
@@ -133,7 +152,6 @@ clean_room_reset() {
   rm -f "$HOME/Library/Application Support/Caloura/history.enc" || true
   rm -rf "$HOME/Library/Application Support/Caloura/security" || true
 
-  # Legacy cleanup only: current runtime must not depend on Keychain.
   security delete-generic-password -s "$BUNDLE_ID" -a licenseKey >/dev/null 2>&1 || true
   security delete-generic-password -s "$BUNDLE_ID" -a screenshotHistoryKey >/dev/null 2>&1 || true
 
@@ -233,17 +251,17 @@ print_manual_checks() {
   cat <<'MANUAL'
 
 Manual checks to perform now:
-1. On first launch, verify onboarding has exactly 2 steps.
-2. On permission step, verify Continue works even without granting permission.
-3. On second step, verify both "Take First Screenshot" and "Finish" are present.
-4. After finishing onboarding, verify Preferences does not auto-open.
-5. Verify no keychain password dialog appears at startup, onboarding, capture, License, or History.
-6. After a few captures, open History and confirm encrypted-at-rest storage exists at:
+1. Open the downloaded DMG and verify it presents `Caloura.app` alongside an `Applications` shortcut.
+2. Drag Caloura into `/Applications` and launch the installed copy only.
+3. On first launch, verify onboarding starts on "Take your first screenshot" instead of a permission wizard.
+4. Trigger the first capture from the onboarding CTA. If Screen Recording is missing, verify the app waits for the System Settings return and re-checks automatically.
+5. If Screen Recording was just granted, verify the installed app recognizes it without falling back to the old repair maze.
+6. Verify scroll capture requests Accessibility only when Scroll Capture is used.
+7. Verify no keychain password dialog appears at startup, onboarding, capture, License, or History.
+8. After a few captures, open History and confirm encrypted-at-rest storage exists at:
    - ~/Library/Application Support/Caloura/history.enc (expected perm 600)
    - ~/Library/Application Support/Caloura/security/history.key (expected perm 600; parent dir 700)
-7. Open Preferences > License and validate key activation flow works without keychain prompts.
-8. Trigger a capture without permission; verify clear permission guidance and no loop spam.
-9. For trial states (baseline/day4/expired), verify UI badge/nag text matches expected days/state.
+9. Verify the manual download is the DMG while Sparkle still updates from the ZIP/appcast path.
 MANUAL
 }
 
