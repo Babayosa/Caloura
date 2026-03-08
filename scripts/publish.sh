@@ -150,7 +150,7 @@ XMLEOF
 sed -i '' "/<language>en<\/language>/r $TMPITEM" "$APPCAST_PATH"
 rm -f "$TMPITEM"
 
-sed -i '' -E "s|releases/Caloura-[0-9][0-9.]*\\.(zip|dmg)|releases/$DMG_NAME|g" "$INDEX_PATH"
+sed -i '' -E "s#releases/Caloura-[0-9][0-9.]*(\.zip|\.dmg)#releases/$DMG_NAME#g" "$INDEX_PATH"
 
 validate_appcast_against_manifest
 

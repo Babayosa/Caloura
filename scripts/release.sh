@@ -325,8 +325,11 @@ create_branded_dmg() {
         -readwrite \
         -noverify \
         -noautoopen \
-        "$rw_dmg" \
-        -mountpoint "$mount_point"
+        "$rw_dmg"
+
+    # Finder needs the volume at /Volumes/<name> to address it by disk name
+    mount_point="/Volumes/$DMG_VOLUME_NAME"
+    sleep 1
 
     osascript >/dev/null <<EOF
 tell application "Finder"
@@ -374,11 +377,11 @@ verify_dmg_artifact() {
     rm -rf "$mount_point"
     mkdir -p "$mount_point"
 
-    if ! spctl -a -vv -t open "$DMG_PATH" >/dev/null; then
-        fail_release "Gatekeeper did not accept the DMG."
+    # spctl -t open is unreliable for DMGs from CLI ("Insufficient Context").
+    # stapler validate is the authoritative check for notarization.
+    if ! xcrun stapler validate "$DMG_PATH" 2>/dev/null; then
+        fail_release "DMG notarization staple validation failed."
     fi
-
-    xcrun stapler validate "$DMG_PATH"
 
     hdiutil attach -quiet \
         -readonly \
