@@ -43,6 +43,7 @@ enum CapturePipelineTestHelpers {
         saveFile: CapturePipeline.SaveFileFn? = nil,
         persistArtifact: CapturePipeline.PersistArtifactFn? = nil,
         copyToClipboard: CapturePipeline.CopyToClipboardFn? = nil,
+        saveCaptureAction: CapturePipeline.SaveCaptureActionFn? = nil,
         recognizeText: CapturePipeline.RecognizeTextFn? = nil,
         handlePermissionFailure: CapturePipeline.HandlePermissionFailureFn? = nil,
         showQuickAccess: CapturePipeline.ShowQuickAccessFn? = nil,
@@ -94,6 +95,7 @@ enum CapturePipelineTestHelpers {
                 testAppState.syncProcessedScreenshot(processed)
             },
             copyToClipboard: copyToClipboard ?? { _, _ in },
+            saveCaptureAction: saveCaptureAction,
             recognizeText: recognizeText ?? { _ in "" },
             handlePermissionFailure: handlePermissionFailure ?? { @MainActor in },
             showQuickAccess: showQuickAccess ?? { _ in },

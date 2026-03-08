@@ -30,6 +30,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: SwiftPM target-path builds can compile new files immediately, but the checked-in Xcode project will not see them until regeneration.
 - **Example**: `swift test` compiled `AppCommand.swift`, but `xcodebuild build` failed until `xcodegen generate` added the file to the app target.
 
+### Regenerate the Xcode project after deleting source files
+- **Rule**: After removing Swift files that are still tracked by the Xcode project, run `xcodegen generate` before trusting `xcodebuild`.
+- **Context**: SwiftPM can stop compiling a deleted file immediately, but the checked-in `.xcodeproj` can still reference it and fail the Xcode build until regeneration removes the stale entry.
+- **Example**: Deleting `Caloura/Capture/CaptureWindow.swift` compiled fine under SwiftPM, but `xcodebuild test -only-testing:CalouraSystemTests` failed until `xcodegen generate` rewrote `Caloura.xcodeproj`.
+
 ### Release preflight must exercise the real packaging path
 - **Rule**: A release-readiness script must run the full archive/export/sign/notarize flow by default. Guard-only metadata checks are useful, but they are not sufficient for a release decision.
 - **Context**: Local validations can all pass while the real release still fails on export, signing identity drift, missing notarization credentials, or packaging-only warnings.

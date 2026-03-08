@@ -1,4 +1,3 @@
-// swiftlint:disable file_length
 import SwiftUI
 import os.log
 
@@ -160,10 +159,7 @@ struct HistoryView: View {
         )) {
             Button("Delete", role: .destructive) {
                 if let item = itemToDelete {
-                    appState.recentScreenshots.removeAll { $0.id == item.id }
-                    appState.embeddingStore.remove(screenshotID: item.id)
-                    appState.embeddingStore.save()
-                    appState.saveHistory()
+                    appState.deleteScreenshot(id: item.id)
                 }
                 itemToDelete = nil
             }
@@ -208,9 +204,9 @@ struct HistoryView: View {
         guard let image = NSImage(contentsOf: url) else { return }
         do {
             try ClipboardManager.copyNSImage(image)
-            appState.statusMessage = "Copied image"
+            appState.setStatusMessage("Copied image")
         } catch {
-            appState.statusMessage = error.localizedDescription
+            appState.setStatusMessage(error.localizedDescription)
         }
     }
 }
@@ -361,10 +357,7 @@ struct HistoryGridItem: View {
     private func commitTitleEdit() {
         let trimmed = editingTitle.trimmingCharacters(in: .whitespaces)
         if !trimmed.isEmpty {
-            if let index = appState.recentScreenshots.firstIndex(where: { $0.id == item.id }) {
-                appState.recentScreenshots[index].title = trimmed
-                appState.saveHistory()
-            }
+            appState.renameScreenshot(id: item.id, title: trimmed)
         }
         isEditingTitle = false
     }
@@ -372,22 +365,13 @@ struct HistoryGridItem: View {
     private func commitNewTag() {
         let trimmed = newTagText.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        if let index = appState.recentScreenshots.firstIndex(where: { $0.id == item.id }) {
-            let normalizedNew = trimmed.lowercased()
-            if !appState.recentScreenshots[index].tags.contains(where: { $0.lowercased() == normalizedNew }) {
-                appState.recentScreenshots[index].tags.append(trimmed)
-                appState.saveHistory()
-            }
-        }
+        appState.addTag(trimmed, to: item.id)
         newTagText = ""
         isAddingTag = false
     }
 
     private func removeTag(_ tag: String) {
-        if let index = appState.recentScreenshots.firstIndex(where: { $0.id == item.id }) {
-            appState.recentScreenshots[index].tags.removeAll { $0 == tag }
-            appState.saveHistory()
-        }
+        appState.removeTag(tag, from: item.id)
     }
 
     private func loadThumbnailAsync() async -> NSImage? {

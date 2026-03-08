@@ -4,6 +4,22 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 13: Capture pipeline + command-surface refactor
+**Status:** Complete  
+**Branch:** `codex/task-13-post-grant-fix`  
+**Changes:**
+- Extracted capture orchestration collaborators: `CaptureRequestResolver`, `CaptureDistributionService`, `CaptureEnrichmentService`, and `AppCommandController`
+- Moved history-editing writes behind explicit `AppState` mutation APIs and updated `HistoryView` plus capture enrichment paths to stop mutating persistence and embedding state directly from views
+- Unified last-capture distribution actions with the same shared distribution path used by quick actions, and added characterization coverage for copy/save behavior plus the new `AppState` mutations
+- Removed dead `CaptureWindow.swift`, aligned `Package.swift` to `KeyboardShortcuts` 2.4.0, and regenerated `Caloura.xcodeproj` after the file deletion so Xcode builds stayed in sync
+- Revalidated the refactor with `swift build`, `swiftlint`, `swift test --enable-code-coverage`, and `xcodebuild test -only-testing:CalouraSystemTests`
+
+**Decisions Made:**
+- Keep the permission coordinator refactor separate from the active permission-loop work; this slice focused on capture/runtime seams, history ownership, and dead-code cleanup only
+- Prefer sendable dependency bundles over `@unchecked Sendable` when moving enrichment work behind async coordinators
+- Treat Xcode project regeneration as part of dead-code removal, not just new-file additions
+
+
 ## Task 10: Capture overlay + freeze snapshot hardening
 **Status:** Complete  
 **Branch:** `codex/task-10-capture-overlay-hardening`  

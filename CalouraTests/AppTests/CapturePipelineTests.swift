@@ -316,6 +316,78 @@ final class CapturePipelineTests: XCTestCase {
         )
     }
 
+    func testCopyLastImage_usesSharedDistributionCopyPath() async {
+        let copyExpectation = expectation(description: "copy called")
+        var copiedModes: [CopyMode] = []
+
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            copyToClipboard: { _, mode in
+                copiedModes.append(mode)
+                copyExpectation.fulfill()
+            }
+        )
+        let screenshot = CapturePipelineTestHelpers.makeProcessed()
+        pipeline.appState.lastScreenshot = screenshot
+
+        pipeline.copyLastImage()
+
+        await fulfillment(of: [copyExpectation], timeout: 2.0)
+        await pollUntil(timeout: 2.0) {
+            pipeline.appState.statusMessage == "Copied image"
+        }
+
+        XCTAssertEqual(copiedModes, [.image])
+        XCTAssertEqual(pipeline.appState.statusMessage, "Copied image")
+    }
+
+    func testSaveLastCapture_doesNotDoubleTriggerEnrichmentWhilePending() async {
+        let saveExpectation = expectation(description: "save called twice")
+        saveExpectation.expectedFulfillmentCount = 2
+        let ocrExpectation = expectation(description: "OCR called once")
+        ocrExpectation.assertForOverFulfill = true
+        let defaults = CapturePipelineTestHelpers.makeDefaults(#function)
+        let historyURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pipeline-save-last-\(UUID().uuidString).json")
+        let appState = AppState(defaults: defaults, historyStoreURL: historyURL)
+        let settings = AppSettings(defaults: defaults)
+
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            settings: settings,
+            appState: appState,
+            saveCaptureAction: { screenshot in
+                let url = URL(fileURLWithPath: "/tmp/\(screenshot.id.uuidString).png")
+                screenshot.filePath = url
+                screenshot.fileName = url.lastPathComponent
+                appState.lastScreenshot = screenshot
+                appState.syncProcessedScreenshot(screenshot)
+                saveExpectation.fulfill()
+                return url
+            },
+            recognizeText: { _ in
+                ocrExpectation.fulfill()
+                try? await Task.sleep(for: .milliseconds(250))
+                return "recognized"
+            }
+        )
+        let screenshot = CapturePipelineTestHelpers.makeProcessed()
+        pipeline.appState.lastScreenshot = screenshot
+
+        pipeline.saveLastCapture()
+
+        await pollUntil(timeout: 2.0) {
+            pipeline.appState.previewPhase(for: screenshot.id) == .enrichmentPending
+        }
+
+        pipeline.saveLastCapture()
+
+        await fulfillment(of: [saveExpectation, ocrExpectation], timeout: 2.0)
+        await pollUntil(timeout: 3.0) {
+            pipeline.appState.recentScreenshots.first(where: { $0.id == screenshot.id })?.ocrText == "recognized"
+        }
+    }
+
     func testCaptureRepeat_usesInjectedCaptureManager() async {
         let captureManager = FakeScreenCaptureManager()
         let pipeline = CapturePipelineTestHelpers.makePipeline(

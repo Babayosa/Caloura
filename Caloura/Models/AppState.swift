@@ -139,6 +139,62 @@ final class AppState: ObservableObject {
         debouncedSaveHistory()
     }
 
+    func deleteScreenshot(id: UUID) {
+        guard let index = recentScreenshots.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        recentScreenshots.remove(at: index)
+        removeAssociatedState(for: id)
+        embeddingStore.remove(screenshotID: id)
+        embeddingStore.save()
+        debouncedSaveHistory()
+    }
+
+    func renameScreenshot(id: UUID, title: String) {
+        let trimmed = title.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        updateScreenshot(id: id) { item in
+            item.title = trimmed
+        }
+    }
+
+    func addTag(_ tag: String, to id: UUID) {
+        let trimmed = tag.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        let normalizedTag = trimmed.lowercased()
+        updateScreenshot(id: id) { item in
+            guard !item.tags.contains(where: { $0.lowercased() == normalizedTag }) else {
+                return
+            }
+            item.tags.append(trimmed)
+        }
+    }
+
+    func removeTag(_ tag: String, from id: UUID) {
+        updateScreenshot(id: id) { item in
+            item.tags.removeAll { $0 == tag }
+        }
+    }
+
+    func applyMetadata(_ metadata: ScreenshotMetadata, to id: UUID) {
+        updateScreenshot(id: id) { item in
+            item.smartFileName = metadata.smartFileName
+            item.summary = metadata.summary
+            item.autoTags = metadata.tags
+        }
+    }
+
+    func markEmbeddingVersion(_ version: Int, for id: UUID) {
+        updateScreenshot(id: id) { item in
+            item.embeddingVersion = version
+        }
+    }
+
+    func setStatusMessage(_ message: String) {
+        statusMessage = message
+    }
+
     func clearHistory() {
         recentScreenshots.removeAll()
         previewPhasesByScreenshotID.removeAll()
@@ -359,8 +415,7 @@ final class AppState: ObservableObject {
         guard !removed.isEmpty else { return }
 
         for item in removed {
-            previewPhasesByScreenshotID[item.id] = nil
-            piiResultsByScreenshotID[item.id] = nil
+            removeAssociatedState(for: item.id)
             embeddingStore.remove(screenshotID: item.id)
         }
         if let lastCapturePreviewScreenshotID,
@@ -373,5 +428,17 @@ final class AppState: ObservableObject {
             self.lastPIIResult = nil
         }
         embeddingStore.save()
+    }
+
+    private func removeAssociatedState(for screenshotID: UUID) {
+        previewPhasesByScreenshotID[screenshotID] = nil
+        piiResultsByScreenshotID[screenshotID] = nil
+        if lastCapturePreviewScreenshotID == screenshotID {
+            lastCapturePreviewScreenshotID = nil
+            lastCapturePreviewPhase = .rawPreviewReady
+        }
+        if lastPIIResult?.screenshotID == screenshotID {
+            lastPIIResult = nil
+        }
     }
 }
