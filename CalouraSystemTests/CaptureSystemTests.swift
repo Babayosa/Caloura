@@ -52,6 +52,32 @@ final class CaptureSystemTests: XCTestCase {
         XCTAssertEqual(regionView.debugHintText, RegionSelectionView.hintText)
     }
 
+    func testAreaCaptureUsesNonactivatingOverlayPanelLevel() {
+        let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 10, reportInterval: 50)
+        let session = recorder.beginSession(mode: .area)
+        let coordinator = AreaCaptureSessionCoordinator(
+            session: session,
+            performanceRecorder: recorder,
+            cursorController: CursorSpy(),
+            onSelection: { _, _, _ in },
+            onCancel: { }
+        )
+
+        coordinator.present()
+        defer {
+            coordinator.dismiss()
+            recorder.finishSession(session)
+        }
+
+        guard let overlay = coordinator.overlayWindows.first else {
+            return XCTFail("Expected overlay window")
+        }
+
+        XCTAssertTrue(overlay.styleMask.contains(.nonactivatingPanel))
+        XCTAssertEqual(overlay.level, CaptureOverlayWindow.overlayLevel)
+        XCTAssertFalse(overlay.canBecomeMain)
+    }
+
     func testFullscreenCapturePresentsDisplaySelectionCue() {
         let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 10, reportInterval: 50)
         let session = recorder.beginSession(mode: .fullscreen)

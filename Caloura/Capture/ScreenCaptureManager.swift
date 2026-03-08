@@ -10,6 +10,7 @@ protocol ScreenCaptureManaging: AnyObject {
     func prewarmWindowShareableContent() async
     func captureFullScreen(screen: NSScreen?) async throws -> CGImage
     func captureArea(rect: CGRect, screen: NSScreen?) async throws -> CGImage
+    func captureFrozenDisplaySnapshot(screen: NSScreen?) async throws -> CGImage
     func captureWindow(filter: SCContentFilter) async throws -> CGImage
     func captureAreaInDisplaySpace(_ rect: CGRect) async throws -> CGImage
 }
@@ -147,6 +148,11 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     /// Observer token for app-became-active notification.
     private var didBecomeActiveObserver: (any NSObjectProtocol)?
     let permissionDependencies: ScreenCapturePermissionDependencies
+    private let shareableContentProvider: @MainActor () async throws -> SCShareableContent
+    private let filteredScreenshotProvider: @MainActor (
+        SCContentFilter,
+        SCStreamConfiguration
+    ) async throws -> CGImage
 
     /// Reset the SCK failure flag so that the next capture retries SCK.
     /// Called when permission is freshly granted or on app reactivation.
@@ -157,8 +163,44 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         logger.info("SCK failure flag reset")
     }
 
-    init(permissionDependencies: ScreenCapturePermissionDependencies? = nil) {
+    init(
+        permissionDependencies: ScreenCapturePermissionDependencies? = nil,
+        shareableContentProvider: (@MainActor () async throws -> SCShareableContent)? = nil,
+        filteredScreenshotProvider: (
+            @MainActor (
+                SCContentFilter,
+                SCStreamConfiguration
+            ) async throws -> CGImage
+        )? = nil
+    ) {
         self.permissionDependencies = permissionDependencies ?? .live
+        self.shareableContentProvider = shareableContentProvider ?? {
+            try await SCShareableContent.current
+        }
+        self.filteredScreenshotProvider = filteredScreenshotProvider ?? {
+            contentFilter,
+            configuration in
+            try await withCheckedThrowingContinuation { continuation in
+                SCScreenshotManager.captureImage(
+                    contentFilter: contentFilter,
+                    configuration: configuration
+                ) { image, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                        return
+                    }
+                    guard let image else {
+                        continuation.resume(
+                            throwing: CaptureError.captureFailed(
+                                "ScreenCaptureKit returned no image"
+                            )
+                        )
+                        return
+                    }
+                    continuation.resume(returning: image)
+                }
+            }
+        }
         didBecomeActiveObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
@@ -199,7 +241,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     /// Returns `true` for errors that indicate a permanent SCK failure
     /// (e.g. user denied screen recording permission). Transient errors
     /// (timeouts, resource contention, unknown) return `false`.
-    private func isSCKErrorPermanent(_ error: Error) -> Bool {
+    func isSCKErrorPermanent(_ error: Error) -> Bool {
         let nsError = error as NSError
         guard nsError.domain == SCStreamError.errorDomain else {
             return false
@@ -213,7 +255,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     /// Record an SCK failure. Permanent errors disable SCK immediately.
     /// Transient errors increment a counter; after `maxTransientFailures`
     /// consecutive transient failures, SCK is disabled until reset.
-    private func handleSCKFailure(_ error: Error) {
+    func handleSCKFailure(_ error: Error) {
         if isSCKErrorPermanent(error) {
             sckFailed = true
             sckFailureCount = 0
@@ -236,16 +278,26 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
 
     // MARK: - SCShareableContent Cache
 
-    func shareableContent() async throws -> SCShareableContent {
+    func shareableContent(
+        forceRefresh: Bool = false
+    ) async throws -> SCShareableContent {
         let now = CFAbsoluteTimeGetCurrent()
-        if let cached = cachedContent,
+        if !forceRefresh,
+           let cached = cachedContent,
            now - cachedContentTimestamp < contentCacheTTL {
             return cached
         }
-        let content = try await SCShareableContent.current
+        let content = try await shareableContentProvider()
         cachedContent = content
         cachedContentTimestamp = now
         return content
+    }
+
+    func captureFilteredScreenshot(
+        contentFilter: SCContentFilter,
+        configuration: SCStreamConfiguration
+    ) async throws -> CGImage {
+        try await filteredScreenshotProvider(contentFilter, configuration)
     }
 
     var hasWarmWindowShareableContent: Bool {

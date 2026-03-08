@@ -26,7 +26,14 @@ extension CapturePipeline {
     func captureAllScreens() async -> [NSScreen: CGImage] {
         let screens = NSScreen.screens
         let tasks = screens.map { screen in
-            (screen, Task { try? await captureManager.captureFullScreen(screen: screen) })
+            (
+                screen,
+                Task {
+                    try? await captureManager.captureFrozenDisplaySnapshot(
+                        screen: screen
+                    )
+                }
+            )
         }
         var result: [NSScreen: CGImage] = [:]
         for (screen, task) in tasks {

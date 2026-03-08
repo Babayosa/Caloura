@@ -1,7 +1,12 @@
 import AppKit
+import CoreGraphics
 
 @MainActor
 final class CaptureOverlayWindow: NSPanel {
+    static let overlayLevel = NSWindow.Level(
+        rawValue: Int(CGWindowLevelForKey(.overlayWindow))
+    )
+
     var onRegionSelected: ((CGRect, NSScreen) -> Void)?
     var onCancelled: (() -> Void)?
     var onFirstMouseDown: (() -> Void)?
@@ -37,7 +42,7 @@ final class CaptureOverlayWindow: NSPanel {
         )
 
         self.isReleasedWhenClosed = false
-        self.level = .screenSaver
+        self.level = Self.overlayLevel
         self.isOpaque = false
         self.backgroundColor = NSColor.clear
         self.hasShadow = false

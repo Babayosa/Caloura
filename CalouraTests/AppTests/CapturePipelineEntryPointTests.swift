@@ -155,7 +155,7 @@ extension CapturePipelineTests {
         }
 
         XCTAssertEqual(areaSession?.updateFrozenImagesCalls, 1)
-        XCTAssertGreaterThanOrEqual(captureManager.fullScreenCalls, 1)
+        XCTAssertGreaterThanOrEqual(captureManager.frozenSnapshotCalls, 1)
     }
 
     func testCaptureFullscreen_singleDisplayUsesInjectedCaptureManager() async {

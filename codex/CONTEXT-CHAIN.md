@@ -4,6 +4,23 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 10: Capture overlay + freeze snapshot hardening
+**Status:** Complete  
+**Branch:** `codex/task-10-capture-overlay-hardening`  
+**Changes:**
+- Replaced area/scroll frozen-background sourcing with a dedicated `ScreenCaptureKit` display snapshot path that excludes Caloura via `SCContentFilter(display:excludingApplications:exceptingWindows:)`
+- Moved shared selection overlays off `.screenSaver` semantics to overlay-window level while keeping them as non-activating panels for immediate area/fullscreen selection input
+- Excluded Caloura from the system window picker configuration so it cannot be selected or reflected by the native `SCContentSharingPicker`
+- Added focused coverage for the new picker exclusion, the async freeze snapshot pipeline hook, and the overlay panel configuration
+- Verified the touched paths with a targeted `xcodebuild test` slice instead of a full-suite run to keep validation/log volume tight during capture iteration
+
+**Decisions Made:**
+- Keep the instant-overlay UX and harden the frozen background source instead of regressing to a live-only or freeze-first area capture flow
+- Treat display-filtered SCK screenshots that exclude Caloura as the safe freeze path; do not fall back to generic fullscreen snapshots once overlays are visible
+- Keep validation narrow during capture-pipeline work until the implementation stabilizes, then expand only if the touched slice surfaces regressions
+
+---
+
 ## Task 09: Release hardening continuation
 **Status:** In Progress  
 **Branch:** codex/task-09-release-hardening-continuation  

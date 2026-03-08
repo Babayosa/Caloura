@@ -27,6 +27,7 @@ Inherits global rules from `~/CLAUDE.md`.
 - Use `NSCursor.push()`/`pop()`, not `.set()` — the cursor rect system overrides `.set()`
 - Never use `disableCursorRects()` if you need `addCursorRect`
 - NSApp.activate() cursor race: layered defense (push + cursorRects + cursorUpdate + didBecomeActive + mouseMoved)
+- Capture overlays use `NSPanel` with `.nonactivatingPanel` — never `NSApp.activate` before showing them (hides other apps' windows)
 - `OSLogMessage` does NOT support `+` concatenation — extract to local `let` variable first
 
 ## Lessons

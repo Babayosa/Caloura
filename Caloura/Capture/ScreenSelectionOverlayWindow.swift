@@ -16,7 +16,7 @@ final class ScreenSelectionOverlayWindow: NSPanel {
         )
 
         self.isReleasedWhenClosed = false
-        self.level = .screenSaver
+        self.level = CaptureOverlayWindow.overlayLevel
         self.isOpaque = false
         self.backgroundColor = NSColor.black.withAlphaComponent(0.01)
         self.hasShadow = false

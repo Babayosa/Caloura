@@ -44,6 +44,9 @@ final class WindowPickerManager: NSObject {
         // Configure picker once at init for single window selection
         var config = SCContentSharingPickerConfiguration()
         config.allowedPickerModes = .singleWindow
+        if let bundleIdentifier = Bundle.main.bundleIdentifier {
+            config.excludedBundleIDs = [bundleIdentifier]
+        }
         picker.defaultConfiguration = config
     }
 

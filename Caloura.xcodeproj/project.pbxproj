@@ -108,6 +108,7 @@
 		9C12A69256144CCA01DEA353 /* ScrollCaptureHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24944272A5F3A9BD00B2E361 /* ScrollCaptureHelpers.swift */; };
 		9DB24705C225653804855080 /* ImageProcessorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D008E3CE2F4992B00ECAB6A /* ImageProcessorTests.swift */; };
 		9DE19A0A0911958AF9D4935D /* BeautifyTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9D6DE0DBD32087401570089 /* BeautifyTheme.swift */; };
+		9F7E1ED5BDE497B51561A472 /* RegionSelectionViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50AED29CC0DDC2C4CA12E144 /* RegionSelectionViewTests.swift */; };
 		9FA54D9A6E3C1E69A6549B73 /* FakeCaptureSessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CEC807563A7D8771A81FF17 /* FakeCaptureSessions.swift */; };
 		A0C6E80E3B888CADB625A6AC /* ScrollCaptureEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6E55C074A648D9ECA732890 /* ScrollCaptureEngine.swift */; };
 		A19416F135431777D7F7DBDA /* CalouraApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94717F3B4A2F7CD0E0C4CC64 /* CalouraApp.swift */; };
@@ -242,6 +243,7 @@
 		4BF04E8DF30B07EDFCFDB8DF /* CaptureQuickAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureQuickAction.swift; sourceTree = "<group>"; };
 		4DF169F9564A2871EB811F42 /* PerformanceMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceMetrics.swift; sourceTree = "<group>"; };
 		5009C6D06D92464A45E631F3 /* AppStateDeferredHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateDeferredHistoryTests.swift; sourceTree = "<group>"; };
+		50AED29CC0DDC2C4CA12E144 /* RegionSelectionViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RegionSelectionViewTests.swift; sourceTree = "<group>"; };
 		5106A0D854A7D2952DE36155 /* ImageProcessorEdgeCaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageProcessorEdgeCaseTests.swift; sourceTree = "<group>"; };
 		518D9EB9CD7D6834CD584182 /* AppSettingsDeferredKeychainTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsDeferredKeychainTests.swift; sourceTree = "<group>"; };
 		51A1993A4FC6ADC8D09BFD79 /* FakeScreenCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeScreenCaptureManager.swift; sourceTree = "<group>"; };
@@ -590,6 +592,7 @@
 		9BFFA981BD74F674D45CF50C /* CaptureTests */ = {
 			isa = PBXGroup;
 			children = (
+				50AED29CC0DDC2C4CA12E144 /* RegionSelectionViewTests.swift */,
 				CA94A0B889F44879224F15EC /* ScreenCaptureManagerPermissionTests.swift */,
 				A9B690D5DE5F570715725413 /* ScreenCaptureManagerTests.swift */,
 				CBB3C68969544E13F067328D /* ScrollCaptureEngineTests.swift */,
@@ -1071,6 +1074,7 @@
 				E07B2FB864A97D453F1B1626 /* ProcessedScreenshotTests.swift in Sources */,
 				D1D8CA0C659615F7B2002220 /* QuickAccessPresentationModelTests.swift in Sources */,
 				817F0405A6DD77394159E5FD /* RedactionEngineTests.swift in Sources */,
+				9F7E1ED5BDE497B51561A472 /* RegionSelectionViewTests.swift in Sources */,
 				FB4B2C1CA17D698BE2961058 /* ScreenCaptureManagerPermissionTests.swift in Sources */,
 				5A05E39E553B9FED7CF42794 /* ScreenCaptureManagerTests.swift in Sources */,
 				19CCBB9C35F4508A0BD841CC /* ScreenshotItemTests.swift in Sources */,
@@ -1173,7 +1177,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 2.0.0;
+				MARKETING_VERSION = 2.1.3;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1320,7 +1324,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 2.0.0;
+				MARKETING_VERSION = 2.1.3;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

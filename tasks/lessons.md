@@ -16,6 +16,12 @@
 - **Rule**: Never use `disableCursorRects()` if you need `addCursorRect`. Use layered defense: (1) push in viewDidMoveToWindow, (2) addCursorRect, (3) cursorUpdate override, (4) didBecomeActiveNotification one-shot, (5) mouseMoved override.
 - **Context**: `disableCursorRects()` kills ALL cursor rect processing — the crosshair never appears. Each layer catches a different async timing edge case during `NSApp.activate()`.
 
+### NSApp.activate hides windows for LSUIElement apps
+- **Rule**: Never use `NSApp.activate(ignoringOtherApps: true)` before showing capture overlays. Use `NSPanel` with `.nonactivatingPanel` style mask instead of `NSWindow`. The panel receives keyboard/mouse events without activating the app, so other apps' windows remain visible.
+- **Mistake**: `NSApp.activate` was called before `showOnAllScreens`, causing macOS to hide all other application windows. The idle-state dimming (0.16 alpha black) previously masked this — removing dimming revealed the bare desktop wallpaper.
+- **Fix**: `CaptureOverlayWindow: NSPanel` with `styleMask: .nonactivatingPanel`, `hidesOnDeactivate = false`, `canBecomeMain = false`. Remove `NSApp.activate` from area/fullscreen coordinators. Keep it only for window capture (SCK picker requires app activation).
+- **Key insight**: A non-activating panel at `.screenSaver` level can become key and receive keyboard events (ESC) without the owning app being active.
+
 ## Permissions / macOS
 
 ### CGWindowList false positive on Sequoia [Graduated]

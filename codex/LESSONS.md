@@ -64,6 +64,16 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: If overlay presentation is blocked on a freeze snapshot, the app appears unresponsive and users miss the mode change cue even when capture actually started.
 - **Example**: `CapturePipeline.captureArea()` now creates the overlays through `AreaCaptureSessionCoordinator` before `freezeScreenshots()` completes, and updates the overlay backgrounds later.
 
+### Frozen selection backgrounds should exclude Caloura explicitly
+- **Rule**: When building a frozen background for capture selection, use a display-scoped `SCContentFilter` that excludes the current app instead of taking a plain display screenshot.
+- **Context**: Once the overlay is visible, generic fullscreen screenshots can echo Caloura or degrade into wallpaper-only artifacts depending on window level and display topology.
+- **Example**: `ScreenCaptureManager.captureFrozenDisplaySnapshot(screen:)` now resolves the `SCDisplay` plus Caloura's `SCRunningApplication`, excludes the app, and captures with `SCScreenshotManager.captureImage(contentFilter:configuration:)`.
+
+### Selection overlays should avoid screen-saver window semantics
+- **Rule**: Use non-activating panels at overlay-window level for routine capture selection overlays; do not use `.screenSaver` unless you explicitly want system takeover behavior.
+- **Context**: `.screenSaver` can cause open app windows to disappear beneath the selection surface, especially in multi-display capture flows.
+- **Example**: `CaptureOverlayWindow` and `ScreenSelectionOverlayWindow` now stay as `.nonactivatingPanel` instances but use `CGWindowLevelForKey(.overlayWindow)` instead of `.screenSaver`.
+
 ### Rect-based SCK capture should be the default for area and fullscreen
 - **Rule**: Use `SCScreenshotManager.captureImage(in:)` for area/fullscreen capture and reserve `SCShareableContent` fetches for window-specific workflows.
 - **Context**: Area/fullscreen capture already has a concrete display-space rect. Pulling `SCShareableContent` into that path adds unnecessary warm/cold latency and more failure surface.

@@ -12,6 +12,10 @@ final class WindowPickerManagerTests: XCTestCase {
 
         XCTAssertEqual(picker.addCallCount, 1)
         XCTAssertEqual(picker.defaultConfiguration.allowedPickerModes, .singleWindow)
+        XCTAssertEqual(
+            picker.defaultConfiguration.excludedBundleIDs,
+            [Bundle.main.bundleIdentifier ?? "com.caloura.app"]
+        )
     }
 
     func testPickWindow_selectedResultResumesAndDeactivatesPicker() async {
