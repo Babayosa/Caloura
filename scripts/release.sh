@@ -309,6 +309,9 @@ create_branded_dmg() {
         fail_release "Missing DMG background asset at $DMG_BACKGROUND_SOURCE."
     fi
 
+    # Detach any leftover volume from a previous failed run
+    hdiutil detach "/Volumes/$DMG_VOLUME_NAME" -force 2>/dev/null || true
+
     rm -rf "$staging_dir" "$mount_point" "$rw_dmg" "$DMG_PATH"
     mkdir -p "$staging_dir/.background" "$mount_point"
 
