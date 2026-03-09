@@ -189,3 +189,8 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Rule**: If a test touches process-global state, snapshot it in `setUp()` and restore it in `tearDown()` for the whole fixture.
 - **Context**: Per-test cleanup blocks were easy to miss, and leaked `activePreset`, `statusMessage`, and URL throttle state into unrelated tests.
 - **Example**: `URLSchemeHandlerTests` and `ScreenCaptureManagerPermissionTests` now restore shared state from fixture-level setup/teardown instead of ad hoc teardown closures.
+
+### Large behavior files decompose best when shared contracts move together
+- **Rule**: When splitting a large subsystem, move its shared model types, errors, and protocols into one declarations-only file before touching behavior extensions.
+- **Context**: Keeping AX handles, protocols, and frame/viewport models in separate tiny files left `ScrollCaptureEngine.swift` looking smaller, but the subsystem contract was still fragmented across multiple entry points.
+- **Example**: `ScrollCaptureTypes.swift` now owns the shared scroll-capture enums, frames, viewport types, AX wrappers, error type, and protocols, while `ScrollCaptureEngine.swift` is reduced to engine-specific orchestration.

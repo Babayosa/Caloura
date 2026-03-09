@@ -367,4 +367,19 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 08: ScrollCapture decomposition
+**Status:** Complete
+**Branch:** codex/task-08-scroll-decompose
+**Changes:**
+- Moved the shared scroll-capture enums, frame/viewport models, AX handle wrappers, error type, and protocols into [ScrollCaptureTypes.swift](/Users/b/Caloura/Caloura/Capture/ScrollCaptureTypes.swift)
+- Removed the now-redundant [ScrollCaptureAXHandles.swift](/Users/b/Caloura/Caloura/Capture/ScrollCaptureAXHandles.swift) and [ScrollCaptureProtocols.swift](/Users/b/Caloura/Caloura/Capture/ScrollCaptureProtocols.swift) files
+- Reduced [ScrollCaptureEngine.swift](/Users/b/Caloura/Caloura/Capture/ScrollCaptureEngine.swift) to engine-specific request/session/result orchestration only
+- Regenerated [Caloura.xcodeproj/project.pbxproj](/Users/b/Caloura/Caloura.xcodeproj/project.pbxproj) so the tracked Xcode project matches the source-file rename and deletions
+
+**Decisions Made:**
+- Centralize reusable scroll-capture declarations in one dedicated types file instead of spreading them across a protocol file and an AX-handle file
+- Leave engine-only request/session/result helpers nested on `ScrollCaptureEngine` so the new types file stays limited to shared declarations
+
+---
+
 <!-- Add new task entries above this line -->
