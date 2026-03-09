@@ -274,7 +274,7 @@ extension ScrollCaptureEngine {
         allowManualFallback: Bool,
         state: inout AutomaticLoopState
     ) -> String? {
-        if estimate.confidence < 0.35 {
+        if estimate.confidence < ScrollCaptureThresholds.minimumAlignmentConfidence {
             state.lowConfidenceCount += 1
             if allowManualFallback && state.lowConfidenceCount >= 2 {
                 return "low_alignment_confidence"

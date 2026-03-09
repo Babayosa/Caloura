@@ -4,6 +4,22 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Audit Task 02: Magic number extraction
+**Status:** Complete  
+**Branch:** `codex/task-02-magic-numbers`  
+**Changes:**
+- Added shared scroll-capture thresholds for minimum alignment confidence and minimum meaningful displacement, and replaced the duplicated `0.35` / displacement-threshold call sites across the engine, automatic fallback logic, and displacement helper
+- Replaced raw CGEvent scroll phase integers in the default scroll driver with a named `ScrollGesturePhase` enum
+- Extracted duplicated annotation drawing constants for line width, arrowhead length, and highlight opacity so the live overlay and saved-image rendering paths share one source of truth
+- Revalidated with `swift build`, `swiftlint`, and `swift test` (460 tests passing)
+
+**Decisions Made:**
+- Keep the task limited to duplicated behavioral thresholds and raw event phase values; do not sweep unrelated `12` literals that represent different concepts like sticky-header detection or UI spacing
+- Reuse the same confidence threshold for the displacement helper's vision fallback so confidence acceptance and fallback confidence stay aligned by construction
+- Limit the `AnnotationOverlay` cleanup to rendering constants that were duplicated between preview and save paths, rather than turning layout values into a broad style-token pass
+
+---
+
 ## Audit Task 01: Lint suppression removal
 **Status:** Complete  
 **Branch:** `task-01-lint-suppression`  

@@ -3,6 +3,12 @@ import CoreGraphics
 
 // MARK: - Default Implementations
 
+private enum ScrollGesturePhase: Int64 {
+    case began = 1
+    case changed = 2
+    case ended = 4
+}
+
 struct DefaultViewportDetector: ScrollViewportDetecting, Sendable {
     private struct Candidate {
         let element: AXUIElement
@@ -285,7 +291,7 @@ final class DefaultScrollDriver: ScrollDriving, @unchecked Sendable {
 
         event.setIntegerValueField(
             .scrollWheelEventScrollPhase,
-            value: hasStartedScroll ? 2 : 1
+            value: hasStartedScroll ? ScrollGesturePhase.changed.rawValue : ScrollGesturePhase.began.rawValue
         )
         event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: 0)
         event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
@@ -307,7 +313,7 @@ final class DefaultScrollDriver: ScrollDriving, @unchecked Sendable {
             return
         }
 
-        event.setIntegerValueField(.scrollWheelEventScrollPhase, value: 4)
+        event.setIntegerValueField(.scrollWheelEventScrollPhase, value: ScrollGesturePhase.ended.rawValue)
         event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: 0)
         event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
         event.post(tap: .cghidEventTap)

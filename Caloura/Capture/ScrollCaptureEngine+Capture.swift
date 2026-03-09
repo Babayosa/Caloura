@@ -420,8 +420,8 @@ extension ScrollCaptureEngine {
 
         let finalDirection: Int
         if let forwardEstimate,
-           forwardEstimate.confidence >= 0.35,
-           forwardEstimate.displacement <= -12 {
+           forwardEstimate.confidence >= ScrollCaptureThresholds.minimumAlignmentConfidence,
+           forwardEstimate.displacement <= -ScrollCaptureThresholds.minimumMeaningfulDisplacement {
             finalDirection = -currentDirection
         } else {
             finalDirection = currentDirection

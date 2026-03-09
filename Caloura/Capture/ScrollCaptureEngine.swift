@@ -148,6 +148,11 @@ struct ScrollDisplacementOptions: Sendable {
     }
 }
 
+enum ScrollCaptureThresholds {
+    static let minimumAlignmentConfidence = 0.35
+    static let minimumMeaningfulDisplacement = 12
+}
+
 struct ScrollDisplacementEstimate: Sendable {
     enum Method: String, Sendable {
         case bandMatch
@@ -164,7 +169,8 @@ struct ScrollDisplacementEstimate: Sendable {
     var absoluteDisplacement: Int { abs(displacement) }
 
     var isMeaningful: Bool {
-        absoluteDisplacement >= 12 && confidence >= 0.35
+        absoluteDisplacement >= ScrollCaptureThresholds.minimumMeaningfulDisplacement
+            && confidence >= ScrollCaptureThresholds.minimumAlignmentConfidence
     }
 }
 

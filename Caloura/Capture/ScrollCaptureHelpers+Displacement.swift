@@ -176,7 +176,7 @@ extension ScrollCaptureHelpers {
         )
         return ScrollDisplacementEstimate(
             displacement: clampedDisplacement,
-            confidence: 0.35,
+            confidence: ScrollCaptureThresholds.minimumAlignmentConfidence,
             winnerMargin: 0,
             meanError: meanError,
             method: .vision
