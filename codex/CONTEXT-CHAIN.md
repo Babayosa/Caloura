@@ -382,4 +382,18 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 09: Security audit
+**Status:** Complete
+**Branch:** codex/task-09-security
+**Changes:**
+- Added [audit-09-security.md](/Users/b/Caloura/codex/tasks/audit-09-security.md) covering crypto, license, PII, entitlements, and build-config review
+- Rated one High-severity licensing area and four lower-severity areas with concrete evidence from source files
+- Verified from code inspection that release builds require signed entitlements and do not use the configured license key value in any repo-local signing path
+
+**Decisions Made:**
+- Treat the legacy activation reconstruction path and defaults-backed trial anchor as one release-blocking licensing area
+- Record the configured entitlement key as provenance-unverified rather than calling it definitively public from static code inspection alone
+
+---
+
 <!-- Add new task entries above this line -->

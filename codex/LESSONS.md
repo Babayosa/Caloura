@@ -16,6 +16,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: `UserDefaults` booleans are trivial to tamper with and survive offline. The app needs a trustable local source of truth even before a dedicated entitlement backend is wired.
 - **Example**: `AppSettings.isLicenseActivated` is now derived from `currentLicenseEntitlement?.isCurrentlyValid(...)` instead of acting as the authoritative flag.
 
+### Legacy license migration must not reconstruct entitlement from mutable defaults alone
+- **Rule**: Compatibility migration may import a trusted legacy artifact, but it must not mint fresh entitlement windows from `UserDefaults` flags or plaintext fallback values.
+- **Context**: A mirrored `isLicenseActivated` boolean plus plaintext `licenseKey` fallback turned the migration path into a local licensing bypass instead of a one-time recovery bridge.
+- **Example**: `AppSettings.migrateLegacyActivationStateIfNeeded()` currently rebuilds a 7-day entitlement from defaults-backed state; future hardening should only allow that path immediately after a successful legacy keychain migration result.
+
 ## Security / Testing
 
 ### Keychain-backed crypto needs a deterministic test seam
