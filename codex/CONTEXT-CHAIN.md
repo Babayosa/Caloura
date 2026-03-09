@@ -4,6 +4,23 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Audit Task 03: Singleton dependency audit
+**Status:** Complete  
+**Branch:** `codex/task-03-singletons`  
+**Changes:**
+- Audited all 25 custom `.shared` singletons and wrote the findings to `codex/tasks/audit-03-singletons.md`
+- Counted distinct access-file fanout for each singleton across app and test code, then classified every item into Tier 1 / Tier 2 / Tier 3
+- Cross-referenced the singleton catalog with the known test pollution issues around `AppSettings.shared.activePreset`, `AppState.shared.statusMessage`, and the singleton-adjacent `URLSchemeHandler.lastHandledDate`
+- Added concrete DI blueprints for the Tier 1 set: `AppSettings`, `AppState`, `AppCommandRouter`, `PermissionCoordinator`, `CapturePipeline`, and `ScreenshotArtifactCoordinator`
+- Revalidated with `swift build`, `swiftlint`, and `swift test` (460 tests passing)
+
+**Decisions Made:**
+- Treat the singleton problem as concentrated debt in a small set of mutable root services, not a flat “all 25 are equally urgent” cleanup
+- Use access-file fanout plus existing test pollution as the threshold for Tier 1, rather than raw singleton count alone
+- Prefer call-site refactors for services that already have injectable constructors before rewriting their internals
+
+---
+
 ## Audit Task 02: Magic number extraction
 **Status:** Complete  
 **Branch:** `codex/task-02-magic-numbers`  

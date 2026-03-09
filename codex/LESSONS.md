@@ -2,6 +2,13 @@
 
 Historical lessons recorded before this file existed still live in `tasks/lessons.md`.
 
+## Architecture / DI
+
+### Singleton debt usually sits at call-site edges, not inside already-injectable services
+- **Rule**: When auditing global state, check whether the service itself already has an injected initializer before planning a rewrite. If it does, remove `.shared` lookups from callers first.
+- **Context**: `PermissionCoordinator`, `ScreenCaptureManager`, `CapturePipeline`, and `ScreenshotArtifactCoordinator` already have meaningful constructor seams. The remaining architectural debt is mostly UI and controller code bypassing those seams with direct `.shared` access.
+- **Example**: `AppCommandController` and `QuickAccessOverlay` still call `CapturePipeline.shared` directly even though `CapturePipeline` already has a large testing initializer that can support injected command handling.
+
 ## Security / Licensing
 
 ### Licensed state must come from a verifiable artifact
