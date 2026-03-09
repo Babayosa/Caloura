@@ -59,7 +59,7 @@ struct ScreenCapturePermissionDependencies: Sendable {
         presentAlert: { state in
             let alert = NSAlert()
             alert.alertStyle = .warning
-            NSApp.activate()
+            NSApplication.shared.activate()
 
             switch state {
             case .neverGranted:

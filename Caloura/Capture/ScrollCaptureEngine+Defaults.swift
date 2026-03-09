@@ -360,7 +360,9 @@ struct DefaultScrollSettling: ScrollSettling, Sendable {
         for probeIndex in 0..<maxProbes {
             try Task.checkCancellation()
             let image = try await captureFrame(request.region)
-            guard let prepared = ScrollCaptureHelpers.prepareFrame(image) else {
+            guard let prepared = autoreleasepool(invoking: {
+                ScrollCaptureHelpers.prepareFrame(image)
+            }) else {
                 continue
             }
 

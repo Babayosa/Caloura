@@ -211,7 +211,7 @@ final class WindowCaptureSessionCoordinator {
     }
 
     func pick() async -> SelectionResult {
-        NSApp.activate(ignoringOtherApps: true)
+        NSApplication.shared.activate(ignoringOtherApps: true)
         performanceRecorder.mark(.appActivated, in: session)
 
         let wasWarm = hasWarmContent

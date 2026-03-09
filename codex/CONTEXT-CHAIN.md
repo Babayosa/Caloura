@@ -396,4 +396,22 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 10: Performance & memory audit
+**Status:** Complete
+**Branch:** codex/task-10-performance
+**Changes:**
+- Added [audit-10-performance.md](/Users/b/Caloura/codex/tasks/audit-10-performance.md) covering scroll-capture memory, history scaling, thumbnail caching, embedding search, debounce behavior, and startup blocking
+- Cached shared `NLEmbedding` instances in [EmbeddingEngine.swift](/Users/b/Caloura/Caloura/Processing/EmbeddingEngine.swift) and changed [EmbeddingStore.swift](/Users/b/Caloura/Caloura/Models/EmbeddingStore.swift) to keep only the bounded top-K matches instead of sorting every candidate
+- Moved semantic-search work off the UI task path and wrapped thumbnail decoding in an autorelease pool in [HistoryView.swift](/Users/b/Caloura/Caloura/UI/HistoryView.swift)
+- Reduced scroll-capture peak memory by wrapping frame preparation in autorelease pools and removing the stitched-canvas copy in [ScrollCaptureHelpers+Stitching.swift](/Users/b/Caloura/Caloura/Capture/ScrollCaptureHelpers+Stitching.swift)
+- Replaced raw `NSApp.activate(...)` callsites in the AppKit capture path with `NSApplication.shared.activate(...)` so SwiftPM window-capture tests no longer trap on a nil app singleton
+- Added targeted regression coverage for top-K embedding ordering in [EmbeddingStoreTests.swift](/Users/b/Caloura/CalouraTests/ProcessingTests/EmbeddingStoreTests.swift)
+
+**Decisions Made:**
+- Treat startup history/embedding hydration as a documented medium-severity finding rather than changing launch semantics in the same task
+- Keep the history-scaling item as an architectural finding because the current 50-item cap makes pagination a product-scope change, not a low-risk optimization
+- Use `swift test --parallel --num-workers 1` for the final full-suite validation because the default SwiftPM driver continued emitting runner-level signal errors around otherwise-passing AppKit tests, while the one-worker run completed all 466 tests cleanly
+
+---
+
 <!-- Add new task entries above this line -->

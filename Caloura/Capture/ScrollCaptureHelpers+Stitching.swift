@@ -21,12 +21,14 @@ extension ScrollCaptureHelpers {
             frames.map(\.estimatedBottom).max() ?? first.height
         )
         let bytesPerRow = first.preparedFrame.bitmap.bytesPerRow
-        var pixels = [UInt8](repeating: 0, count: totalHeight * bytesPerRow)
+        let byteCount = totalHeight * bytesPerRow
+        let pixels = UnsafeMutablePointer<UInt8>.allocate(capacity: byteCount)
+        pixels.initialize(repeating: 0, count: byteCount)
         var seamRepairCount = 0
 
         copyRows(
             from: first.preparedFrame.bitmap,
-            into: &pixels,
+            into: pixels,
             bytesPerRow: bytesPerRow,
             plan: RowCopyPlan(
                 sourceStartRow: 0,
@@ -50,7 +52,7 @@ extension ScrollCaptureHelpers {
             let sourceStartRow = max(0, startCanvasRow - current.originY)
             copyRows(
                 from: current.preparedFrame.bitmap,
-                into: &pixels,
+                into: pixels,
                 bytesPerRow: bytesPerRow,
                 plan: RowCopyPlan(
                     sourceStartRow: sourceStartRow,
@@ -64,8 +66,10 @@ extension ScrollCaptureHelpers {
             width: first.width,
             height: totalHeight,
             bytesPerRow: bytesPerRow,
-            pixels: pixels
+            pixels: pixels,
+            byteCount: byteCount
         ) else {
+            pixels.deallocate()
             throw ScrollCaptureError.canvasCreationFailed
         }
 
@@ -146,7 +150,7 @@ extension ScrollCaptureHelpers {
 
     private static func copyRows(
         from bitmap: BitmapData,
-        into pixels: inout [UInt8],
+        into pixels: UnsafeMutablePointer<UInt8>,
         bytesPerRow: Int,
         plan: RowCopyPlan
     ) {
@@ -154,13 +158,10 @@ extension ScrollCaptureHelpers {
         for rowOffset in 0..<plan.rowCount {
             let sourceOffset = (plan.sourceStartRow + rowOffset) * bitmap.bytesPerRow
             let destinationOffset = (plan.destinationStartRow + rowOffset) * bytesPerRow
-            pixels.withUnsafeMutableBufferPointer { buffer in
-                guard let baseAddress = buffer.baseAddress else { return }
-                baseAddress.advanced(by: destinationOffset).update(
-                    from: bitmap.pointer.advanced(by: sourceOffset),
-                    count: bytesPerRow
-                )
-            }
+            pixels.advanced(by: destinationOffset).update(
+                from: bitmap.pointer.advanced(by: sourceOffset),
+                count: bytesPerRow
+            )
         }
     }
 
@@ -168,9 +169,17 @@ extension ScrollCaptureHelpers {
         width: Int,
         height: Int,
         bytesPerRow: Int,
-        pixels: [UInt8]
+        pixels: UnsafeMutablePointer<UInt8>,
+        byteCount: Int
     ) -> CGImage? {
-        let data = Data(pixels)
+        // Transfer ownership of the stitched canvas directly to Core Graphics.
+        let data = Data(
+            bytesNoCopy: UnsafeMutableRawPointer(pixels),
+            count: byteCount,
+            deallocator: .custom { pointer, _ in
+                pointer.assumingMemoryBound(to: UInt8.self).deallocate()
+            }
+        )
         guard let provider = CGDataProvider(data: data as CFData) else {
             return nil
         }

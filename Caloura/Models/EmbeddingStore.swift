@@ -54,19 +54,28 @@ final class EmbeddingStore: @unchecked Sendable {
     }
 
     func findSimilar(to queryVector: [Double], topK: Int, threshold: Double) -> [(UUID, Double)] {
+        guard topK > 0 else { return [] }
+
         lock.lock()
         let snapshot = entries
         lock.unlock()
 
         var results: [(UUID, Double)] = []
+        results.reserveCapacity(min(topK, snapshot.count))
         for entry in snapshot {
             let similarity = EmbeddingEngine.cosineSimilarity(queryVector, entry.vector)
-            if similarity >= threshold {
-                results.append((entry.screenshotID, similarity))
+            guard similarity >= threshold else { continue }
+
+            if results.count == topK, let lastSimilarity = results.last?.1, similarity <= lastSimilarity {
+                continue
+            }
+            let insertionIndex = results.firstIndex { similarity > $0.1 } ?? results.endIndex
+            results.insert((entry.screenshotID, similarity), at: insertionIndex)
+            if results.count > topK {
+                results.removeLast()
             }
         }
-        results.sort { $0.1 > $1.1 }
-        return Array(results.prefix(topK))
+        return results
     }
 
     func save() {

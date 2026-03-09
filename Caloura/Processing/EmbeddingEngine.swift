@@ -3,6 +3,8 @@ import NaturalLanguage
 
 struct EmbeddingEngine {
     static let modelVersion = 1
+    private static let sentenceEmbedding = NLEmbedding.sentenceEmbedding(for: .english)
+    private static let wordEmbedding = NLEmbedding.wordEmbedding(for: .english)
 
     /// Generate sentence embedding for text. Returns nil if embedding unavailable.
     static func embed(_ text: String) -> [Double]? {
@@ -10,14 +12,14 @@ struct EmbeddingEngine {
         guard !trimmed.isEmpty else { return nil }
 
         // Try sentence embedding first
-        if let sentenceEmbedding = NLEmbedding.sentenceEmbedding(for: .english) {
+        if let sentenceEmbedding {
             if let vector = sentenceEmbedding.vector(for: trimmed) {
                 return vector
             }
         }
 
         // Fallback: average word embeddings
-        if let wordEmbedding = NLEmbedding.wordEmbedding(for: .english) {
+        if let wordEmbedding {
             let words = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
             var vectors: [[Double]] = []
             for word in words {

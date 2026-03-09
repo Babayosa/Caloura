@@ -178,6 +178,30 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: Reusing the same smart title for multiple captures will otherwise overwrite earlier artifacts despite having “better” names.
 - **Example**: `FileOrganizer.save(...)` now resolves `release-notes.png`, `release-notes-2.png`, and so on before writing the file to disk.
 
+## Performance / Memory
+
+### Full-canvas image assembly should not clone the final buffer
+- **Rule**: When building a large RGBA canvas for export, transfer ownership of the finished pixel buffer directly to Core Graphics instead of copying it into a second `Data` object.
+- **Context**: Scroll-capture stitching already holds the full output in memory. Re-wrapping that canvas through `Data(pixels)` doubles peak resident memory right at the largest allocation point.
+- **Example**: `ScrollCaptureHelpers.makeImage(...)` now uses `Data(bytesNoCopy:deallocator:)` so a 20,000 px stitched capture does not incur a second full-height canvas copy.
+
+### Debounced UI search still blocks if the actual work never leaves the main actor
+- **Rule**: If a UI path uses a debounce task, move the expensive search or scoring work onto a utility task instead of assuming the delay alone protects responsiveness.
+- **Context**: The history view already waited 300 ms before semantic search, but `EmbeddingEngine.search(...)` still executed from the UI task context, so large embedding scans could still land on the main actor.
+- **Example**: `HistoryView` now sleeps in its UI task, runs semantic search in `Task.detached(priority: .utility)`, and only publishes the final UUID set back on the main actor.
+
+## AppKit / Testing
+
+### AppKit activation paths should not rely on `NSApp` existing in SwiftPM tests
+- **Rule**: When production code may run under SwiftPM tests before an app singleton is bootstrapped, call `NSApplication.shared.activate(...)` instead of force-unwrapping `NSApp`.
+- **Context**: The window-capture entry path passed locally in app runs but trapped in package tests because `NSApp` was nil in those worker processes.
+- **Example**: `CapturePipeline.captureWindow()` and the related window-session activation points now use `NSApplication.shared.activate(...)`, which keeps the AppKit activation behavior while avoiding nil-app test crashes.
+
+### Full AppKit-heavy SwiftPM suites may need the one-worker runner
+- **Rule**: If the default SwiftPM test driver emits runner-level signal errors around otherwise-passing AppKit tests, validate the full suite with `swift test --parallel --num-workers 1` and record that choice explicitly.
+- **Context**: Caloura’s package suite completed all 466 tests cleanly under the one-worker driver, while the default driver still reported stray signal-5/11 failures around the same passing window-capture cases.
+- **Example**: Task 10 used `swift test --parallel --num-workers 1` for final full-suite verification after the `NSApp` crash was fixed, because plain `swift test` still produced harness-level signal noise.
+
 ## Testing / Refactors
 
 ### Protocol signature changes need conformance sweeps, not just call-site sweeps

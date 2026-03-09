@@ -184,13 +184,15 @@ struct HistoryView: View {
             semanticResults = []
             guard !newValue.isEmpty,
                   AppSettings.shared.semanticSearchEnabled else { return }
+            let query = newValue
+            let store = appState.embeddingStore
             semanticSearchTask = Task {
                 try? await Task.sleep(for: .milliseconds(300))
                 guard !Task.isCancelled else { return }
-                let results = EmbeddingEngine.search(
-                    query: newValue,
-                    in: appState.embeddingStore
-                )
+                let results = await Task.detached(priority: .utility) {
+                    EmbeddingEngine.search(query: query, in: store)
+                }.value
+                guard !Task.isCancelled else { return }
                 semanticResults = Set(results.map(\.id))
             }
         }
@@ -391,28 +393,31 @@ struct HistoryGridItem: View {
         }
 
         let path = item.filePath
-        return await Task.detached {
-            let url = URL(fileURLWithPath: path) as CFURL
-            guard let source = CGImageSourceCreateWithURL(url, nil) else { return nil as NSImage? }
+        return await Task.detached(priority: .utility) {
+            let generatedThumbnail = autoreleasepool { () -> (image: NSImage, cost: Int)? in
+                let url = URL(fileURLWithPath: path) as CFURL
+                guard let source = CGImageSourceCreateWithURL(url, nil) else { return nil }
 
-            let maxDimension = 320 // 160pt × 2 for Retina
-            let options: [CFString: Any] = [
-                kCGImageSourceThumbnailMaxPixelSize: maxDimension,
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceShouldCacheImmediately: true
-            ]
-            guard let cgThumb = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-                return nil as NSImage?
+                let maxDimension = 320 // 160pt × 2 for Retina
+                let options: [CFString: Any] = [
+                    kCGImageSourceThumbnailMaxPixelSize: maxDimension,
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true
+                ]
+                guard let cgThumb = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+                    return nil
+                }
+                let thumbnail = NSImage(cgImage: cgThumb, size: NSSize(width: cgThumb.width, height: cgThumb.height))
+                let cost = cgThumb.width * cgThumb.height * 4
+                return (thumbnail, cost)
             }
-            let thumbnail = NSImage(cgImage: cgThumb, size: NSSize(width: cgThumb.width, height: cgThumb.height))
-            let cost = cgThumb.width * cgThumb.height * 4
+            guard let generatedThumbnail else { return nil }
             await HistoryThumbnailStore.shared.store(
-                thumbnail,
+                generatedThumbnail.image,
                 forKey: cacheKey,
-                cost: cost
+                cost: generatedThumbnail.cost
             )
-            return thumbnail
+            return generatedThumbnail.image
         }.value
     }
 }

@@ -365,7 +365,9 @@ extension ScrollCaptureEngine {
         captureFrame: @escaping @Sendable (CGRect) async throws -> CGImage
     ) async throws -> ScrollCaptureHelpers.PreparedFrame? {
         let image = try await captureFrame(rect)
-        return ScrollCaptureHelpers.prepareFrame(image)
+        return autoreleasepool {
+            ScrollCaptureHelpers.prepareFrame(image)
+        }
     }
 
     private func calibrateDirection(
