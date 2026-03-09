@@ -40,7 +40,7 @@ enum CapturePipelineTestHelpers {
         capturePerformanceRecorder: CapturePerformanceRecorder? = nil,
         detectContext: CapturePipeline.DetectContextFn? = nil,
         processImage: CapturePipeline.ProcessImageFn? = nil,
-        saveFile: CapturePipeline.SaveFileFn? = nil,
+        saveFile: (((ProcessedScreenshot, String, String?, String) async throws -> URL))? = nil,
         persistArtifact: CapturePipeline.PersistArtifactFn? = nil,
         copyToClipboard: CapturePipeline.CopyToClipboardFn? = nil,
         saveCaptureAction: CapturePipeline.SaveCaptureActionFn? = nil,
@@ -76,9 +76,6 @@ enum CapturePipelineTestHelpers {
             },
             processImage: processImage ?? { cgImage, context, _ in
                 makeProcessed(cgImage: cgImage, mode: context.mode)
-            },
-            saveFile: saveFile ?? { _, _, _, _ in
-                URL(fileURLWithPath: "/tmp/test-save.png")
             },
             persistArtifact: persistArtifact ?? { processed, preset in
                 let url = try await (saveFile ?? { _, _, _, _ in

@@ -31,7 +31,6 @@ final class CapturePipeline: ObservableObject {
 
     typealias DetectContextFn = () -> DetectedContext
     typealias ProcessImageFn = (CGImage, CaptureContext, Bool) async -> ProcessedScreenshot
-    typealias SaveFileFn = (ProcessedScreenshot, String, String?, String) async throws -> URL
     typealias PersistArtifactFn = (ProcessedScreenshot, CapturePreset) async throws -> Void
     typealias CopyToClipboardFn = (ProcessedScreenshot, CopyMode) async throws -> Void
     typealias SaveCaptureActionFn = @MainActor (ProcessedScreenshot) async throws -> URL
@@ -189,7 +188,6 @@ final class CapturePipeline: ObservableObject {
         capturePerformanceRecorder: CapturePerformanceRecorder,
         detectContext: @escaping DetectContextFn,
         processImage: @escaping ProcessImageFn,
-        saveFile: @escaping SaveFileFn,
         persistArtifact: @escaping PersistArtifactFn,
         copyToClipboard: @escaping CopyToClipboardFn,
         saveCaptureAction: SaveCaptureActionFn? = nil,

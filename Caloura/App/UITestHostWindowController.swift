@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 
 enum UITestLaunchContext {
@@ -295,3 +296,4 @@ final class UITestHostWindowController: NSWindowController {
         return ctx.makeImage()!
     }()
 }
+#endif

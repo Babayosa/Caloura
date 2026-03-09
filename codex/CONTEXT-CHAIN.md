@@ -414,4 +414,22 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 11: Dead code detection
+**Status:** Complete
+**Branch:** codex/task-11-dead-code
+**Changes:**
+- Added [audit-11-dead-code.md](/Users/b/Caloura/codex/tasks/audit-11-dead-code.md) documenting the method audit, type-alias audit, model-property audit, `KeychainHelper` lifecycle, and `UITestHostWindowController` production-build check
+- Removed confirmed dead API from [AppState.swift](/Users/b/Caloura/Caloura/Models/AppState.swift), [CapturePipeline.swift](/Users/b/Caloura/Caloura/App/CapturePipeline.swift), and [ProcessedScreenshot.swift](/Users/b/Caloura/Caloura/Models/ProcessedScreenshot.swift)
+- Updated [CapturePipelineTestHelpers.swift](/Users/b/Caloura/CalouraTests/Helpers/CapturePipelineTestHelpers.swift) to keep the test save-file seam local instead of routing it through dead `CapturePipeline` initializer surface
+- Wrapped [UITestHostWindowController.swift](/Users/b/Caloura/Caloura/App/UITestHostWindowController.swift) in `#if DEBUG` and switched [CalouraApp.swift](/Users/b/Caloura/Caloura/App/CalouraApp.swift) to a DEBUG-only UI-test-host path so release builds no longer compile the host window controller
+- Corrected the stale lifecycle comment in [KeychainHelper.swift](/Users/b/Caloura/Caloura/Security/KeychainHelper.swift) to reflect its live `HistoryCrypto` dependency
+
+**Decisions Made:**
+- Treat `AppState.upsertScreenshot(_:)`, `AppState.saveHistory()`, `CapturePipeline.SaveFileFn`, the matching test initializer parameter, `ProcessedScreenshotImageFormat`, and `ProcessedScreenshot.encodedImageData(format:)` as safe removals because repo-wide searches found no live callers beyond their own definitions or dead test seams
+- Keep `ScreenshotItem.captureMode` in place even though it is not read by current UI logic, because it is part of the persisted history schema and removing it would change on-disk payloads without a clear migration payoff
+- Keep `KeychainHelper.swift` because `HistoryCrypto` still uses it for the active history root key path and `AppSettings` still uses it for legacy license migration
+- Re-use `swift test --parallel --num-workers 1` for the final green test signal because plain `swift test` still reproduced the known SwiftPM harness-level signal-11 failure during an otherwise-passing AppKit-heavy run
+
+---
+
 <!-- Add new task entries above this line -->

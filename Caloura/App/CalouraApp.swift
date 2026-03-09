@@ -36,6 +36,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var commandHandlerID: UUID?
     private var captureObserver: NSObjectProtocol?
 
+    private var isUITestHostEnabled: Bool {
+        #if DEBUG
+        UITestLaunchContext.isEnabled
+        #else
+        false
+        #endif
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         if let captureObserver {
             NotificationCenter.default.removeObserver(captureObserver)
@@ -46,7 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        if UITestLaunchContext.isEnabled { return }
+        if isUITestHostEnabled { return }
 
         // Skip the first activation — applicationDidFinishLaunching already checks.
         if isInitialLaunch {
@@ -65,11 +73,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if UITestLaunchContext.isEnabled {
+        if isUITestHostEnabled {
             cleanupStaleTempFiles()
             NSApp.setActivationPolicy(.regular)
             setupCommandHandlers()
+            #if DEBUG
             UITestHostWindowController.shared.show()
+            #endif
             return
         }
 

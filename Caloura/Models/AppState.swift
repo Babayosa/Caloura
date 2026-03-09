@@ -102,16 +102,6 @@ final class AppState: ObservableObject {
         debouncedSaveHistory()
     }
 
-    func upsertScreenshot(_ item: ScreenshotItem) {
-        if let existingIndex = recentScreenshots.firstIndex(where: { $0.id == item.id }) {
-            recentScreenshots[existingIndex] = item
-        } else {
-            recentScreenshots.insert(item, at: 0)
-            pruneRecentScreenshotsIfNeeded()
-        }
-        debouncedSaveHistory()
-    }
-
     func syncProcessedScreenshot(_ screenshot: ProcessedScreenshot) {
         let item = screenshot.toScreenshotItem()
         if let existingIndex = recentScreenshots.firstIndex(where: { $0.id == item.id }) {
@@ -236,11 +226,6 @@ final class AppState: ObservableObject {
             guard !Task.isCancelled else { return }
             saveHistoryNow()
         }
-    }
-
-    /// Immediately persist history (called by debounce timer or clearHistory).
-    func saveHistory() {
-        debouncedSaveHistory()
     }
 
     /// Force immediate save without debouncing.

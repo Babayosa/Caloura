@@ -202,6 +202,16 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: Caloura’s package suite completed all 466 tests cleanly under the one-worker driver, while the default driver still reported stray signal-5/11 failures around the same passing window-capture cases.
 - **Example**: Task 10 used `swift test --parallel --num-workers 1` for final full-suite verification after the `NSApp` crash was fixed, because plain `swift test` still produced harness-level signal noise.
 
+### UI-test host code should be compile-gated out of production builds
+- **Rule**: If a UI-test-only controller is enabled solely by an environment flag, still wrap the code and its app-entry references in `#if DEBUG` so release builds do not compile test-host surfaces.
+- **Context**: `UITestHostWindowController` was runtime-gated by `CALOURA_UI_TEST_HOST`, but the file still compiled into production and `CalouraApp` referenced it unconditionally.
+- **Example**: Task 11 wrapped `UITestHostWindowController.swift` in `#if DEBUG` and moved `CalouraApp` to a DEBUG-only `isUITestHostEnabled` path.
+
+### “Migration-only” comments must match live dependencies
+- **Rule**: When auditing cleanup candidates, verify that lifecycle comments still match call sites before trusting them as removal evidence.
+- **Context**: `KeychainHelper.swift` claimed to exist only for legacy migration, but `HistoryCrypto` still used it for the active history root key path.
+- **Example**: Task 11 kept `KeychainHelper.swift`, documented the live `HistoryCrypto` and `AppSettings` dependencies, and updated the comment instead of deleting the file.
+
 ## Testing / Refactors
 
 ### Protocol signature changes need conformance sweeps, not just call-site sweeps
