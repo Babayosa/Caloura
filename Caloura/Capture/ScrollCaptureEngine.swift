@@ -237,21 +237,30 @@ enum ScrollCaptureError: LocalizedError, Sendable {
     case noFramesCaptured
     case canvasCreationFailed
 
-    var errorDescription: String? {
+    var userMessage: String {
         switch self {
         case .noScrollableViewport:
-            "No scrollable viewport found in the selected area."
+            return "No scrollable area was found in that selection. "
+                + "Select only the scrolling content and try again."
         case .noScrollTarget:
-            "The selected area did not scroll."
+            return "The selected area did not scroll. "
+                + "Select a scrolling area and try again."
         case .unstableScrolling:
-            "Could not stabilize scrolling."
+            return "Scroll capture could not stabilize the page. "
+                + "Wait for motion to stop, or switch to manual mode."
         case .framePreparationFailed:
-            "Could not prepare captured frame data."
+            return "Scroll capture could not prepare the captured frames. "
+                + "Try again after the content finishes loading."
         case .noFramesCaptured:
-            "No frames were captured."
+            return "Scroll capture did not capture any content. Try again."
         case .canvasCreationFailed:
-            "Failed to create the stitched image."
+            return "Scroll capture could not assemble the final image. "
+                + "Try a smaller region or lower the maximum scroll height."
         }
+    }
+
+    var errorDescription: String? {
+        userMessage
     }
 }
 

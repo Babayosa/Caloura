@@ -71,8 +71,22 @@ final class CapturePipelineTests: XCTestCase {
 
         XCTAssertFalse(permissionFailureCalled)
         XCTAssertTrue(
-            pipeline.appState.statusMessage.contains("Capture failed")
+            pipeline.appState.statusMessage.contains("Try again")
         )
+        XCTAssertFalse(pipeline.appState.statusMessage.contains("test error"))
+        XCTAssertFalse(pipeline.appState.isCapturing)
+    }
+
+    func testPerformCapture_timeoutError() async {
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function
+        )
+
+        await pipeline.performCapture(mode: .area) {
+            throw TimeoutError.timedOut
+        }
+
+        XCTAssertTrue(pipeline.appState.statusMessage.contains("timed out"))
         XCTAssertFalse(pipeline.appState.isCapturing)
     }
 

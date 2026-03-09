@@ -292,12 +292,25 @@ extension ScrollCaptureEngine {
                 mode: diagnostics.mode,
                 frames: diagnostics.acceptedFrameCount,
                 estimatedHeight: 0,
-                status: error.localizedDescription,
+                status: failureStatusMessage(for: error),
                 allowManualSwitch: false
             ),
             session: session
         )
         return .failed(error)
+    }
+
+    private func failureStatusMessage(for error: Error) -> String {
+        if let scrollError = error as? ScrollCaptureError {
+            return scrollError.userMessage
+        }
+        if let captureError = error as? CaptureError {
+            return captureError.userMessage
+        }
+        if error is TimeoutError {
+            return CaptureError.timeout(operation: "Scroll capture").userMessage
+        }
+        return "Scroll capture failed. Try again. If it keeps happening, restart Caloura."
     }
 
     private func initialMode(

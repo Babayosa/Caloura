@@ -1,4 +1,5 @@
 import Foundation
+@preconcurrency import ScreenCaptureKit
 import XCTest
 @testable import Caloura
 
@@ -101,6 +102,19 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
                 NSError(domain: "tests", code: 1)
             )
         )
+    }
+
+    func testSCKUserDeclinedMapsToPermissionDeniedWithoutCoreGraphicsFallback() {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(preflight: { true }),
+            cgPreflightAuthorityProvider: { false }
+        )
+        let error = NSError(
+            domain: SCStreamError.errorDomain,
+            code: SCStreamError.Code.userDeclined.rawValue
+        )
+
+        XCTAssertTrue(manager.shouldTreatCaptureErrorAsPermissionDenied(error))
     }
 
     func testRepairSCKAccess_runsRepairToolAndRechecksAuthorization() async {

@@ -55,8 +55,8 @@ extension ScreenCaptureManager {
                 }
                 guard let image else {
                     continuation.resume(
-                        throwing: CaptureError.captureFailed(
-                            "ScreenCaptureKit returned no image"
+                        throwing: CaptureError.noContent(
+                            source: "ScreenCaptureKit screenshot"
                         )
                     )
                     return

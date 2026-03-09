@@ -4,6 +4,23 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Audit Task 04: Error handling hardening
+**Status:** Complete  
+**Branch:** `codex/task-04-error-handling`  
+**Changes:**
+- Added structured `CaptureError` cases for invalid regions, timeouts, and no-content failures, and moved known ScreenCaptureKit / CLI empty-image paths onto those cases instead of generic string failures
+- Updated `CapturePipeline` to turn capture failures into actionable status messages while preserving technical detail in logs, including a timeout mapping for non-`CaptureError` timeout failures
+- Mapped `ScrollCaptureError` outcomes to user-friendly scroll-specific recovery messages and aligned the scroll progress overlay with the same failure wording
+- Documented the SCK permission-denial boundary in `shouldTreatCaptureErrorAsPermissionDenied`, including the `SCStreamError.userDeclined` (`-3801`) classification
+- Added focused regression coverage for structured capture errors, timeout messaging, and SCK user-declined permission classification; revalidated with `swift build`, `swiftlint`, and `swift test` (465 tests passing)
+
+**Decisions Made:**
+- Keep technical failure context in `logMessage` and reserve `errorDescription` / status text for recovery-oriented guidance
+- Introduce timeout handling at the pipeline boundary instead of adding new capture-operation deadlines in this task
+- Limit structured-case replacement to well-known invalid-region and empty-image paths, leaving truly unknown capture failures on the generic fallback path
+
+---
+
 ## Audit Task 03: Singleton dependency audit
 **Status:** Complete  
 **Branch:** `codex/task-03-singletons`  

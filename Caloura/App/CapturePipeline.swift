@@ -257,7 +257,7 @@ final class CapturePipeline: ObservableObject {
             let preset = presetName.flatMap(presetByName) ?? CapturePreset(name: "Quick Capture")
             try await persistArtifact(screenshot, preset)
             guard let url = screenshot.filePath else {
-                throw CaptureError.captureFailed("Saved capture did not return a file URL")
+                throw CaptureError.noContent(source: "Saved capture artifact")
             }
             return url
         }
@@ -381,8 +381,9 @@ final class CapturePipeline: ObservableObject {
                 capturePerformanceRecorder.finishSession(performanceSession)
             }
         } catch {
-            logger.error("Capture failed: \(error.localizedDescription)")
-            appState.statusMessage = "Capture failed: \(error.localizedDescription)"
+            let logMessage = captureFailureLogMessage(for: error)
+            logger.error("Capture failed: \(logMessage, privacy: .public)")
+            appState.statusMessage = captureFailureStatusMessage(for: error)
             if let performanceSession {
                 capturePerformanceRecorder.finishSession(performanceSession)
             }
@@ -391,6 +392,48 @@ final class CapturePipeline: ObservableObject {
         if appState.isCapturing {
             appState.isCapturing = false
         }
+    }
+
+    func captureFailureStatusMessage(
+        for error: Error,
+        operation: String = "Capture"
+    ) -> String {
+        if let captureError = normalizedCaptureError(
+            from: error,
+            operation: operation
+        ) {
+            return captureError.userMessage
+        }
+
+        return "\(operation) failed before an image was produced. Try again. "
+            + "If it keeps happening, restart Caloura."
+    }
+
+    func captureFailureLogMessage(
+        for error: Error,
+        operation: String = "Capture"
+    ) -> String {
+        if let captureError = normalizedCaptureError(
+            from: error,
+            operation: operation
+        ) {
+            return captureError.logMessage
+        }
+
+        return "\(type(of: error)): \(error.localizedDescription)"
+    }
+
+    func normalizedCaptureError(
+        from error: Error,
+        operation: String
+    ) -> CaptureError? {
+        if let captureError = error as? CaptureError {
+            return captureError
+        }
+        if error is TimeoutError {
+            return .timeout(operation: operation)
+        }
+        return nil
     }
 
     // MARK: - Process Capture

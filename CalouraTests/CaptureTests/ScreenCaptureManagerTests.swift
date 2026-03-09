@@ -77,15 +77,11 @@ final class ScreenCaptureManagerTests: XCTestCase {
             _ = try await sut.captureArea(rect: rect)
             XCTFail("captureArea should throw for zero-width rect")
         } catch {
-            // Expect CaptureError.captureFailed with message about zero/negative size
-            guard case CaptureError.captureFailed(let reason) = error else {
-                XCTFail("Expected CaptureError.captureFailed, got \(error)")
+            guard case CaptureError.invalidRegion(let reason) = error else {
+                XCTFail("Expected CaptureError.invalidRegion, got \(error)")
                 return
             }
-            XCTAssertTrue(
-                reason.lowercased().contains("zero") || reason.lowercased().contains("negative"),
-                "Error reason should mention zero or negative size, got: \(reason)"
-            )
+            XCTAssertEqual(reason, rect.debugDescription)
         }
     }
 
@@ -97,8 +93,8 @@ final class ScreenCaptureManagerTests: XCTestCase {
             _ = try await sut.captureArea(rect: rect)
             XCTFail("captureArea should throw for zero-height rect")
         } catch {
-            guard case CaptureError.captureFailed = error else {
-                XCTFail("Expected CaptureError.captureFailed, got \(error)")
+            guard case CaptureError.invalidRegion = error else {
+                XCTFail("Expected CaptureError.invalidRegion, got \(error)")
                 return
             }
         }
@@ -112,8 +108,8 @@ final class ScreenCaptureManagerTests: XCTestCase {
             _ = try await sut.captureArea(rect: rect)
             XCTFail("captureArea should throw for zero-size rect")
         } catch {
-            guard case CaptureError.captureFailed = error else {
-                XCTFail("Expected CaptureError.captureFailed, got \(error)")
+            guard case CaptureError.invalidRegion = error else {
+                XCTFail("Expected CaptureError.invalidRegion, got \(error)")
                 return
             }
         }
@@ -139,13 +135,35 @@ final class ScreenCaptureManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testCaptureError_captureFailed_includesReason() {
+    func testCaptureError_invalidRegion_hasDescription() {
+        let error = CaptureError.invalidRegion(reason: "{{0, 0}, {0, 100}}")
+        XCTAssertNotNil(error.errorDescription)
+        XCTAssertTrue(error.errorDescription!.contains("invalid"))
+    }
+
+    @MainActor
+    func testCaptureError_noContent_hasDescription() {
+        let error = CaptureError.noContent(source: "ScreenCaptureKit screenshot")
+        XCTAssertNotNil(error.errorDescription)
+        XCTAssertTrue(error.errorDescription!.contains("did not produce an image"))
+    }
+
+    @MainActor
+    func testCaptureError_timeout_hasDescription() {
+        let error = CaptureError.timeout(operation: "Capture")
+        XCTAssertNotNil(error.errorDescription)
+        XCTAssertTrue(error.errorDescription!.contains("timed out"))
+    }
+
+    @MainActor
+    func testCaptureError_captureFailed_preservesReasonInLogs() {
         let error = CaptureError.captureFailed("test reason")
         XCTAssertNotNil(error.errorDescription)
         XCTAssertTrue(
-            error.errorDescription!.contains("test reason"),
-            "captureFailed error should include the provided reason"
+            error.errorDescription!.contains("Try again"),
+            "captureFailed error should provide recovery guidance"
         )
+        XCTAssertTrue(error.logMessage.contains("test reason"))
     }
 
     @MainActor

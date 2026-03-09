@@ -200,8 +200,8 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                     }
                     guard let image else {
                         continuation.resume(
-                            throwing: CaptureError.captureFailed(
-                                "ScreenCaptureKit returned no image"
+                            throwing: CaptureError.noContent(
+                                source: "ScreenCaptureKit screenshot"
                             )
                         )
                         return
@@ -292,6 +292,10 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         return !checkPermission()
     }
 
+    /// Only a real ScreenCaptureKit permission denial should map directly to
+    /// `.noPermission` here. Today that means `SCStreamError.userDeclined`
+    /// (raw value `-3801`). Other SCK failures are treated as transient unless
+    /// CoreGraphics is currently authoritative and still denied.
     func shouldTreatCaptureErrorAsPermissionDenied(_ error: Error) -> Bool {
         if isSCKErrorPermanent(error) {
             return true
@@ -377,7 +381,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         guard rect.width > 0, rect.height > 0 else {
             let desc = rect.debugDescription
             logger.warning("Rejecting degenerate capture rect: \(desc)")
-            throw CaptureError.captureFailed("Zero or negative size rect")
+            throw CaptureError.invalidRegion(reason: desc)
         }
 
         if !sckFailed {
@@ -411,7 +415,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         guard rect.width > 0, rect.height > 0 else {
             let desc = rect.debugDescription
             logger.warning("Rejecting degenerate display-space rect: \(desc)")
-            throw CaptureError.captureFailed("Zero or negative size rect")
+            throw CaptureError.invalidRegion(reason: desc)
         }
 
         if !sckFailed {
@@ -479,21 +483,57 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
 enum CaptureError: LocalizedError {
     case noDisplay
     case noPermission
+    case invalidRegion(reason: String)
+    case timeout(operation: String)
+    case noContent(source: String)
     case captureFailed(String)
     case cancelled
 
-    var errorDescription: String? {
+    var userMessage: String {
         switch self {
         case .noDisplay:
-            return "No display found for capture."
+            return "No display is available for capture. "
+                + "Connect a display and try again."
         case .noPermission:
             return "Screen recording permission is required. "
-                + "Please enable it in System Settings "
-                + "> Privacy & Security > Screen Recording."
-        case .captureFailed(let reason):
-            return "Capture failed: \(reason)"
+                + "Enable Caloura in System Settings > Privacy & Security "
+                + "> Screen Recording, then try again."
+        case .invalidRegion:
+            return "The selected capture area is invalid. "
+                + "Select a larger area and try again."
+        case .timeout(let operation):
+            return "\(operation) timed out. Try again. "
+                + "If it keeps happening, restart Caloura."
+        case .noContent(let source):
+            return "\(source) did not produce an image. Try again."
+        case .captureFailed:
+            return "Capture failed before an image was produced. Try again. "
+                + "If it keeps happening, restart Caloura."
         case .cancelled:
             return "Capture was cancelled."
         }
+    }
+
+    var logMessage: String {
+        switch self {
+        case .noDisplay:
+            return "No display found for capture"
+        case .noPermission:
+            return "Screen recording permission is required"
+        case .invalidRegion(let reason):
+            return "Invalid capture region: \(reason)"
+        case .timeout(let operation):
+            return "\(operation) timed out"
+        case .noContent(let source):
+            return "\(source) returned no image content"
+        case .captureFailed(let reason):
+            return reason
+        case .cancelled:
+            return "Capture was cancelled"
+        }
+    }
+
+    var errorDescription: String? {
+        userMessage
     }
 }

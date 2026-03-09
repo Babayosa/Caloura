@@ -195,8 +195,8 @@ extension ScreenCaptureManager {
                     }
                     guard image != nil else {
                         continuation.resume(
-                            throwing: CaptureError.captureFailed(
-                                "ScreenCaptureKit returned no probe image"
+                            throwing: CaptureError.noContent(
+                                source: "ScreenCaptureKit permission probe"
                             )
                         )
                         return

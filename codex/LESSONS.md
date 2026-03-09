@@ -69,6 +69,13 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: Manual finish can race the final viewport change; ending immediately after the finish signal can drop the user’s last settled scroll position and create flaky or truncated output.
 - **Example**: `ScrollCaptureEngine.runManualCapture(...)` now performs a final manual settle when `Finish` is requested and appends that frame if it produces meaningful new content.
 
+## Capture / Error Handling
+
+### Capture errors need separate user and log surfaces
+- **Rule**: Keep technical capture failure detail in a dedicated log field, and make `errorDescription` / status messages recovery-oriented instead of dumping raw subsystem text.
+- **Context**: ScreenCaptureKit and CLI failures often include implementation detail that is useful for logs but confusing or unactionable in UI surfaces like `AppState.statusMessage` and scroll progress overlays.
+- **Example**: `CaptureError` now exposes `userMessage` and `logMessage`, `CapturePipeline.performCapture(...)` uses the user message for status text, and logs preserve reasons like failed SCK/CLI image production separately.
+
 ## Capture / UX
 
 ### Area capture feedback must not wait on frozen screenshots

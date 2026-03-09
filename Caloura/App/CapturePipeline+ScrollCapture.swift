@@ -166,11 +166,60 @@ extension CapturePipeline {
             appState.isCapturing = false
             await PermissionCoordinator.shared.handleCapturePermissionFailure()
         case .failed(let error):
-            let description = error.localizedDescription
-            scrollCaptureLogger.error("Scroll capture failed: \(description, privacy: .public)")
-            appState.statusMessage = "Scroll capture failed: \(description)"
+            let logMessage = scrollCaptureFailureLogMessage(for: error)
+            scrollCaptureLogger.error(
+                "Scroll capture failed: \(logMessage, privacy: .public)"
+            )
+            appState.statusMessage = scrollCaptureFailureStatusMessage(for: error)
             appState.isCapturing = false
         }
+    }
+
+    private func scrollCaptureFailureStatusMessage(for error: Error) -> String {
+        if let scrollError = error as? ScrollCaptureError {
+            switch scrollError {
+            case .noScrollableViewport:
+                return "No scrollable area was found in that selection. "
+                    + "Select only the scrolling content and try again."
+            case .noScrollTarget:
+                return "The selected area did not scroll. "
+                    + "Select a scrolling area and try again."
+            case .unstableScrolling:
+                return "Scroll capture could not stabilize the page. "
+                    + "Wait for motion to stop, or switch to manual mode."
+            case .framePreparationFailed:
+                return "Scroll capture could not prepare the captured frames. "
+                    + "Try again after the content finishes loading."
+            case .noFramesCaptured:
+                return "Scroll capture did not capture any content. Try again."
+            case .canvasCreationFailed:
+                return "Scroll capture could not assemble the final image. "
+                    + "Try a smaller region or lower the maximum scroll height."
+            }
+        }
+
+        return captureFailureStatusMessage(for: error, operation: "Scroll capture")
+    }
+
+    private func scrollCaptureFailureLogMessage(for error: Error) -> String {
+        if let scrollError = error as? ScrollCaptureError {
+            switch scrollError {
+            case .noScrollableViewport:
+                return "No scrollable viewport found in selected region"
+            case .noScrollTarget:
+                return "Selected region did not scroll"
+            case .unstableScrolling:
+                return "Scroll stabilization failed"
+            case .framePreparationFailed:
+                return "Failed to prepare a captured scroll frame"
+            case .noFramesCaptured:
+                return "Scroll capture produced zero frames"
+            case .canvasCreationFailed:
+                return "Failed to stitch scroll capture frames"
+            }
+        }
+
+        return captureFailureLogMessage(for: error, operation: "Scroll capture")
     }
 }
 

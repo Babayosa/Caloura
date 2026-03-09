@@ -59,17 +59,15 @@ extension ScreenCaptureManager {
             do {
                 imageData = try Data(contentsOf: tempURL)
             } catch {
-                throw CaptureError.captureFailed(
-                    "screencapture output file unreadable: "
-                    + "\(error.localizedDescription)"
+                throw CaptureError.noContent(
+                    source: "screencapture output file"
                 )
             }
             guard let source = CGImageSourceCreateWithData(
                 imageData as CFData, nil
             ) else {
-                throw CaptureError.captureFailed(
-                    "Failed to create image source "
-                    + "from screencapture output"
+                throw CaptureError.noContent(
+                    source: "screencapture output"
                 )
             }
 
@@ -82,8 +80,8 @@ extension ScreenCaptureManager {
             guard let image = CGImageSourceCreateImageAtIndex(
                 source, 0, decodeOpts as CFDictionary
             ) else {
-                throw CaptureError.captureFailed(
-                    "Failed to decode screencapture output as image"
+                throw CaptureError.noContent(
+                    source: "decoded screencapture output"
                 )
             }
 
