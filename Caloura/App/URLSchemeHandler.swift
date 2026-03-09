@@ -96,7 +96,7 @@ struct URLSchemeHandler {
     private static let throttleInterval: TimeInterval = 0.5
 
     /// Timestamp of the last successfully accepted request.
-    static var lastHandledDate: Date?
+    private(set) static var lastHandledDate: Date?
 
     /// Allowed capture modes for the main mode switch.
     private static let allowedCaptureModes: Set<String> = [
@@ -334,4 +334,10 @@ struct URLSchemeHandler {
         }
         observer.cleanup()
     }
+
+    #if DEBUG
+    static func resetThrottleForTesting() {
+        lastHandledDate = nil
+    }
+    #endif
 }

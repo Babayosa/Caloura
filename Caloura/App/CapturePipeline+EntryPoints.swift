@@ -97,7 +97,7 @@ extension CapturePipeline {
             performanceSession: performanceSession
         )
         areaCaptureSession?.dismiss()
-        areaCaptureSession = coordinator
+        replaceAreaCaptureSession(coordinator)
 
         presentAreaCaptureCoordinator(coordinator, entryStart: entryStart)
 
@@ -147,8 +147,8 @@ extension CapturePipeline {
         performanceSession: CapturePerformanceRecorder.Session
     ) async {
         guard captureSessionID == sessionID else { return }
-        overlayWindows = []
-        areaCaptureSession = nil
+        clearOverlayWindows()
+        replaceAreaCaptureSession(nil)
         appState.lastCaptureRect = rect
         appState.lastCaptureScreen = screen
 
@@ -174,8 +174,8 @@ extension CapturePipeline {
         performanceSession: CapturePerformanceRecorder.Session
     ) {
         guard captureSessionID == sessionID else { return }
-        overlayWindows = []
-        areaCaptureSession = nil
+        clearOverlayWindows()
+        replaceAreaCaptureSession(nil)
         appState.isCapturing = false
         capturePerformanceRecorder.finishSession(performanceSession)
     }
@@ -195,7 +195,7 @@ extension CapturePipeline {
         entryStart: CFAbsoluteTime
     ) {
         coordinator.present(suppressDimming: freezeScreensEnabled)
-        overlayWindows = coordinator.overlayWindows
+        replaceOverlayWindows(coordinator.overlayWindows)
 
         let overlayVisibleDuration = elapsedMilliseconds(since: entryStart)
         entryLogger.info(
@@ -238,8 +238,8 @@ extension CapturePipeline {
                 performanceSession,
                 { [weak self] (selectedScreen: NSScreen) in
                     guard let self = self else { return }
-                    self.screenOverlays = []
-                    self.fullscreenCaptureSession = nil
+                    self.clearScreenOverlays()
+                    self.replaceFullscreenCaptureSession(nil)
                     await self.performFullscreenCapture(
                         screen: selectedScreen,
                         dismissDelay: true,
@@ -248,16 +248,16 @@ extension CapturePipeline {
                 },
                 { [weak self] in
                     guard let self = self else { return }
-                    self.screenOverlays = []
-                    self.fullscreenCaptureSession = nil
+                    self.clearScreenOverlays()
+                    self.replaceFullscreenCaptureSession(nil)
                     self.appState.isCapturing = false
                     self.capturePerformanceRecorder.finishSession(performanceSession)
                 }
             )
             fullscreenCaptureSession?.dismiss()
-            fullscreenCaptureSession = coordinator
+            replaceFullscreenCaptureSession(coordinator)
             coordinator.present()
-            screenOverlays = coordinator.overlayWindows
+            replaceScreenOverlays(coordinator.overlayWindows)
         } else {
             capturePerformanceRecorder.mark(.appActivated, in: performanceSession)
             Task {
@@ -339,7 +339,7 @@ extension CapturePipeline {
             self?.cancelDelayedCapture()
         }
 
-        delayedCaptureTask = Task { [weak self] in
+        replaceDelayedCaptureTask(Task { [weak self] in
             guard let self = self else { return }
             for remaining in stride(from: delay, through: 1, by: -1) {
                 if Task.isCancelled { return }
@@ -372,13 +372,13 @@ extension CapturePipeline {
                 self.appState.isCapturing = false
                 self.captureScroll()
             }
-        }
+        })
     }
 
     /// Cancel an in-progress delayed capture countdown.
     func cancelDelayedCapture() {
         delayedCaptureTask?.cancel()
-        delayedCaptureTask = nil
+        replaceDelayedCaptureTask(nil)
         appState.isCountingDown = false
         appState.countdownRemaining = 0
         appState.isCapturing = false

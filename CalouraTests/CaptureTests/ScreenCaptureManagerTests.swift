@@ -29,8 +29,7 @@ final class ScreenCaptureManagerTests: XCTestCase {
 
     @MainActor
     func testResetSCKState_setsSckFailedToFalse() {
-        // Force sckFailed to true via the public property
-        sut.sckFailed = true
+        sut.setSCKFailedForTesting(true)
         XCTAssertTrue(sut.sckFailed)
 
         sut.resetSCKState()
@@ -43,7 +42,7 @@ final class ScreenCaptureManagerTests: XCTestCase {
 
     @MainActor
     func testResetSCKState_calledMultipleTimes_remainsFalse() {
-        sut.sckFailed = true
+        sut.setSCKFailedForTesting(true)
 
         sut.resetSCKState()
         sut.resetSCKState()

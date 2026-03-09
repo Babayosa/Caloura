@@ -4,6 +4,24 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Audit Task 06: Access control tightening
+**Status:** Complete  
+**Branch:** `codex/task-06-access-control`  
+**Changes:**
+- Tightened `CapturePipeline.overlayWindows`, `screenOverlays`, `areaCaptureSession`, `fullscreenCaptureSession`, and `delayedCaptureTask` to `private(set)` in `Caloura/App/CapturePipeline.swift`
+- Routed `CapturePipeline` state mutation through same-file helper methods so extension-based entry points and scroll capture logic can still update session state without exposing writable properties module-wide
+- Tightened `ScreenCaptureManager.sckFailed` to `private(set)` and replaced direct test mutation with an explicit DEBUG test seam
+- Tightened `URLSchemeHandler.lastHandledDate` to `private(set)` and replaced direct test mutation with `resetThrottleForTesting()`
+- Restricted `captureAllScreens()` in `Caloura/App/CapturePipeline+FreezeCapture.swift` to `private`
+- Revalidated with `swift build`, `swiftlint`, and `swift test` (465 tests passing)
+
+**Decisions Made:**
+- Use type-owned helper methods instead of broader setters for `CapturePipeline` because the mutable state is written from extension files and `private(set)` alone would have broken those writes
+- Keep the new mutating seams narrow and task-scoped rather than refactoring unrelated mutable state like `captureSessionID` or `sckFailureCount`
+- Preserve test coverage by replacing writable-global/property access with explicit DEBUG-only reset/set helpers where read-only production access was required
+
+---
+
 ## Audit Task 05: Concurrency safety audit
 **Status:** Complete  
 **Branch:** `codex/task-05-concurrency`  

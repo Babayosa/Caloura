@@ -134,7 +134,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
 
     /// Once SCK fails permanently (e.g. user denied permission), skip it on
     /// subsequent captures to avoid repeated system prompts and latency.
-    var sckFailed: Bool = false
+    private(set) var sckFailed: Bool = false
 
     /// Consecutive transient SCK failure count. After
     /// `maxTransientFailures` consecutive transient failures, `sckFailed`
@@ -162,7 +162,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     /// Reset the SCK failure flag so that the next capture retries SCK.
     /// Called when permission is freshly granted or on app reactivation.
     func resetSCKState() {
-        sckFailed = false
+        setSCKFailed(false)
         sckFailureCount = 0
         cachedContent = nil
         logger.info("SCK failure flag reset")
@@ -266,7 +266,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     /// consecutive transient failures, SCK is disabled until reset.
     func handleSCKFailure(_ error: Error) {
         if isSCKErrorPermanent(error) {
-            sckFailed = true
+            setSCKFailed(true)
             sckFailureCount = 0
             logger.warning("SCK permanently disabled (user declined)")
         } else {
@@ -276,7 +276,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                 "SCK transient failure \(count)/\(self.maxTransientFailures)"
             )
             if sckFailureCount >= maxTransientFailures {
-                sckFailed = true
+                setSCKFailed(true)
                 let desc = error.localizedDescription
                 logger.warning(
                     "SCK disabled after \(count) transient failures: \(desc)"
@@ -342,6 +342,16 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
             )
         }
     }
+
+    func setSCKFailed(_ failed: Bool) {
+        sckFailed = failed
+    }
+
+    #if DEBUG
+    func setSCKFailedForTesting(_ failed: Bool) {
+        setSCKFailed(failed)
+    }
+    #endif
 
     // MARK: - Full Screen Capture
 

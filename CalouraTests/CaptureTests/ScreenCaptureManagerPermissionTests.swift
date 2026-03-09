@@ -28,7 +28,7 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
                 sckProbe: { .authorized }
             )
         )
-        manager.sckFailed = true
+        manager.setSCKFailedForTesting(true)
 
         let result = await manager.checkSCKAccess()
 
@@ -55,7 +55,6 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
                 sckProbe: { .transientFailure }
             )
         )
-        manager.sckFailed = false
 
         let result = await manager.primeSCKAccessIfPossible()
 

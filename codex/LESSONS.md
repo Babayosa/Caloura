@@ -88,6 +88,13 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: Moving unsafe globals behind a serial queue fixes races, but nested helper access from within that queue can crash the process with a libdispatch self-deadlock trap.
 - **Example**: `HistoryCrypto` now uses `keyQueueSync(...)` with a `DispatchSpecificKey` so `getOrCreateKey()` can call override helpers while already executing on `keyQueue` without triggering the SwiftPM `signal code 5` crash.
 
+## Access Control
+
+### Tightening properties on multi-file types needs same-file mutation seams
+- **Rule**: When a type is split across extension files, convert writable stored properties to `private(set)` only after adding same-file helper methods that own the mutations.
+- **Context**: `private(set)` narrows the setter to the declaration file, so extension-based feature files stop compiling if they still assign the property directly.
+- **Example**: `CapturePipeline` now keeps overlay/session state behind `replace...` and `clear...` helpers in `CapturePipeline.swift`, which lets entry-point and scroll-capture extensions update state without leaving the properties writable module-wide.
+
 ## Capture / UX
 
 ### Area capture feedback must not wait on frozen screenshots

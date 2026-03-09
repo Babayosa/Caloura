@@ -83,11 +83,11 @@ final class CapturePipeline: ObservableObject {
 
     // MARK: - Mutable State
 
-    var overlayWindows: [CaptureOverlayWindow] = []
-    var screenOverlays: [ScreenSelectionOverlayWindow] = []
-    var areaCaptureSession: (any AreaCaptureSessionHandling)?
-    var fullscreenCaptureSession: (any FullscreenCaptureSessionHandling)?
-    var delayedCaptureTask: Task<Void, Never>?
+    private(set) var overlayWindows: [CaptureOverlayWindow] = []
+    private(set) var screenOverlays: [ScreenSelectionOverlayWindow] = []
+    private(set) var areaCaptureSession: (any AreaCaptureSessionHandling)?
+    private(set) var fullscreenCaptureSession: (any FullscreenCaptureSessionHandling)?
+    private(set) var delayedCaptureTask: Task<Void, Never>?
     var scrollCaptureTask: Task<ScrollCaptureEngine.Result, Never>?
     /// Tracks whether the first mouseDown metric has been logged for the current capture session.
     var firstMouseDownLogged = false
@@ -565,6 +565,36 @@ private func makeCapturePipelineCopyToClipboard() -> CapturePipeline.CopyToClipb
         case .multiFormat:
             try await ClipboardManager.copyMultiFormat(processed)
         }
+    }
+}
+
+extension CapturePipeline {
+    func replaceOverlayWindows(_ windows: [CaptureOverlayWindow]) {
+        overlayWindows = windows
+    }
+
+    func clearOverlayWindows() {
+        overlayWindows = []
+    }
+
+    func replaceScreenOverlays(_ overlays: [ScreenSelectionOverlayWindow]) {
+        screenOverlays = overlays
+    }
+
+    func clearScreenOverlays() {
+        screenOverlays = []
+    }
+
+    func replaceAreaCaptureSession(_ session: (any AreaCaptureSessionHandling)?) {
+        areaCaptureSession = session
+    }
+
+    func replaceFullscreenCaptureSession(_ session: (any FullscreenCaptureSessionHandling)?) {
+        fullscreenCaptureSession = session
+    }
+
+    func replaceDelayedCaptureTask(_ task: Task<Void, Never>?) {
+        delayedCaptureTask = task
     }
 }
 

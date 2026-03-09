@@ -9,7 +9,7 @@ final class URLSchemeHandlerTests: XCTestCase {
         MainActor.assumeIsolated {
             // Reset throttle state so each test can fire a URL scheme request
             // without being rejected by the rate limiter.
-            URLSchemeHandler.lastHandledDate = nil
+            URLSchemeHandler.resetThrottleForTesting()
         }
     }
 

@@ -38,13 +38,13 @@ extension CapturePipeline {
         firstMouseDownLogged = false
         let sessionID = captureSessionID
 
-        overlayWindows = CaptureOverlayWindow.showOnAllScreens(
+        replaceOverlayWindows(CaptureOverlayWindow.showOnAllScreens(
             frozenImages: frozenImages,
             onRegionSelected: { [weak self] rect, screen in
                 guard let self = self else { return }
                 Task { @MainActor in
                     guard self.captureSessionID == sessionID else { return }
-                    self.overlayWindows = []
+                    self.clearOverlayWindows()
                     self.appState.lastCaptureRect = rect
                     self.appState.lastCaptureScreen = screen
                     await self.performScrollCapture(
@@ -57,7 +57,7 @@ extension CapturePipeline {
                 guard let self = self else { return }
                 Task { @MainActor in
                     guard self.captureSessionID == sessionID else { return }
-                    self.overlayWindows = []
+                    self.clearOverlayWindows()
                     self.appState.isCapturing = false
                 }
             },
@@ -73,7 +73,7 @@ extension CapturePipeline {
                     milliseconds: duration
                 )
             }
-        )
+        ))
     }
 
     func performScrollCapture(rect: CGRect, screen: NSScreen) async {
