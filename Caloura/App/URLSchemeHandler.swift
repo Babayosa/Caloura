@@ -339,5 +339,9 @@ struct URLSchemeHandler {
     static func resetThrottleForTesting() {
         lastHandledDate = nil
     }
+
+    static func setLastHandledDateForTesting(_ date: Date?) {
+        lastHandledDate = date
+    }
     #endif
 }

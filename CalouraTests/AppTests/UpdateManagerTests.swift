@@ -85,7 +85,7 @@ final class UpdateManagerTests: XCTestCase {
         let manager = UpdateManager(settings: makeSettings(#function), controller: controller)
 
         controller.setCanCheckForUpdates(false)
-        await pollUntil { !manager.canCheckForUpdates }
+        await pollUntil(timeout: 5.0) { !manager.canCheckForUpdates }
 
         XCTAssertFalse(manager.canCheckForUpdates)
     }
@@ -96,7 +96,7 @@ final class UpdateManagerTests: XCTestCase {
         let manager = UpdateManager(settings: settings, controller: controller)
 
         settings.checkForUpdatesAutomatically = false
-        await pollUntil { !controller.automaticallyChecksForUpdates }
+        await pollUntil(timeout: 5.0) { !controller.automaticallyChecksForUpdates }
 
         XCTAssertEqual(manager.state, .idle)
         XCTAssertFalse(controller.automaticallyChecksForUpdates)

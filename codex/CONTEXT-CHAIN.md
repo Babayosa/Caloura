@@ -351,4 +351,20 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 07: Test flakiness hardening
+**Status:** Complete
+**Branch:** codex/task-07-test-flakiness
+**Changes:**
+- Replaced timing-based synchronization in flaky capture and scroll tests with deterministic async gating via `AsyncGate`
+- Routed deferred-history waits and window-picker readiness checks through the shared polling helper instead of ad hoc `Task.sleep` loops
+- Increased the named flaky poll timeouts called out by the audit plan and kept `pollUntil(...)` fail-fast on timeout
+- Added fixture-level restoration for `AppSettings.shared.activePreset`, `AppState.shared.statusMessage`, and `URLSchemeHandler.lastHandledDate` to stop global state leakage between tests
+- Added a DEBUG-only `URLSchemeHandler.setLastHandledDateForTesting(_:)` seam so tests can restore throttle state without reopening access control
+
+**Decisions Made:**
+- Prefer explicit gates and expectations over sub-200ms sleeps for async test ordering
+- Restore shared singleton-backed test state in `tearDown()` instead of scattered per-test teardown blocks
+
+---
+
 <!-- Add new task entries above this line -->

@@ -107,11 +107,8 @@ final class WindowPickerManagerTests: XCTestCase {
     }
 
     private func waitForPendingPicker(_ picker: FakeWindowSharingPicker) async {
-        for _ in 0..<50 {
-            if picker.presentCallCount > 0 && picker.isActive {
-                return
-            }
-            try? await Task.sleep(for: .milliseconds(5))
+        await pollUntil(timeout: 1.0) {
+            picker.presentCallCount > 0 && picker.isActive
         }
     }
 }

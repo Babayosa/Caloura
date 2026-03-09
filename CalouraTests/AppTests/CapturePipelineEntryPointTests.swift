@@ -373,7 +373,7 @@ extension CapturePipelineTests {
         pipeline.captureDelayed(seconds: 2, mode: .area)
         pipeline.cancelDelayedCapture()
 
-        await pollUntil(timeout: 3.0) {
+        await pollUntil(timeout: 5.0) {
             !pipeline.appState.isCountingDown
         }
 

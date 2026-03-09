@@ -250,6 +250,8 @@ struct ScrollCaptureEngineTests {
             contentHeight: 4_000
         )
         let engine = makeEngine(surface: surface, settleDelayNanos: 10_000_000)
+        let captureStarted = AsyncGate()
+        let releaseCapture = AsyncGate()
 
         let task = Task {
             await engine.capture(
@@ -258,13 +260,19 @@ struct ScrollCaptureEngineTests {
                     geometry: surface.geometry,
                     config: .init(maxHeightPx: 10_000, scrollToTop: false)
                 ),
-                captureFrame: { _ in surface.capture() },
+                captureFrame: { _ in
+                    await captureStarted.open()
+                    await releaseCapture.wait()
+                    try Task.checkCancellation()
+                    return surface.capture()
+                },
                 onProgress: { _ in }
             )
         }
 
-        try await Task.sleep(nanoseconds: 5_000_000)
+        await captureStarted.wait()
         task.cancel()
+        await releaseCapture.open()
 
         let result = await task.value
         guard case .cancelled = result else {

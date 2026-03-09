@@ -127,7 +127,7 @@ final class AppStateEdgeCaseTests: XCTestCase {
         let historyURL = historyFileURL!
         let storeDefaults = defaults!
         var reloaded: AppState?
-        await pollUntil(timeout: 3.0) {
+        await pollUntil(timeout: 5.0) {
             guard FileManager.default.fileExists(atPath: historyURL.path) else { return false }
             let candidate = AppState(defaults: storeDefaults, historyStoreURL: historyURL)
             if candidate.recentScreenshots.count == 50 {

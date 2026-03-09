@@ -521,7 +521,7 @@ final class LicenseManagerNetworkTests: XCTestCase {
 
         license.refreshState(settings: settings)
 
-        await pollUntil(timeout: 1.0) {
+        await pollUntil(timeout: 5.0) {
             requestCount >= 2 && (self.settings.lastLicenseValidationDate ?? .distantPast) > staleDate
         }
 

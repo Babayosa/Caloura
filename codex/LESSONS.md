@@ -179,3 +179,13 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Rule**: When changing a protocol method signature, grep for all conformers and test doubles in addition to the production call sites before validation.
 - **Context**: Updating `ScrollSettling.settle(...)` to use `ScrollSettleRequest` compiled the app target, but `swift test` still failed because `ImmediateSettler` in `ScrollCaptureEngineTests` retained the old signature.
 - **Example**: After refactoring `ScrollSettling`, grep both `: ScrollSettling` and `settle(` so production implementations and synthetic test seams stay aligned.
+
+### Async test ordering should use explicit gates, not scheduler sleeps
+- **Rule**: For timing-sensitive async tests, coordinate progress with expectations, polling, or lightweight async gates instead of relying on short `Task.sleep` delays.
+- **Context**: Sub-200ms sleeps were letting capture, OCR, and picker tests race the scheduler, which made failures depend on machine load instead of state transitions.
+- **Example**: `CapturePipelineTests` and `ScrollCaptureEngineTests` now hold work at known points with `AsyncGate`, while deferred-history and picker tests wait through `pollUntil(...)` instead of fixed sleeps.
+
+### Shared singleton state in tests must be restored at the fixture boundary
+- **Rule**: If a test touches process-global state, snapshot it in `setUp()` and restore it in `tearDown()` for the whole fixture.
+- **Context**: Per-test cleanup blocks were easy to miss, and leaked `activePreset`, `statusMessage`, and URL throttle state into unrelated tests.
+- **Example**: `URLSchemeHandlerTests` and `ScreenCaptureManagerPermissionTests` now restore shared state from fixture-level setup/teardown instead of ad hoc teardown closures.

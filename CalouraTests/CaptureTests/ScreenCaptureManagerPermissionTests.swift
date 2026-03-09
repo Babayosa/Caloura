@@ -5,6 +5,17 @@ import XCTest
 
 @MainActor
 final class ScreenCaptureManagerPermissionTests: XCTestCase {
+    private var originalStatusMessage = ""
+
+    override func setUp() {
+        super.setUp()
+        originalStatusMessage = AppState.shared.statusMessage
+    }
+
+    override func tearDown() {
+        AppState.shared.statusMessage = originalStatusMessage
+        super.tearDown()
+    }
 
     func testCheckPermission_usesInjectedPreflightResult() {
         let manager = ScreenCaptureManager(
@@ -165,11 +176,6 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
     }
 
     func testRelaunchApp_failureUpdatesStatusMessage() async {
-        let originalStatus = AppState.shared.statusMessage
-        addTeardownBlock { @MainActor in
-            AppState.shared.statusMessage = originalStatus
-        }
-
         let box = DependencyBox()
         let manager = ScreenCaptureManager(
             permissionDependencies: makeDependencies(
@@ -184,7 +190,9 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
         AppState.shared.statusMessage = ""
 
         manager.relaunchApp()
-        await pollUntil { AppState.shared.statusMessage == "Restart failed: boom" }
+        await pollUntil(timeout: 5.0) {
+            AppState.shared.statusMessage == "Restart failed: boom"
+        }
 
         XCTAssertEqual(AppState.shared.statusMessage, "Restart failed: boom")
     }

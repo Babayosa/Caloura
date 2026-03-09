@@ -19,3 +19,25 @@ func pollUntil(
         XCTFail("pollUntil timed out after \(timeout)s", file: file, line: line)
     }
 }
+
+actor AsyncGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func open() {
+        guard !isOpen else { return }
+        isOpen = true
+        let resumptions = waiters
+        waiters.removeAll()
+        for continuation in resumptions {
+            continuation.resume()
+        }
+    }
+}
