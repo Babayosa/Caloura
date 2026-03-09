@@ -56,7 +56,7 @@ struct ScrollCaptureDiagnostics: Sendable {
     var acceptedFrameCount: Int = 0
 }
 
-struct ScrollCaptureOutput: @unchecked Sendable {
+struct ScrollCaptureOutput: Sendable {
     let image: CGImage
     let mode: ScrollCaptureMode
     let terminationReason: ScrollTerminationReason
@@ -193,7 +193,7 @@ struct ScrollCaptureFrame: Sendable {
     var estimatedBottom: Int { placement.originY + preparedFrame.height }
 }
 
-struct ScrollStitchResult: @unchecked Sendable {
+struct ScrollStitchResult: Sendable {
     let image: CGImage
     let seamRepairCount: Int
 }

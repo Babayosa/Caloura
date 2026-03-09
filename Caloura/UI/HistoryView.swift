@@ -1,35 +1,43 @@
 import SwiftUI
 import os.log
 
-private enum HistoryThumbnailCache {
-    nonisolated(unsafe) static let shared: NSCache<NSString, NSImage> = {
+private actor HistoryThumbnailStore {
+    static let shared = HistoryThumbnailStore()
+
+    private let cache: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
         cache.countLimit = 200
         cache.totalCostLimit = 50 * 1024 * 1024
         return cache
     }()
-}
 
-private let historyLogger = Logger(subsystem: "com.caloura.app", category: "HistoryUI")
+    private var requests = 0
+    private var hits = 0
+    private let reportInterval = 50
 
-private enum HistoryThumbnailMetrics {
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var requests = 0
-    nonisolated(unsafe) private static var hits = 0
-    private static let reportInterval = 50
-
-    static func recordRequest(cacheHit: Bool) {
-        lock.lock()
+    func cachedImage(forKey key: String) -> NSImage? {
+        let cacheKey = key as NSString
+        let cached = cache.object(forKey: cacheKey)
         requests += 1
-        if cacheHit {
+        if cached != nil {
             hits += 1
         }
-        let shouldReport = requests % reportInterval == 0
+        maybeReportMetrics()
+        return cached
+    }
+
+    func store(
+        _ image: NSImage,
+        forKey key: String,
+        cost: Int
+    ) {
+        cache.setObject(image, forKey: key as NSString, cost: cost)
+    }
+
+    private func maybeReportMetrics() {
+        guard requests % reportInterval == 0 else { return }
         let currentRequests = requests
         let currentHits = hits
-        lock.unlock()
-
-        guard shouldReport else { return }
         let ratio = (Double(currentHits) / Double(max(currentRequests, 1))) * 100.0
         let cacheMsg = "thumbnail_cache_summary"
             + " requests=\(currentRequests)"
@@ -38,6 +46,8 @@ private enum HistoryThumbnailMetrics {
         historyLogger.info("\(cacheMsg, privacy: .public)")
     }
 }
+
+private let historyLogger = Logger(subsystem: "com.caloura.app", category: "HistoryUI")
 
 struct HistoryView: View {
     @ObservedObject var appState: AppState
@@ -376,11 +386,9 @@ struct HistoryGridItem: View {
 
     private func loadThumbnailAsync() async -> NSImage? {
         let cacheKey = "\(item.id.uuidString)|\(item.filePath)"
-        if let cached = HistoryThumbnailCache.shared.object(forKey: cacheKey as NSString) {
-            HistoryThumbnailMetrics.recordRequest(cacheHit: true)
+        if let cached = await HistoryThumbnailStore.shared.cachedImage(forKey: cacheKey) {
             return cached
         }
-        HistoryThumbnailMetrics.recordRequest(cacheHit: false)
 
         let path = item.filePath
         return await Task.detached {
@@ -399,7 +407,11 @@ struct HistoryGridItem: View {
             }
             let thumbnail = NSImage(cgImage: cgThumb, size: NSSize(width: cgThumb.width, height: cgThumb.height))
             let cost = cgThumb.width * cgThumb.height * 4
-            HistoryThumbnailCache.shared.setObject(thumbnail, forKey: cacheKey as NSString, cost: cost)
+            await HistoryThumbnailStore.shared.store(
+                thumbnail,
+                forKey: cacheKey,
+                cost: cost
+            )
             return thumbnail
         }.value
     }

@@ -4,6 +4,25 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Audit Task 05: Concurrency safety audit
+**Status:** Complete  
+**Branch:** `codex/task-05-concurrency`  
+**Changes:**
+- Audited every source-level concurrency escape hatch and documented the findings in `codex/tasks/audit-05-concurrency.md`, including current counts, per-site assessments, strict-concurrency probe evidence, and a Swift 6 migration roadmap
+- Removed three `nonisolated(unsafe)` sites from `HistoryView` by replacing the thumbnail cache/metrics globals with an actor-backed `HistoryThumbnailStore`
+- Fixed a real DEBUG-only synchronization bug in `HistoryCrypto` by routing override reads and writes through the same `keyQueue` that guards the cached key, then resolved the resulting SwiftPM test crash by making queue-backed helper access reentrant-safe
+- Added locking to `DefaultScrollDriver` so its `@unchecked Sendable` conformance matches the `ScrollDriving: Sendable` contract
+- Removed unnecessary unchecked sendability from `ScrollCaptureOutput` and `ScrollStitchResult` now that `CGImage` is Sendable on this toolchain
+- Revalidated with `swift build -Xswiftc -strict-concurrency=complete -Xswiftc -warn-concurrency`, `swift build`, `swiftlint`, and `swift test` (465 tests passing)
+
+**Decisions Made:**
+- Treat the reported `ScreenCaptureManager` and `CapturePipeline` race candidates as actor-isolated false positives after verifying all mutable state stays on `@MainActor`
+- Keep `@preconcurrency` on ScreenCaptureKit, Sparkle, and the ScreenCaptureKit observer bridge because the macOS 26.2 SDK still lacks the needed Sendable annotations
+- Leave the remaining `HistoryCrypto` globals on `nonisolated(unsafe)` for now, but only after tightening all access through the external queue and documenting them as Swift 6 blockers
+- Keep the `HistoryCrypto` external-queue design for this task, but make nested helper reads reentrant-safe instead of broadening the refactor into an actor migration
+
+---
+
 ## Audit Task 04: Error handling hardening
 **Status:** Complete  
 **Branch:** `codex/task-04-error-handling`  

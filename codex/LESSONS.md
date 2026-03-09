@@ -76,6 +76,18 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: ScreenCaptureKit and CLI failures often include implementation detail that is useful for logs but confusing or unactionable in UI surfaces like `AppState.statusMessage` and scroll progress overlays.
 - **Example**: `CaptureError` now exposes `userMessage` and `logMessage`, `CapturePipeline.performCapture(...)` uses the user message for status text, and logs preserve reasons like failed SCK/CLI image production separately.
 
+## Concurrency / Sendability
+
+### `@unchecked Sendable` on mutable classes needs real synchronization, not just trusted call sites
+- **Rule**: If a type claims `@unchecked Sendable` and still has mutable state, protect that state internally with a lock or actor even if current production callers already happen to serialize access.
+- **Context**: Protocol requirements and future call sites outlive today’s usage assumptions. Relying on “the actor currently calls this serially” is weaker than making the type itself safe.
+- **Example**: `DefaultScrollDriver` now locks `hasStartedScroll` because `ScrollDriving` is `Sendable`; actor-serialized scroll capture calls alone were not enough to justify the unchecked conformance.
+
+### Queue-backed global helpers must be reentrant-safe
+- **Rule**: If a serial-queue helper can be called both inside and outside the owning queue, guard it with queue-specific re-entry detection instead of blindly calling `dispatch_sync`.
+- **Context**: Moving unsafe globals behind a serial queue fixes races, but nested helper access from within that queue can crash the process with a libdispatch self-deadlock trap.
+- **Example**: `HistoryCrypto` now uses `keyQueueSync(...)` with a `DispatchSpecificKey` so `getOrCreateKey()` can call override helpers while already executing on `keyQueue` without triggering the SwiftPM `signal code 5` crash.
+
 ## Capture / UX
 
 ### Area capture feedback must not wait on frozen screenshots

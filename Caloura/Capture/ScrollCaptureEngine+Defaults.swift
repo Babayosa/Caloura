@@ -275,6 +275,7 @@ struct DefaultViewportDetector: ScrollViewportDetecting, Sendable {
 }
 
 final class DefaultScrollDriver: ScrollDriving, @unchecked Sendable {
+    private let stateLock = NSLock()
     private var hasStartedScroll = false
 
     func scroll(by pixels: Int) {
@@ -289,18 +290,29 @@ final class DefaultScrollDriver: ScrollDriving, @unchecked Sendable {
             return
         }
 
+        stateLock.lock()
+        let shouldMarkChanged = hasStartedScroll
+        hasStartedScroll = true
+        stateLock.unlock()
+
         event.setIntegerValueField(
             .scrollWheelEventScrollPhase,
-            value: hasStartedScroll ? ScrollGesturePhase.changed.rawValue : ScrollGesturePhase.began.rawValue
+            value: shouldMarkChanged
+                ? ScrollGesturePhase.changed.rawValue
+                : ScrollGesturePhase.began.rawValue
         )
         event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: 0)
         event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
-        hasStartedScroll = true
         event.post(tap: .cghidEventTap)
     }
 
     func finishGesture() {
-        guard hasStartedScroll,
+        stateLock.lock()
+        let hadStartedScroll = hasStartedScroll
+        hasStartedScroll = false
+        stateLock.unlock()
+
+        guard hadStartedScroll,
               let event = CGEvent(
                 scrollWheelEvent2Source: nil,
                 units: .pixel,
@@ -309,7 +321,6 @@ final class DefaultScrollDriver: ScrollDriving, @unchecked Sendable {
                 wheel2: 0,
                 wheel3: 0
               ) else {
-            hasStartedScroll = false
             return
         }
 
@@ -317,7 +328,6 @@ final class DefaultScrollDriver: ScrollDriving, @unchecked Sendable {
         event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: 0)
         event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
         event.post(tap: .cghidEventTap)
-        hasStartedScroll = false
     }
 }
 
