@@ -452,4 +452,19 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 13: Build config & SwiftLint tightening
+**Status:** Complete
+**Branch:** codex/task-13-build-config
+**Changes:**
+- Tightened `.swiftlint.yml` so `line_length.error` is now `200` instead of `300`
+- Updated [Package.swift](/Users/b/Caloura/Package.swift) to use `.swiftLanguageMode(.v6)` for both the app and test targets, aligning the package build with the Xcode project's Swift 6 setting
+- Reworked the summary log construction in [CapturePerformanceRecorder.swift](/Users/b/Caloura/Caloura/App/CapturePerformanceRecorder.swift) so the file stays under the new hard line-length limit without tripping Swift 6 expression-type-check failures
+
+**Decisions Made:**
+- Kept `type_body_length` unchanged because the repo still has multiple warning-level offenders, so tightening it in Task 13 would create new lint debt instead of closing existing config drift
+- Did not enable `trailing_comma` because a targeted lint run showed broad existing warning fallout across the repo, and did not enable `redundant_optional_initialization` because that rule is not available in the installed SwiftLint build
+- Verified that [project.yml](/Users/b/Caloura/project.yml) and [Package.swift](/Users/b/Caloura/Package.swift) already agreed on the macOS 26 deployment target and package dependencies, and confirmed the Xcode project only contains the expected per-configuration `MACOSX_DEPLOYMENT_TARGET = 26.0` entries
+
+---
+
 <!-- Add new task entries above this line -->

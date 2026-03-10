@@ -26,7 +26,7 @@ let package = Package(
                 "App/CalouraApp.swift"
             ],
             swiftSettings: [
-                .swiftLanguageMode(.v5)
+                .swiftLanguageMode(.v6)
             ]
         ),
         .testTarget(
@@ -34,7 +34,7 @@ let package = Package(
             dependencies: ["Caloura"],
             path: "CalouraTests",
             swiftSettings: [
-                .swiftLanguageMode(.v5)
+                .swiftLanguageMode(.v6)
             ]
         )
     ]

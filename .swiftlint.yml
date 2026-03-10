@@ -32,7 +32,7 @@ identifier_name:
 
 line_length:
   warning: 120
-  error: 300
+  error: 200
   ignores_urls: true
   ignores_comments: true
 

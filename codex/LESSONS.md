@@ -72,6 +72,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: SwiftPM accepted `EmbeddingEngine`'s cached `NLEmbedding` statics, but the Xcode app-scheme build rejected them as concurrency-unsafe because `NLEmbedding` is not `Sendable`.
 - **Example**: Task 12's targeted `xcodebuild test` exposed `EmbeddingEngine.swift` as a strict-concurrency blocker even though the new coverage tests and `swift build` were green.
 
+### Tighten hard lint thresholds only after auditing current hard-fail candidates
+- **Rule**: Before lowering a SwiftLint error threshold, identify the existing code that would newly cross the hard-fail line and fix or rule it out first.
+- **Context**: Task 13 lowered `line_length.error` from 300 to 200. The repo only had one source line above 200, so the safe change was to rewrite that call site instead of discovering the breakage through a failed validation loop.
+- **Example**: `CapturePerformanceRecorder.swift` now builds its summary log through a prebuilt string, which kept both `swiftlint` and the Swift 6 builds green after the stricter cap was enabled.
+
 ## Capture / Scroll
 
 ### Manual scroll capture should accept one final settled frame on Finish

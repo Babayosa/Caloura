@@ -162,9 +162,15 @@ final class CapturePerformanceRecorder {
         guard stageSamples.count % reportInterval == 0 else { return }
         let p50 = percentile(0.50, values: stageSamples)
         let p95 = percentile(0.95, values: stageSamples)
-        logger.info(
-            "capture_timeline_summary mode=\(mode.rawValue, privacy: .public) event=\(event.rawValue, privacy: .public) n=\(stageSamples.count, privacy: .public) p50=\(p50, privacy: .public) p95=\(p95, privacy: .public)"
-        )
+        let modeValue = mode.rawValue
+        let eventValue = event.rawValue
+        let countValue = stageSamples.count
+        let summary = "capture_timeline_summary mode=\(modeValue)"
+            + " event=\(eventValue)"
+            + " n=\(countValue)"
+            + " p50=\(p50)"
+            + " p95=\(p95)"
+        logger.info("\(summary, privacy: .public)")
     }
 
     private func percentile(_ percentile: Double, values: [Double]) -> Double {
