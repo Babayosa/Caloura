@@ -195,8 +195,10 @@ final class CaptureDistributionService {
                         showTip(.share)
                     }
                     let phase = appState.previewPhase(for: screenshot.id)
+                    let hasOCRText = !(screenshot.ocrText?.isEmpty ?? true)
                     let alreadyEnriched = phase == .enrichmentPending
                         || phase == .enrichmentComplete
+                        || hasOCRText
                     if !alreadyEnriched {
                         appState.setCapturePreviewPhase(
                             .enrichmentPending,

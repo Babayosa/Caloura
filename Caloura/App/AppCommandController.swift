@@ -3,9 +3,44 @@ import os.log
 
 @MainActor
 final class AppCommandController {
+    struct Routing {
+        let captureArea: @MainActor () -> Void
+        let captureWindow: @MainActor () -> Void
+        let captureFullscreen: @MainActor () -> Void
+        let captureRepeat: @MainActor () -> Void
+        let captureDelayed: @MainActor (CaptureMode, Int) -> Void
+        let cancelDelayedCapture: @MainActor () -> Void
+        let captureScroll: @MainActor () -> Void
+        let copyLastImage: @MainActor () -> Void
+        let copyLastAsMarkdown: @MainActor () -> Void
+        let copyLastWithCitation: @MainActor () -> Void
+        let copyLastOCRText: @MainActor () -> Void
+        let saveLastCapture: @MainActor () -> Void
+        let showTip: @MainActor (ContextualOnboardingTip) -> Void
+
+        static let live = Routing(
+            captureArea: { CapturePipeline.shared.captureArea() },
+            captureWindow: { CapturePipeline.shared.captureWindow() },
+            captureFullscreen: { CapturePipeline.shared.captureFullscreen() },
+            captureRepeat: { CapturePipeline.shared.captureRepeat() },
+            captureDelayed: { mode, seconds in
+                CapturePipeline.shared.captureDelayed(seconds: seconds, mode: mode)
+            },
+            cancelDelayedCapture: { CapturePipeline.shared.cancelDelayedCapture() },
+            captureScroll: { CapturePipeline.shared.captureScroll() },
+            copyLastImage: { CapturePipeline.shared.copyLastImage() },
+            copyLastAsMarkdown: { CapturePipeline.shared.copyLastAsMarkdown() },
+            copyLastWithCitation: { CapturePipeline.shared.copyLastWithCitation() },
+            copyLastOCRText: { CapturePipeline.shared.copyLastOCRText() },
+            saveLastCapture: { CapturePipeline.shared.saveLastCapture() },
+            showTip: { OnboardingTipsController.shared.showIfNeeded($0) }
+        )
+    }
+
     private let onboardingController: OnboardingWindowController
     private let historyController: HistoryWindowController
     private let annotationController: AnnotationWindowController
+    private let routing: Routing
     private let annotationLogger = Logger(
         subsystem: "com.caloura.app",
         category: "Annotation"
@@ -14,11 +49,13 @@ final class AppCommandController {
     init(
         onboardingController: OnboardingWindowController,
         historyController: HistoryWindowController,
-        annotationController: AnnotationWindowController
+        annotationController: AnnotationWindowController,
+        routing: Routing = .live
     ) {
         self.onboardingController = onboardingController
         self.historyController = historyController
         self.annotationController = annotationController
+        self.routing = routing
     }
 
     func handle(_ command: AppCommand) {
@@ -35,20 +72,20 @@ final class AppCommandController {
     private func handleCaptureCommand(_ command: AppCommand) -> Bool {
         switch command {
         case .captureArea:
-            CapturePipeline.shared.captureArea()
+            routing.captureArea()
         case .captureWindow:
-            CapturePipeline.shared.captureWindow()
+            routing.captureWindow()
         case .captureFullscreen:
-            CapturePipeline.shared.captureFullscreen()
+            routing.captureFullscreen()
         case .captureRepeat:
-            CapturePipeline.shared.captureRepeat()
+            routing.captureRepeat()
         case .captureDelayed(let mode, let seconds):
-            CapturePipeline.shared.captureDelayed(seconds: seconds, mode: mode)
+            routing.captureDelayed(mode, seconds)
         case .cancelDelayedCapture:
-            CapturePipeline.shared.cancelDelayedCapture()
+            routing.cancelDelayedCapture()
         case .captureScroll:
-            OnboardingTipsController.shared.showIfNeeded(.scroll)
-            CapturePipeline.shared.captureScroll()
+            routing.showTip(.scroll)
+            routing.captureScroll()
         default:
             return false
         }
@@ -59,15 +96,15 @@ final class AppCommandController {
     private func handleDistributionCommand(_ command: AppCommand) -> Bool {
         switch command {
         case .copyLastImage:
-            CapturePipeline.shared.copyLastImage()
+            routing.copyLastImage()
         case .copyLastAsMarkdown:
-            CapturePipeline.shared.copyLastAsMarkdown()
+            routing.copyLastAsMarkdown()
         case .copyLastWithCitation:
-            CapturePipeline.shared.copyLastWithCitation()
+            routing.copyLastWithCitation()
         case .copyLastOCRText:
-            CapturePipeline.shared.copyLastOCRText()
+            routing.copyLastOCRText()
         case .saveLastCapture:
-            CapturePipeline.shared.saveLastCapture()
+            routing.saveLastCapture()
         case .annotateLastCapture:
             handleAnnotateLastCapture()
         case .pinScreenshot:
@@ -86,7 +123,7 @@ final class AppCommandController {
     private func handleWindowCommand(_ command: AppCommand) {
         switch command {
         case .showHistory:
-            OnboardingTipsController.shared.showIfNeeded(.history)
+            routing.showTip(.history)
             historyController.show(appState: AppState.shared)
         case .showSettings:
             PreferencesWindowController.shared.show()
@@ -135,7 +172,7 @@ final class AppCommandController {
 
     private func handleAnnotateLastCapture() {
         guard let screenshot = AppState.shared.lastScreenshot else { return }
-        OnboardingTipsController.shared.showIfNeeded(.edit)
+        routing.showTip(.edit)
         annotationController.show(image: screenshot.image) { annotatedImage in
             guard let cgImage = annotatedImage.cgImage(
                 forProposedRect: nil,
@@ -174,13 +211,13 @@ final class AppCommandController {
 
     private func handleBeautifyLastCapture() {
         guard let screenshot = AppState.shared.lastScreenshot else { return }
-        OnboardingTipsController.shared.showIfNeeded(.edit)
+        routing.showTip(.edit)
         BeautifyPreviewController.shared.show(screenshot: screenshot)
     }
 
     private func handleRedactLastCapture() {
         guard let screenshot = AppState.shared.lastScreenshot else { return }
-        OnboardingTipsController.shared.showIfNeeded(.edit)
+        routing.showTip(.edit)
         let pii = AppState.shared.piiResult(for: screenshot.id)
         if let pii, !pii.detections.isEmpty {
             RedactionReviewController.shared.show(

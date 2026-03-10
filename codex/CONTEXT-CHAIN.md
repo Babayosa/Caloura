@@ -432,4 +432,24 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 12: Test coverage gaps
+**Status:** Complete
+**Branch:** codex/task-12-test-coverage
+**Changes:**
+- Added [CaptureEnrichmentCoordinatorTests.swift](/Users/b/Caloura/CalouraTests/AppTests/CaptureEnrichmentCoordinatorTests.swift) with 5 focused tests covering FIFO scheduling, concurrency limits, duplicate deduplication, cancellation, and slot handoff behavior
+- Added [CaptureDistributionServiceTests.swift](/Users/b/Caloura/CalouraTests/AppTests/CaptureDistributionServiceTests.swift) covering the save-path double-enrichment guard when preview state is already pending or OCR text is already present
+- Added [AppCommandControllerTests.swift](/Users/b/Caloura/CalouraTests/AppTests/AppCommandControllerTests.swift) and introduced a narrow routing seam in [AppCommandController.swift](/Users/b/Caloura/Caloura/App/AppCommandController.swift) so command dispatch can be verified without driving `CapturePipeline.shared`
+- Hardened [CaptureDistributionService.swift](/Users/b/Caloura/Caloura/App/CaptureDistributionService.swift) so save-triggered enrichment is skipped when OCR text is already attached to the screenshot
+- Added [audit-12-coverage.md](/Users/b/Caloura/codex/tasks/audit-12-coverage.md) documenting new coverage, pre-existing `CapturePipeline.performCapture` error coverage, and UI-heavy areas that remain better suited to system tests
+- Reworked [EmbeddingEngine.swift](/Users/b/Caloura/Caloura/Processing/EmbeddingEngine.swift) to keep cached `NLEmbedding` access behind a locked helper so the Xcode app-scheme build accepts the cache as concurrency-safe
+- Replaced the exact-once background expectation in [CapturePipelineTests.swift](/Users/b/Caloura/CalouraTests/AppTests/CapturePipelineTests.swift) with a locked counter and final assertion so the plain `swift test` suite no longer aborts mid-run
+
+**Decisions Made:**
+- Use an injected closure bundle for `AppCommandController` routing instead of mocking entire singleton controllers, because the gap was command dispatch coverage, not UI presentation behavior
+- Treat the `CaptureDistributionService` OCR-presence check as the minimal production fix for the known double-enrichment risk, rather than broadening preview-phase state modeling in the same task
+- Keep `CapturePipeline.performCapture` error-path work documented rather than duplicated because `testPerformCapture_permissionError` and `testPerformCapture_genericError` already covered the requested cases before this task
+- Fix the validation blockers inside the same task because both failures directly affected Task 12 sign-off: the plain `swift test` abort in `CapturePipelineTests` and the Xcode strict-concurrency rejection of cached embeddings
+
+---
+
 <!-- Add new task entries above this line -->

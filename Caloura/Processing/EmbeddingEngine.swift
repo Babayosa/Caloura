@@ -3,8 +3,7 @@ import NaturalLanguage
 
 struct EmbeddingEngine {
     static let modelVersion = 1
-    private static let sentenceEmbedding = NLEmbedding.sentenceEmbedding(for: .english)
-    private static let wordEmbedding = NLEmbedding.wordEmbedding(for: .english)
+    private static let resources = EmbeddingResources()
 
     /// Generate sentence embedding for text. Returns nil if embedding unavailable.
     static func embed(_ text: String) -> [Double]? {
@@ -12,34 +11,47 @@ struct EmbeddingEngine {
         guard !trimmed.isEmpty else { return nil }
 
         // Try sentence embedding first
-        if let sentenceEmbedding {
-            if let vector = sentenceEmbedding.vector(for: trimmed) {
-                return vector
-            }
+        if let vector = resources.sentenceVector(for: trimmed) {
+            return vector
         }
 
         // Fallback: average word embeddings
-        if let wordEmbedding {
-            let words = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
-            var vectors: [[Double]] = []
-            for word in words {
-                if let vec = wordEmbedding.vector(for: word.lowercased()) {
-                    vectors.append(vec)
-                }
+        let words = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
+        var vectors: [[Double]] = []
+        for word in words {
+            if let vector = resources.wordVector(for: word.lowercased()) {
+                vectors.append(vector)
             }
-            guard !vectors.isEmpty else { return nil }
-            let dim = vectors[0].count
-            var avg = [Double](repeating: 0, count: dim)
-            for vec in vectors {
-                for i in 0..<dim {
-                    avg[i] += vec[i]
-                }
+        }
+        guard !vectors.isEmpty else { return nil }
+
+        let dim = vectors[0].count
+        var avg = [Double](repeating: 0, count: dim)
+        for vec in vectors {
+            for i in 0..<dim {
+                avg[i] += vec[i]
             }
-            let count = Double(vectors.count)
-            return avg.map { $0 / count }
+        }
+        let count = Double(vectors.count)
+        return avg.map { $0 / count }
+    }
+
+    private final class EmbeddingResources: @unchecked Sendable {
+        private let lock = NSLock()
+        private let sentenceEmbedding = NLEmbedding.sentenceEmbedding(for: .english)
+        private let wordEmbedding = NLEmbedding.wordEmbedding(for: .english)
+
+        func sentenceVector(for text: String) -> [Double]? {
+            lock.lock()
+            defer { lock.unlock() }
+            return sentenceEmbedding?.vector(for: text)
         }
 
-        return nil
+        func wordVector(for word: String) -> [Double]? {
+            lock.lock()
+            defer { lock.unlock() }
+            return wordEmbedding?.vector(for: word)
+        }
     }
 
     /// Cosine similarity between two vectors. Returns 0 if vectors are incompatible.

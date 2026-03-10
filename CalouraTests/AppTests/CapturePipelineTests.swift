@@ -367,8 +367,7 @@ final class CapturePipelineTests: XCTestCase {
     func testSaveLastCapture_doesNotDoubleTriggerEnrichmentWhilePending() async {
         let saveExpectation = expectation(description: "save called twice")
         saveExpectation.expectedFulfillmentCount = 2
-        let ocrExpectation = expectation(description: "OCR called once")
-        ocrExpectation.assertForOverFulfill = true
+        let ocrCounter = LockedCounter()
         let defaults = CapturePipelineTestHelpers.makeDefaults(#function)
         let historyURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("pipeline-save-last-\(UUID().uuidString).json")
@@ -389,7 +388,7 @@ final class CapturePipelineTests: XCTestCase {
                 return url
             },
             recognizeText: { _ in
-                ocrExpectation.fulfill()
+                ocrCounter.increment()
                 try? await Task.sleep(for: .milliseconds(250))
                 return "recognized"
             }
@@ -405,10 +404,11 @@ final class CapturePipelineTests: XCTestCase {
 
         pipeline.saveLastCapture()
 
-        await fulfillment(of: [saveExpectation, ocrExpectation], timeout: 2.0)
+        await fulfillment(of: [saveExpectation], timeout: 2.0)
         await pollUntil(timeout: 3.0) {
             pipeline.appState.recentScreenshots.first(where: { $0.id == screenshot.id })?.ocrText == "recognized"
         }
+        XCTAssertEqual(ocrCounter.value, 1)
     }
 
     func testCaptureRepeat_usesInjectedCaptureManager() async {
@@ -630,5 +630,22 @@ final class CapturePipelineTests: XCTestCase {
                 .enrichmentComplete
             )
         }
+    }
+}
+
+private final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func increment() {
+        lock.lock()
+        storage += 1
+        lock.unlock()
     }
 }

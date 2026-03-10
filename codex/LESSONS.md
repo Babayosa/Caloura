@@ -67,6 +67,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: The runtime type check already establishes the expected CF type, so `unsafeBitCast` adds no value and increases the apparent crash surface in audits.
 - **Example**: `AXElementHandle`, `AXValueHandle`, and `SecRequirementHandle` now use `as!` after `CFGetTypeID(...)` guards instead of `unsafeBitCast(...)`.
 
+### Xcode app builds can surface sendability errors that SwiftPM misses
+- **Rule**: After `swift build` passes, still run an Xcode build path when a target uses cached Cocoa framework objects in static storage.
+- **Context**: SwiftPM accepted `EmbeddingEngine`'s cached `NLEmbedding` statics, but the Xcode app-scheme build rejected them as concurrency-unsafe because `NLEmbedding` is not `Sendable`.
+- **Example**: Task 12's targeted `xcodebuild test` exposed `EmbeddingEngine.swift` as a strict-concurrency blocker even though the new coverage tests and `swift build` were green.
+
 ## Capture / Scroll
 
 ### Manual scroll capture should accept one final settled frame on Finish
@@ -228,6 +233,16 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Rule**: If a test touches process-global state, snapshot it in `setUp()` and restore it in `tearDown()` for the whole fixture.
 - **Context**: Per-test cleanup blocks were easy to miss, and leaked `activePreset`, `statusMessage`, and URL throttle state into unrelated tests.
 - **Example**: `URLSchemeHandlerTests` and `ScreenCaptureManagerPermissionTests` now restore shared state from fixture-level setup/teardown instead of ad hoc teardown closures.
+
+### Async exact-once assertions are safer as counters than over-fulfill expectations
+- **Rule**: When async work can complete on background tasks after the test body has moved on, count invocations in a locked helper and assert the final total instead of relying on `assertForOverFulfill`.
+- **Context**: `CapturePipelineTests` was aborting the plain SwiftPM runner because a background OCR callback could trip the over-fulfill path mid-suite, which crashed the process instead of producing a normal test failure.
+- **Example**: `testSaveLastCapture_doesNotDoubleTriggerEnrichmentWhilePending` now uses `LockedCounter` plus a final `XCTAssertEqual(..., 1)` after the OCR result is observed.
+
+### Singleton-heavy controllers can often be tested with injected routing closures
+- **Rule**: When a controller mostly routes commands into global services, add a narrow closure bundle for that routing surface instead of trying to mock every singleton dependency.
+- **Context**: `AppCommandController` was hard to cover because capture and distribution commands called `CapturePipeline.shared` directly, while the real coverage need was simply verifying command-to-action mapping.
+- **Example**: Task 12 added `AppCommandController.Routing`, letting tests verify capture/distribution dispatch and onboarding-tip ordering without driving the live pipeline.
 
 ### Large behavior files decompose best when shared contracts move together
 - **Rule**: When splitting a large subsystem, move its shared model types, errors, and protocols into one declarations-only file before touching behavior extensions.
