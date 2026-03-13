@@ -14,6 +14,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: `CapturePipeline` still needs to own entry points, overlay/session state, and coordinator construction. Mixing those concerns with the full post-capture flow turns one hot-path type into the regression surface for both UX timing and artifact processing.
 - **Example**: Task 18 moved `performCapture(...)`, capture error messaging, preview publication, distribution, and deferred save/enrichment into `CaptureExecutionService`, leaving `CapturePipeline` focused on capture orchestration.
 
+### Capture hot-path state should move with entry orchestration
+- **Rule**: When splitting capture entry/session startup out of `CapturePipeline`, move the overlay/session references and session-identity bookkeeping into a dedicated state container instead of leaving the new service coupled to scattered pipeline properties.
+- **Context**: Extracting the behavior without extracting the small mutable session state would keep stale-callback guards, delayed-task ownership, and first-interaction metrics spread across multiple extensions, which defeats most of the maintainability gain from the split.
+- **Example**: Task 19 introduced `CaptureSessionState` and `CaptureEntrypointService`, so area/fullscreen/window/delayed capture entry flows share one lifecycle owner for overlays, countdown tasks, tracked session IDs, and first-mouse-down state.
+
 ## Security / Licensing
 
 ### Licensed state must come from a verifiable artifact

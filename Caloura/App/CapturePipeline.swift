@@ -81,16 +81,8 @@ final class CapturePipeline: ObservableObject {
 
     // MARK: - Mutable State
 
-    private(set) var overlayWindows: [CaptureOverlayWindow] = []
-    private(set) var screenOverlays: [ScreenSelectionOverlayWindow] = []
-    private(set) var areaCaptureSession: (any AreaCaptureSessionHandling)?
-    private(set) var fullscreenCaptureSession: (any FullscreenCaptureSessionHandling)?
-    private(set) var delayedCaptureTask: Task<Void, Never>?
+    let sessionState = CaptureSessionState()
     var scrollCaptureTask: Task<ScrollCaptureEngine.Result, Never>?
-    /// Tracks whether the first mouseDown metric has been logged for the current capture session.
-    var firstMouseDownLogged = false
-    /// Monotonic counter to detect stale overlay callbacks from a previous capture session.
-    var captureSessionID: UInt = 0
     private var performanceMetrics = PerformanceMetricsAggregator(
         maxSamplesPerStage: 200,
         reportInterval: 20
@@ -99,6 +91,7 @@ final class CapturePipeline: ObservableObject {
     let distributionService: CaptureDistributionService
     private let enrichmentService: CaptureEnrichmentService
     private lazy var executionService = makeCaptureExecutionService()
+    lazy var entrypointService = makeCaptureEntrypointService()
 
     // MARK: - Init (Production)
 
@@ -349,6 +342,7 @@ final class CapturePipeline: ObservableObject {
             "metric_percentiles \(name, privacy: .public) p50=\(p50, privacy: .public) p95=\(p95, privacy: .public)"
         )
     }
+
 }
 
 @MainActor
@@ -364,36 +358,6 @@ private func makeCapturePipelineCopyToClipboard() -> CapturePipeline.CopyToClipb
         case .multiFormat:
             try await ClipboardManager.copyMultiFormat(processed)
         }
-    }
-}
-
-extension CapturePipeline {
-    func replaceOverlayWindows(_ windows: [CaptureOverlayWindow]) {
-        overlayWindows = windows
-    }
-
-    func clearOverlayWindows() {
-        overlayWindows = []
-    }
-
-    func replaceScreenOverlays(_ overlays: [ScreenSelectionOverlayWindow]) {
-        screenOverlays = overlays
-    }
-
-    func clearScreenOverlays() {
-        screenOverlays = []
-    }
-
-    func replaceAreaCaptureSession(_ session: (any AreaCaptureSessionHandling)?) {
-        areaCaptureSession = session
-    }
-
-    func replaceFullscreenCaptureSession(_ session: (any FullscreenCaptureSessionHandling)?) {
-        fullscreenCaptureSession = session
-    }
-
-    func replaceDelayedCaptureTask(_ task: Task<Void, Never>?) {
-        delayedCaptureTask = task
     }
 }
 

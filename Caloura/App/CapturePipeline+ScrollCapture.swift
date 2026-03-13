@@ -18,13 +18,14 @@ extension CapturePipeline {
     func captureScroll() {
         guard !appState.isCapturing else { return }
         appState.isCapturing = true
-        captureSessionID &+= 1
+        let sessionID = beginTrackedCaptureSession()
 
         Task {
             let entryStart = CFAbsoluteTimeGetCurrent()
             scrollEntryLogger.debug("Scroll capture entry: request received")
             let frozenImages = await freezeScreens(entryStart: entryStart)
             showScrollAreaOverlays(
+                sessionID: sessionID,
                 frozenImages: frozenImages,
                 entryStart: entryStart
             )
@@ -32,18 +33,16 @@ extension CapturePipeline {
     }
 
     private func showScrollAreaOverlays(
+        sessionID: UInt,
         frozenImages: [NSScreen: CGImage],
         entryStart: CFAbsoluteTime
     ) {
-        firstMouseDownLogged = false
-        let sessionID = captureSessionID
-
         replaceOverlayWindows(CaptureOverlayWindow.showOnAllScreens(
             frozenImages: frozenImages,
             onRegionSelected: { [weak self] rect, screen in
                 guard let self = self else { return }
                 Task { @MainActor in
-                    guard self.captureSessionID == sessionID else { return }
+                    guard self.isCurrentTrackedCaptureSession(sessionID) else { return }
                     self.clearOverlayWindows()
                     self.appState.lastCaptureRect = rect
                     self.appState.lastCaptureScreen = screen
@@ -56,14 +55,14 @@ extension CapturePipeline {
             onCancelled: { [weak self] in
                 guard let self = self else { return }
                 Task { @MainActor in
-                    guard self.captureSessionID == sessionID else { return }
+                    guard self.isCurrentTrackedCaptureSession(sessionID) else { return }
                     self.clearOverlayWindows()
                     self.appState.isCapturing = false
                 }
             },
             onFirstMouseDown: { [weak self] in
-                guard let self = self, !self.firstMouseDownLogged else { return }
-                self.firstMouseDownLogged = true
+                guard let self = self,
+                      self.recordFirstMouseDownIfNeeded() else { return }
                 let duration = self.elapsedMilliseconds(since: entryStart)
                 scrollEntryLogger.info(
                     "Scroll capture entry: first mouseDown at \(duration, privacy: .public) ms"

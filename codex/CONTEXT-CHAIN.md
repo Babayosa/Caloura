@@ -4,6 +4,24 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 19: Capture entrypoint hardening
+**Status:** Complete
+**Branch:** `codex/task-19-capture-entrypoint-hardening`
+**Changes:**
+- Extracted [CaptureEntrypointService.swift](/Users/b/Caloura/Caloura/App/CaptureEntrypointService.swift) plus [CaptureEntrypointService+OverlaySessions.swift](/Users/b/Caloura/Caloura/App/CaptureEntrypointService+OverlaySessions.swift) so area, fullscreen, window, repeat, and delayed capture startup/teardown no longer live inline in `CapturePipeline`
+- Added [CaptureSessionState.swift](/Users/b/Caloura/Caloura/App/CaptureSessionState.swift) and [CapturePipeline+SessionState.swift](/Users/b/Caloura/Caloura/App/CapturePipeline+SessionState.swift) so overlay/session references, delayed countdown ownership, tracked session IDs, and first-mouse-down bookkeeping move out of the main pipeline type
+- Updated [CapturePipeline+EntryPoints.swift](/Users/b/Caloura/Caloura/App/CapturePipeline+EntryPoints.swift) to keep low-level area/fullscreen/window operations while delegating orchestration to the new entrypoint service, and updated [CapturePipeline+ScrollCapture.swift](/Users/b/Caloura/Caloura/App/CapturePipeline+ScrollCapture.swift) to reuse the shared tracked-session helpers
+- Added [CapturePipelineEntryPointLifecycleTests.swift](/Users/b/Caloura/CalouraTests/AppTests/CapturePipelineEntryPointLifecycleTests.swift) with focused coverage for stale frozen-image cancellation, fullscreen multi-display cancel symmetry, and delayed-task cleanup
+- Regenerated [project.pbxproj](/Users/b/Caloura/Caloura.xcodeproj/project.pbxproj) so the new source and test files are included in Xcode builds
+- Revalidated with `xcodegen generate`, `swift build`, `swiftlint lint --quiet`, `swift test`, and `xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData`
+
+**Decisions Made:**
+- Move capture entry behavior and its small shared mutable state together, rather than extracting orchestration into a helper that still mutates a long list of scattered `CapturePipeline` properties
+- Keep scroll capture execution inside `CapturePipeline` for now, but route its session-ID and first-interaction bookkeeping through the same shared session-state helpers used by area/fullscreen entry flows
+- Preserve the existing public façade methods on `CapturePipeline` so UI and command callers do not need interface churn during the hot-path refactor
+
+---
+
 ## Task 18: Capture execution split
 **Status:** Complete
 **Branch:** `codex/task-18-capture-execution-split`
