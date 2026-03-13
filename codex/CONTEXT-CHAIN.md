@@ -4,6 +4,23 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 18: Capture execution split
+**Status:** Complete
+**Branch:** `codex/task-18-capture-execution-split`
+**Changes:**
+- Extracted [CaptureExecutionService.swift](/Users/b/Caloura/Caloura/App/CaptureExecutionService.swift) so request resolution, image processing, raw preview publication, distribution, deferred save/enrichment scheduling, and failure handling no longer live inline in `CapturePipeline`
+- Updated [CapturePipeline.swift](/Users/b/Caloura/Caloura/App/CapturePipeline.swift) to keep entry-point orchestration and capture-session state while delegating post-capture work to the new execution service
+- Added [CaptureExecutionServiceTests.swift](/Users/b/Caloura/CalouraTests/AppTests/CaptureExecutionServiceTests.swift) with focused coverage for preview ordering, permission failure routing, generic failure messaging, and deferred save/enrichment completion
+- Regenerated [project.pbxproj](/Users/b/Caloura/Caloura.xcodeproj/project.pbxproj) so the new source and test files are included in Xcode builds
+- Revalidated with `xcodegen generate`, `swift build`, `swiftlint lint --quiet`, `swift test`, and `xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData`
+
+**Decisions Made:**
+- Keep `CapturePipeline` as the owner of capture entry points, overlay/session state, and coordinator creation, rather than broadening the extraction into a larger architecture change
+- Move the entire post-capture path together into one service so preview/distribution/save/enrichment behavior stays co-located and directly testable
+- Preserve the existing UX contract that raw preview becomes visible before clipboard work and before deferred enrichment finishes
+
+---
+
 ## Task 15: Permission + capture production audit
 **Status:** Complete  
 **Branch:** `codex/task-15-permission-capture-audit`  

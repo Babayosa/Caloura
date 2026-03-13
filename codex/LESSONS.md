@@ -9,6 +9,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: `PermissionCoordinator`, `ScreenCaptureManager`, `CapturePipeline`, and `ScreenshotArtifactCoordinator` already have meaningful constructor seams. The remaining architectural debt is mostly UI and controller code bypassing those seams with direct `.shared` access.
 - **Example**: `AppCommandController` and `QuickAccessOverlay` still call `CapturePipeline.shared` directly even though `CapturePipeline` already has a large testing initializer that can support injected command handling.
 
+### Post-capture execution should live outside the capture entry coordinator
+- **Rule**: Once capture request resolution, processing, preview publication, distribution, and deferred save/enrichment all live on the same post-capture path, extract that path into its own service instead of keeping it inline in the entry coordinator.
+- **Context**: `CapturePipeline` still needs to own entry points, overlay/session state, and coordinator construction. Mixing those concerns with the full post-capture flow turns one hot-path type into the regression surface for both UX timing and artifact processing.
+- **Example**: Task 18 moved `performCapture(...)`, capture error messaging, preview publication, distribution, and deferred save/enrichment into `CaptureExecutionService`, leaving `CapturePipeline` focused on capture orchestration.
+
 ## Security / Licensing
 
 ### Licensed state must come from a verifiable artifact

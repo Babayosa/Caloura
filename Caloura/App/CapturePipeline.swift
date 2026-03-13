@@ -2,7 +2,6 @@ import AppKit
 import os.log
 import ScreenCaptureKit
 
-private let logger = Logger(subsystem: "com.caloura.app", category: "CapturePipeline")
 private let performanceLogger = Logger(subsystem: "com.caloura.app", category: "CapturePerformance")
 
 @MainActor
@@ -99,6 +98,7 @@ final class CapturePipeline: ObservableObject {
     private let requestResolver: CaptureRequestResolver
     let distributionService: CaptureDistributionService
     private let enrichmentService: CaptureEnrichmentService
+    private lazy var executionService = makeCaptureExecutionService()
 
     // MARK: - Init (Production)
 
@@ -294,236 +294,37 @@ final class CapturePipeline: ObservableObject {
         performanceSession: CapturePerformanceRecorder.Session? = nil,
         capture: () async throws -> CGImage
     ) async {
-        let pipelineStart = CFAbsoluteTimeGetCurrent()
-        logger.info("Starting capture: mode=\(mode.rawValue)")
-        do {
-            let request = requestResolver.resolve(mode: mode)
-
-            let captureStart = CFAbsoluteTimeGetCurrent()
-            let cgImage = try await capture()
-            let captureDuration = elapsedMilliseconds(since: captureStart)
-            logger.info("Capture succeeded: \(cgImage.width)x\(cgImage.height)")
-            logger.debug(
-                "Capture stage completed in \(captureDuration, privacy: .public) ms"
-            )
-            recordMetric(stage: .capture, milliseconds: captureDuration)
-            if let performanceSession {
-                capturePerformanceRecorder.recordDuration(
-                    .screenshotDuration,
-                    milliseconds: captureDuration,
-                    in: performanceSession
-                )
-            }
-
-            let (processed, preset) = await processCapture(
-                cgImage: cgImage,
-                request: request
-            )
-            let hasDeferredEnrichment = settings.autoSaveToDisk
-            appState.setCapturePreviewPhase(
-                hasDeferredEnrichment ? .enrichmentPending : .rawPreviewReady,
-                for: processed.id
-            )
-            let previewStart = CFAbsoluteTimeGetCurrent()
-            appState.lastScreenshot = processed
-            appState.statusMessage = "Captured!"
-            showQuickAccess(processed)
-            let previewDuration = elapsedMilliseconds(since: previewStart)
-            if let performanceSession {
-                capturePerformanceRecorder.recordDuration(
-                    .previewPresentationDuration,
-                    milliseconds: previewDuration,
-                    in: performanceSession
-                )
-                capturePerformanceRecorder.mark(.rawPreviewVisible, in: performanceSession)
-            }
-            postNotification(.captureCompleted)
-
-            let totalDuration = self.elapsedMilliseconds(since: pipelineStart)
-            logger.info(
-                "Capture pipeline finished in \(totalDuration, privacy: .public) ms"
-            )
-            recordMetric(stage: .total, milliseconds: totalDuration)
-            await distributeCapture(
-                processed,
-                preset: preset,
-                performanceSession: performanceSession
-            )
-
-            if settings.autoSaveToDisk {
-                Task { @MainActor [weak self] in
-                    guard let self = self else { return }
-                    await self.saveToDisk(
-                        processed,
-                        preset: preset,
-                        performanceSession: performanceSession
-                    )
-                    self.addToHistoryWithOCR(processed)
-                    if let performanceSession {
-                        self.capturePerformanceRecorder.finishSession(performanceSession)
-                    }
-                }
-            } else {
-                appState.setCapturePreviewPhase(.enrichmentComplete, for: processed.id)
-                if let performanceSession {
-                    capturePerformanceRecorder.finishSession(performanceSession)
-                }
-            }
-            appState.isCapturing = false
-
-        } catch CaptureError.noPermission {
-            logger.warning("Capture failed: no permission")
-            appState.isCapturing = false
-            await handlePermissionFailure()
-            if let performanceSession {
-                capturePerformanceRecorder.finishSession(performanceSession)
-            }
-        } catch {
-            let logMessage = captureFailureLogMessage(for: error)
-            logger.error("Capture failed: \(logMessage, privacy: .public)")
-            appState.statusMessage = captureFailureStatusMessage(for: error)
-            if let performanceSession {
-                capturePerformanceRecorder.finishSession(performanceSession)
-            }
-        }
-
-        if appState.isCapturing {
-            appState.isCapturing = false
-        }
+        await executionService.performCapture(
+            mode: mode,
+            performanceSession: performanceSession,
+            capture: capture
+        )
     }
 
     func captureFailureStatusMessage(
         for error: Error,
         operation: String = "Capture"
     ) -> String {
-        if let captureError = normalizedCaptureError(
-            from: error,
+        executionService.captureFailureStatusMessage(
+            for: error,
             operation: operation
-        ) {
-            return captureError.userMessage
-        }
-
-        return "\(operation) failed before an image was produced. Try again. "
-            + "If it keeps happening, restart Caloura."
+        )
     }
 
     func captureFailureLogMessage(
         for error: Error,
         operation: String = "Capture"
     ) -> String {
-        if let captureError = normalizedCaptureError(
-            from: error,
+        executionService.captureFailureLogMessage(
+            for: error,
             operation: operation
-        ) {
-            return captureError.logMessage
-        }
-
-        return "\(type(of: error)): \(error.localizedDescription)"
-    }
-
-    func normalizedCaptureError(
-        from error: Error,
-        operation: String
-    ) -> CaptureError? {
-        if let captureError = error as? CaptureError {
-            return captureError
-        }
-        if error is TimeoutError {
-            return .timeout(operation: operation)
-        }
-        return nil
-    }
-
-    // MARK: - Process Capture
-
-    private func processCapture(
-        cgImage: CGImage,
-        request: CaptureRequestResolution
-    ) async -> (ProcessedScreenshot, CapturePreset) {
-        let processStart = CFAbsoluteTimeGetCurrent()
-        let processed = await processImage(
-            cgImage,
-            request.captureContext,
-            request.smartCropEnabled
         )
-        let processDuration = elapsedMilliseconds(since: processStart)
-        logger.debug(
-            "Image processing completed in \(processDuration, privacy: .public) ms"
-        )
-        recordMetric(stage: .process, milliseconds: processDuration)
-        processed.presetName = request.preset.name
-
-        return (processed, request.preset)
-    }
-
-    // MARK: - Save to Disk
-
-    private func saveToDisk(
-        _ processed: ProcessedScreenshot,
-        preset: CapturePreset,
-        performanceSession: CapturePerformanceRecorder.Session? = nil
-    ) async {
-        let saveStart = CFAbsoluteTimeGetCurrent()
-        do {
-            try await persistArtifact(processed, preset)
-            let saveDuration = elapsedMilliseconds(since: saveStart)
-            logger.debug(
-                "Disk save completed in \(saveDuration, privacy: .public) ms"
-            )
-            recordMetric(stage: .save, milliseconds: saveDuration)
-            if let performanceSession {
-                capturePerformanceRecorder.recordDuration(
-                    .saveComplete,
-                    milliseconds: saveDuration,
-                    in: performanceSession
-                )
-            }
-        } catch {
-            let desc = error.localizedDescription
-            logger.error("File save failed: \(desc, privacy: .public)")
-            appState.statusMessage = "Save failed: \(desc)"
-        }
-    }
-
-    // MARK: - Distribute Capture
-
-    private func distributeCapture(
-        _ processed: ProcessedScreenshot,
-        preset: CapturePreset,
-        performanceSession: CapturePerformanceRecorder.Session? = nil
-    ) async {
-        if settings.autoCopyToClipboard {
-            let clipboardStart = CFAbsoluteTimeGetCurrent()
-            do {
-                try await distributionService.copy(processed, using: preset.copyMode)
-                let clipDuration = elapsedMilliseconds(since: clipboardStart)
-                logger.debug(
-                    "Clipboard stage completed in \(clipDuration, privacy: .public) ms"
-                )
-                recordMetric(stage: .clipboard, milliseconds: clipDuration)
-                if let performanceSession {
-                    capturePerformanceRecorder.recordDuration(
-                        .clipboardComplete,
-                        milliseconds: clipDuration,
-                        in: performanceSession
-                    )
-                }
-            } catch {
-                let desc = error.localizedDescription
-                logger.error("Clipboard copy failed: \(desc, privacy: .public)")
-                appState.statusMessage = "Clipboard failed: \(desc)"
-            }
-        }
-
-        if settings.playCaptureSound {
-            distributionService.playCaptureSound()
-        }
     }
 
     // MARK: - History + OCR
 
     func addToHistoryWithOCR(_ processed: ProcessedScreenshot) {
-        enrichmentService.enqueueEnrichment(for: processed)
+        executionService.enqueueEnrichment(for: processed)
     }
 
     // MARK: - Metrics
@@ -703,4 +504,26 @@ private func makeCapturePipelineServices(
         enrichmentService: enrichmentService,
         distributionService: distributionService
     )
+}
+
+private extension CapturePipeline {
+    func makeCaptureExecutionService() -> CaptureExecutionService {
+        CaptureExecutionService(
+            settings: settings,
+            appState: appState,
+            requestResolver: requestResolver,
+            distributionService: distributionService,
+            enrichmentService: enrichmentService,
+            capturePerformanceRecorder: capturePerformanceRecorder,
+            processImage: processImage,
+            persistArtifact: persistArtifact,
+            handlePermissionFailure: handlePermissionFailure,
+            showQuickAccess: showQuickAccess,
+            postNotification: postNotification,
+            elapsedMilliseconds: elapsedMilliseconds(since:),
+            recordMetric: { [weak self] stage, milliseconds in
+                self?.recordMetric(stage: stage, milliseconds: milliseconds)
+            }
+        )
+    }
 }
