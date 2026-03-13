@@ -38,6 +38,7 @@ final class CaptureSystemTests: XCTestCase {
         }
 
         XCTAssertEqual(cursor.beginCalls, 1)
+        XCTAssertGreaterThan(cursor.reassertCalls, 0)
         XCTAssertFalse(coordinator.overlayWindows.isEmpty)
         XCTAssertEqual(
             recorder.summary(for: .area, event: .overlayVisible)?.sampleCount,
@@ -76,6 +77,34 @@ final class CaptureSystemTests: XCTestCase {
         XCTAssertTrue(overlay.styleMask.contains(.nonactivatingPanel))
         XCTAssertEqual(overlay.level, CaptureOverlayWindow.overlayLevel)
         XCTAssertFalse(overlay.canBecomeMain)
+        XCTAssertEqual(coordinator.overlayWindows.filter(\.isKeyWindow).count, 1)
+    }
+
+    func testAreaCaptureKeepsMouseScreenOverlayKey() {
+        let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 10, reportInterval: 50)
+        let session = recorder.beginSession(mode: .area)
+        let coordinator = AreaCaptureSessionCoordinator(
+            session: session,
+            performanceRecorder: recorder,
+            cursorController: CursorSpy(),
+            onSelection: { _, _, _ in },
+            onCancel: { }
+        )
+
+        coordinator.present()
+        defer {
+            coordinator.dismiss()
+            recorder.finishSession(session)
+        }
+
+        let keyOverlays = coordinator.overlayWindows.filter(\.isKeyWindow)
+        XCTAssertEqual(keyOverlays.count, 1)
+
+        if let mouseScreen = NSScreen.screens.first(where: { screen in
+            NSMouseInRect(NSEvent.mouseLocation, screen.frame, false)
+        }) {
+            XCTAssertEqual(keyOverlays.first?.screen, mouseScreen)
+        }
     }
 
     func testFullscreenCapturePresentsDisplaySelectionCue() {
@@ -97,6 +126,7 @@ final class CaptureSystemTests: XCTestCase {
         }
 
         XCTAssertEqual(cursor.beginCalls, 1)
+        XCTAssertGreaterThan(cursor.reassertCalls, 0)
         XCTAssertFalse(coordinator.overlayWindows.isEmpty)
         XCTAssertEqual(
             recorder.summary(for: .fullscreen, event: .overlayVisible)?.sampleCount,
@@ -111,6 +141,7 @@ final class CaptureSystemTests: XCTestCase {
             selectionView.debugCaptureHintText,
             ScreenSelectionView.captureHintText
         )
+        XCTAssertEqual(coordinator.overlayWindows.filter(\.isKeyWindow).count, 1)
     }
 
     func testWindowCaptureMarksPickerPresentation() async {

@@ -4,6 +4,24 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 14: Cursor-first capture hardening
+**Status:** Complete  
+**Branch:** `codex/task-14-cursor-hardening`  
+**Changes:**
+- Moved shared crosshair-session startup ahead of area/fullscreen overlay presentation so cursor ownership is established before any capture panel becomes visible
+- Removed the cursor watchdog timer, kept reassertion on real window/view events, and added key-transition hooks on capture overlays to re-prime the crosshair when the active panel becomes key
+- Replaced the cursor controller's `.set()`-based reassertion with balanced pop/push reinstallation, plus a coalesced next-turn re-prime and `didBecomeActive` coverage so AppKit's first cursor recomputation cannot easily reclaim the arrow
+- Changed area/fullscreen overlay presenters to front the mouse-screen panel first and keep the remaining overlays non-key to reduce cursor churn on multi-display entry
+- Added focused controller coverage for deferred cursor re-prime coalescing/cancellation, plus stronger coordinator and system assertions for real overlay reassertion and single-key-window behavior
+- Revalidated with `swift build`, `swiftlint lint --quiet`, `swift test`, `xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData`, and `xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData -only-testing:CalouraSystemTests/CaptureSystemTests`
+
+**Decisions Made:**
+- Keep the hardening on the shared session/overlay path so area and fullscreen stay behaviorally aligned
+- Use an injected overlay-presenter seam in the coordinators for deterministic ordering tests instead of adding broader production abstractions
+- Treat “first visible cursor frame” as the target and remove timer-based cursor polling in favor of explicit presentation, key-window ordering, and a single bounded deferred re-prime
+
+---
+
 ## Audit Task 06: Access control tightening
 **Status:** Complete  
 **Branch:** `codex/task-06-access-control`  

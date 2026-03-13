@@ -112,6 +112,16 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 
 ## Capture / UX
 
+### Crosshair ownership must start before overlays become key
+- **Rule**: Begin the shared crosshair session before ordering capture overlays front, and make only the overlay under the mouse key during presentation.
+- **Context**: If AppKit gets to front or key an overlay before Caloura owns the crosshair, the system arrow can render for a frame. Making every overlay key also causes extra cursor recalculation churn on multi-display entry.
+- **Example**: `AreaCaptureSessionCoordinator.present()` and `FullscreenCaptureSessionCoordinator.present()` now call `beginCrosshairSession()` before invoking the overlay presenter, while `CaptureOverlayWindow.showOnAllScreens()` and `ScreenSelectionOverlayWindow.showOnAllScreens()` front the mouse-screen panel first and keep the rest non-key.
+
+### `.set()` is not strong enough for first-frame overlay cursor recovery
+- **Rule**: In Caloura's capture overlay path, do not rely on `NSCursor.set()` to reclaim the crosshair. Reassert with balanced pop/push ownership and one coalesced next-turn re-prime instead.
+- **Context**: The timer-based watchdog could be removed, but live AppKit still recomputed cursor state after the overlay became key and reclaimed the arrow on the first visible frame when reassertion only called `.set()`.
+- **Example**: `CaptureCursorController` now keeps a single push/pop session, reinstalls the crosshair with pop/push, and schedules one bounded deferred re-prime plus `didBecomeActive` re-prime coverage while capture is active.
+
 ### Area capture feedback must not wait on frozen screenshots
 - **Rule**: Present the selection overlay and crosshair immediately when area capture starts, then backfill frozen screen imagery asynchronously.
 - **Context**: If overlay presentation is blocked on a freeze snapshot, the app appears unresponsive and users miss the mode change cue even when capture actually started.

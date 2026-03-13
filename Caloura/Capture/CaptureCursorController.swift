@@ -8,59 +8,125 @@ protocol CaptureCursorControlling: AnyObject {
 }
 
 @MainActor
+protocol CaptureCrosshairDriving {
+    func pushCrosshair()
+    func popCursor()
+}
+
+@MainActor
+protocol CaptureCursorScheduledAction: AnyObject {
+    func cancel()
+}
+
+@MainActor
+protocol CaptureCursorScheduling {
+    func schedule(_ action: @escaping @MainActor () -> Void) -> CaptureCursorScheduledAction
+}
+
+@MainActor
+private struct SystemCaptureCrosshairDriver: CaptureCrosshairDriving {
+    func pushCrosshair() {
+        NSCursor.crosshair.push()
+    }
+
+    func popCursor() {
+        NSCursor.pop()
+    }
+}
+
+@MainActor
+private final class MainActorDeferredCaptureCursorAction: CaptureCursorScheduledAction {
+    private var task: Task<Void, Never>?
+
+    init(action: @escaping @MainActor () -> Void) {
+        task = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            action()
+        }
+    }
+
+    deinit {
+        task?.cancel()
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
+    }
+}
+
+@MainActor
+private struct MainActorCaptureCursorScheduler: CaptureCursorScheduling {
+    func schedule(_ action: @escaping @MainActor () -> Void) -> CaptureCursorScheduledAction {
+        MainActorDeferredCaptureCursorAction(action: action)
+    }
+}
+
+@MainActor
 final class CaptureCursorController: NSObject, CaptureCursorControlling {
+    private let crosshairDriver: CaptureCrosshairDriving
+    private let scheduler: CaptureCursorScheduling
+    private let notificationCenter: NotificationCenter
+
     private var cursorPushed = false
-    private var watchdogTimer: Timer?
-    private var watchdogRemainingTicks = 0
+    private var pendingReassertion: CaptureCursorScheduledAction?
+
+    init(
+        crosshairDriver: CaptureCrosshairDriving = SystemCaptureCrosshairDriver(),
+        scheduler: CaptureCursorScheduling = MainActorCaptureCursorScheduler(),
+        notificationCenter: NotificationCenter = .default
+    ) {
+        self.crosshairDriver = crosshairDriver
+        self.scheduler = scheduler
+        self.notificationCenter = notificationCenter
+        super.init()
+
+        notificationCenter.addObserver(
+            self,
+            selector: #selector(handleApplicationDidBecomeActiveNotification(_:)),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+    }
 
     func beginCrosshairSession() {
-        guard !cursorPushed else {
-            reassertCrosshair()
-            restartWatchdog()
-            return
+        if !cursorPushed {
+            crosshairDriver.pushCrosshair()
+            cursorPushed = true
         }
-
-        NSCursor.crosshair.push()
-        cursorPushed = true
-        reassertCrosshair()
-        restartWatchdog()
+        ensureReassertionScheduled()
     }
 
     func reassertCrosshair() {
-        NSCursor.crosshair.set()
+        guard cursorPushed else { return }
+        crosshairDriver.popCursor()
+        crosshairDriver.pushCrosshair()
     }
 
     func endCrosshairSession() {
-        watchdogTimer?.invalidate()
-        watchdogTimer = nil
-
+        pendingReassertion?.cancel()
+        pendingReassertion = nil
         guard cursorPushed else { return }
-        NSCursor.pop()
+        crosshairDriver.popCursor()
         cursorPushed = false
     }
 
-    private func restartWatchdog() {
-        watchdogTimer?.invalidate()
-        watchdogRemainingTicks = 4
-        watchdogTimer = Timer.scheduledTimer(
-            timeInterval: 0.075,
-            target: self,
-            selector: #selector(handleWatchdogTick(_:)),
-            userInfo: nil,
-            repeats: true
-        )
-        if let watchdogTimer {
-            RunLoop.main.add(watchdogTimer, forMode: .common)
-        }
+    func handleApplicationDidBecomeActive() {
+        ensureReassertionScheduled()
     }
 
     @objc
-    private func handleWatchdogTick(_ timer: Timer) {
-        reassertCrosshair()
-        watchdogRemainingTicks -= 1
-        if watchdogRemainingTicks <= 0 {
-            timer.invalidate()
-            watchdogTimer = nil
+    private func handleApplicationDidBecomeActiveNotification(_ notification: Notification) {
+        handleApplicationDidBecomeActive()
+    }
+
+    private func ensureReassertionScheduled() {
+        guard cursorPushed, pendingReassertion == nil else { return }
+        pendingReassertion = scheduler.schedule { [weak self] in
+            guard let self = self else { return }
+            self.pendingReassertion = nil
+            self.reassertCrosshair()
         }
     }
 }
