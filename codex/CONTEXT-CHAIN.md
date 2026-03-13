@@ -38,6 +38,21 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 17: Permission core split
+**Status:** Complete
+**Branch:** `codex/task-17-permission-core-split`
+**Changes:**
+- Extracted a pure `PermissionStatusCore` plus `PermissionStatusContext` so passive status resolution, explicit failure classification, permission UI model rendering, and non-blocking permission copy no longer live directly inside `PermissionCoordinator`
+- Kept `PermissionCoordinator` as the owner of live validation, repair orchestration, persistence, cooldown state, and status publication side effects while delegating rule evaluation to the new core
+- Added direct regression coverage for the extracted permission-rule engine and regenerated the Xcode project so the new source/test files are part of app-scheme builds
+- Revalidated with `xcodegen generate`, `swift build`, `swiftlint lint --quiet`, `swift test`, and `xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData`
+
+**Decisions Made:**
+- Split only the pure rule engine out of the coordinator; keep repair, persistence, and orchestration behavior in the coordinator so this stays an internal refactor instead of a permission-architecture rewrite
+- Test the extracted rule engine directly rather than only through coordinator integration paths, so future permission-copy or classification changes fail closer to the source of truth
+
+---
+
 ## Task 14: Cursor-first capture hardening
 **Status:** Complete  
 **Branch:** `codex/task-14-cursor-hardening`  

@@ -191,6 +191,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: Once the permission flow grew multiple entry points, repeating the side effects inline made it too easy for one path to clear a diagnosis or permission-request session while another path preserved it. That kind of drift recreates contradictory permission UI even when the status enum itself is correct.
 - **Example**: `PermissionCoordinator` now computes passive state with `passiveStatus(...)` and publishes outcomes through `publishStatus(...)`, `publishWorkingValidated(...)`, `publishDenied(...)`, and `publishExplicitFailure(...)` instead of reimplementing the same state mutation in each method.
 
+### Pure permission rules should live outside the coordinator
+- **Rule**: Keep Screen Recording status derivation, failure classification, and permission copy in a small pure helper type; leave the coordinator focused on orchestration, persistence, and side effects.
+- **Context**: Even after centralizing publication, `PermissionCoordinator` still mixed repair orchestration with passive-status rules and UI rendering. That made the state machine harder to review and forced most rule changes through full coordinator tests instead of direct coverage.
+- **Example**: `PermissionStatusCore` now owns passive status resolution, `.needsRelaunch` vs `.staleRecord` classification, `PermissionUIModel` rendering, and non-blocking messages, while `PermissionCoordinator` only builds context and applies side effects.
+
 ### [Graduated] DMG install windows need dedicated neutral artwork
 - **Rule**: Use a purpose-built neutral background asset for the drag-to-Applications DMG window instead of repurposing product icons or in-app branding art.
 - **Context**: DMG install surfaces are Finder UI, not in-app onboarding. Reusing product artwork there reads as improvised and undermines the install presentation.

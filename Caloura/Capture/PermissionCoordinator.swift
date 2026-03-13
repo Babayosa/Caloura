@@ -549,35 +549,16 @@ final class PermissionCoordinator: ObservableObject {
 }
 
 private extension PermissionCoordinator {
-    func passiveStatus(
-        for identity: PermissionIdentity,
-        at timestamp: Date,
-        cgGranted: Bool
-    ) -> ScreenRecordingState {
-        if isLiveValidatedIdentity(identity) {
-            return .working
-        }
-        if !cgGranted {
-            return shouldTrustLiveValidationWithoutCoreGraphics(at: timestamp)
-                ? .grantedNeedsValidation
-                : .denied
-        }
-        if isKnownWorkingIdentity(identity) {
-            return .working
-        }
-        if let diagnosedStatus = diagnosedFailureStatus(for: identity) {
-            return diagnosedStatus
-        }
-        return .grantedNeedsValidation
-    }
-
     @discardableResult
     func publishPassiveStatus(
         for identity: PermissionIdentity,
         at timestamp: Date,
         cgGranted: Bool
     ) -> ScreenRecordingState {
-        let status = passiveStatus(for: identity, at: timestamp, cgGranted: cgGranted)
+        let status = PermissionStatusCore.passiveStatus(
+            cgGranted: cgGranted,
+            context: makeStatusContext(for: identity, at: timestamp)
+        )
         return publishStatus(status, identity: identity)
     }
 
@@ -612,7 +593,9 @@ private extension PermissionCoordinator {
         if clearPermissionRequest {
             clearPermissionRequestSession()
         }
-        let status = explicitFailureStatus(for: identity)
+        let status = PermissionStatusCore.explicitFailureStatus(
+            for: makeStatusContext(for: identity, at: now())
+        )
         recordDiagnosedFailure(status, for: identity)
         return publishStatus(status, identity: identity)
     }
@@ -630,6 +613,22 @@ private extension PermissionCoordinator {
         }
         updateUIModel(status: status, identity: identity)
         return status
+    }
+
+    func makeStatusContext(
+        for identity: PermissionIdentity,
+        at timestamp: Date
+    ) -> PermissionStatusContext {
+        PermissionStatusContext(
+            identity: identity,
+            hasFreshPermissionRequest: hasFreshPermissionRequestSession(at: timestamp),
+            hasLiveValidatedIdentity: isLiveValidatedIdentity(identity),
+            isKnownWorkingIdentity: isKnownWorkingIdentity(identity),
+            lastWorkingExecutablePathMatches: lastWorkingExecutablePathMatches(identity),
+            diagnosedFailureStatus: diagnosedFailureStatus(for: identity),
+            hasKnownWorkingMismatch: hasKnownWorkingMismatch(for: identity),
+            didAutoRelaunchAfterRequest: recentPermissionRequestSession?.didAutoRelaunch == true
+        )
     }
 
     func alertState(for status: ScreenRecordingState) -> ScreenCaptureManager.PermissionState {
@@ -770,76 +769,16 @@ private extension PermissionCoordinator {
         diagnosedFailure = nil
     }
 
-    func explicitFailureStatus(for identity: PermissionIdentity) -> ScreenRecordingState {
-        guard hasKnownWorkingMismatch(for: identity) else {
-            return .needsRelaunch
-        }
-        let lastPath = lastWorkingExecutablePath()
-        if lastPath == identity.executablePath {
-            return .needsRelaunch
-        }
-        return .staleRecord
-    }
-
     func updateUIModel(status: ScreenRecordingState, identity: PermissionIdentity) {
-        let shouldShowStaleRecordBanner = shouldShowStaleRecordBanner(for: status)
-        let guidance = guidance(for: status, identity: identity)
-        let cooldownActive = isCooldownActive(at: now())
-        permissionUIModel = PermissionUIModel(
+        let timestamp = now()
+        permissionUIModel = PermissionStatusCore.uiModel(
             status: status,
-            guidanceText: guidance,
-            shouldShowStaleRecordBanner: shouldShowStaleRecordBanner,
-            isAlertCooldownActive: cooldownActive
+            context: makeStatusContext(for: identity, at: timestamp),
+            cooldownActive: isCooldownActive(at: timestamp)
         )
     }
 
-    func shouldShowStaleRecordBanner(for status: ScreenRecordingState) -> Bool {
-        status == .staleRecord
-    }
-
-    func guidance(for status: ScreenRecordingState, identity: PermissionIdentity) -> String? {
-        switch status {
-        case .staleRecord:
-            return "Current app: \(identity.executablePath)\n\n"
-                + "macOS appears to trust a different Caloura copy. "
-                + "In System Settings > Privacy > Screen Recording, remove the old Caloura entry, "
-                + "then re-add /Applications/Caloura.app."
-        case .needsRelaunch:
-            return "Screen Recording is granted, but macOS needs a Caloura relaunch to fully apply it. "
-                + "If restarting doesn't help, try logging out and back in."
-        case .denied:
-            return "Caloura needs Screen Recording access to capture screenshots."
-        case .grantedNeedsValidation:
-            if hasFreshPermissionRequestSession(at: now()) {
-                return "Caloura is waiting for macOS to finish applying Screen Recording. "
-                    + "Keep the toggle enabled and return here."
-            }
-            if isKnownWorkingIdentity(identity) || lastWorkingExecutablePathMatches(identity) {
-                return "Caloura is re-validating Screen Recording for this app copy. "
-                    + "Run one live capture check to finish confirming access."
-            }
-            return "Screen Recording looks granted. Start a capture to finish validation."
-        case .repairing:
-            if recentPermissionRequestSession?.didAutoRelaunch == true {
-                return "Restarting Caloura so macOS can finish applying Screen Recording."
-            }
-            return "Restarting screen recording service."
-        case .working:
-            return nil
-        }
-    }
-
     func nonBlockingMessage(for status: ScreenRecordingState) -> String {
-        switch status {
-        case .staleRecord:
-            return "Screen Recording appears tied to a different Caloura copy. "
-                + "Open /Applications/Caloura.app and try again."
-        case .denied:
-            return "Screen Recording permission required. Open System Settings to continue capturing."
-        case .needsRelaunch:
-            return "macOS still needs Caloura to relaunch before capture is available."
-        case .grantedNeedsValidation, .working, .repairing:
-            return "Screen Recording is still initializing. Try again in a moment."
-        }
+        PermissionStatusCore.nonBlockingMessage(for: status)
     }
 }
