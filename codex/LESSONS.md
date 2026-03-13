@@ -171,6 +171,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: Development machines routinely accumulate `/Applications`, Downloads, DerivedData, archive, and export copies. Treating that mismatch as a passive startup failure produces false negatives even when the installed app can capture correctly.
 - **Example**: Caloura now keeps passive status at `grantedNeedsValidation`, primes SCK silently on the first-capture screen, and only emits `.staleRecord` after live validation plus replayd repair both fail.
 
+### Passive permission refresh must preserve an explicit repair diagnosis
+- **Rule**: Once the current app identity has been explicitly diagnosed as `.needsRelaunch` or `.staleRecord`, passive refresh must preserve that diagnosis until a new permission request, denial, or working validation replaces it.
+- **Context**: Reverting a proven repair state back to `.grantedNeedsValidation` recreates the exact contradictory UX this pipeline is supposed to avoid: macOS still fails live capture, but the app falls back to generic “check again” messaging.
+- **Example**: `PermissionCoordinator` now stores an in-memory diagnosed failure for the active identity and reuses it inside `refreshPassiveStatus(...)` instead of collapsing immediately to the passive grant state.
+
 ### Permission-repaired UI must only follow a working validation
 - **Rule**: Do not transition onboarding to its repaired/completed state on `grantedNeedsValidation`. Reserve completion for `.working`.
 - **Context**: Same-copy stale CoreGraphics state can keep Screen Recording in a validation-needed state even after the app has enough evidence to avoid a hard denial. Showing “Permission repaired” too early makes the next failed capture look like a contradiction instead of an unfinished validation path.
@@ -185,6 +190,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Rule**: Use a purpose-built neutral background asset for the drag-to-Applications DMG window instead of repurposing product icons or in-app branding art.
 - **Context**: DMG install surfaces are Finder UI, not in-app onboarding. Reusing product artwork there reads as improvised and undermines the install presentation.
 - **Example**: `scripts/release.sh` now requires `scripts/assets/dmg-neutral-background.png` and fails fast if the neutral DMG background asset is missing.
+
+### Window picker activation should happen in one layer only
+- **Rule**: The window-capture entry path should activate the app exactly once, inside the picker coordinator that owns presentation timing.
+- **Context**: Duplicating `NSApplication.shared.activate(...)` in both the pipeline entrypoint and the coordinator adds avoidable AppKit churn and muddies window-picker performance metrics on the hot path.
+- **Example**: `CapturePipeline.captureWindow()` no longer activates the app directly; `WindowCaptureSessionCoordinator.pick()` owns activation and records the `app_activated` event.
 
 ## Persistence / Data Integrity
 

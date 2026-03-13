@@ -239,6 +239,7 @@ final class WindowCaptureSessionCoordinator {
     private let session: CapturePerformanceRecorder.Session
     private let performanceRecorder: CapturePerformanceRecorder
     private let hasWarmContent: Bool
+    private let activateApplication: @MainActor () -> Void
     private let prewarmContent: @MainActor () async -> Void
     private let pickWindow: PickerHandler
 
@@ -246,18 +247,22 @@ final class WindowCaptureSessionCoordinator {
         session: CapturePerformanceRecorder.Session,
         performanceRecorder: CapturePerformanceRecorder,
         hasWarmContent: Bool,
+        activateApplication: @escaping @MainActor () -> Void = {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+        },
         prewarmContent: @escaping @MainActor () async -> Void,
         pickWindow: @escaping PickerHandler
     ) {
         self.session = session
         self.performanceRecorder = performanceRecorder
         self.hasWarmContent = hasWarmContent
+        self.activateApplication = activateApplication
         self.prewarmContent = prewarmContent
         self.pickWindow = pickWindow
     }
 
     func pick() async -> SelectionResult {
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        activateApplication()
         performanceRecorder.mark(.appActivated, in: session)
 
         let wasWarm = hasWarmContent

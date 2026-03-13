@@ -159,6 +159,30 @@ final class PermissionCoordinatorTests: XCTestCase {
         XCTAssertEqual(status, .needsRelaunch)
     }
 
+    func testRefreshPassiveStatusPreservesNeedsRelaunchDiagnosisAfterInteractiveFailure() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        let identity = PermissionTestHelpers.makeIdentity("preserve-needs-relaunch")
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: { true },
+            interactiveCheck: { .transientFailure },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { identity },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 5_150) },
+            repairSCKAccess: { .transientFailure }
+        )
+
+        let validationStatus = await coordinator.runUserInitiatedValidation()
+        let refreshStatus = await coordinator.refreshPassiveStatus()
+
+        XCTAssertEqual(validationStatus, .needsRelaunch)
+        XCTAssertEqual(refreshStatus, .needsRelaunch)
+        XCTAssertEqual(coordinator.permissionUIModel.status, .needsRelaunch)
+    }
+
     func testHandleCapturePermissionFailureSilentRepairNoAlert() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let identity = PermissionTestHelpers.makeIdentity("silent-repair")

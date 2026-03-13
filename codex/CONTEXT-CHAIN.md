@@ -4,6 +4,23 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 15: Permission + capture production audit
+**Status:** Complete  
+**Branch:** `codex/task-15-permission-capture-audit`  
+**Changes:**
+- Audited the Screen Recording state machine and fixed a regression where `refreshPassiveStatus()` could erase an explicit `.needsRelaunch` or `.staleRecord` diagnosis and collapse the UI back to `.grantedNeedsValidation`
+- Extracted a shared `onboardingFlowState(for:hasCompletedOnboarding:)` helper and reused it from both launch and permission-repair entrypoints so repair UI no longer shows `.completed` while Screen Recording still needs validation
+- Removed duplicate AppKit activation from the window-capture entry path by leaving activation ownership inside `WindowCaptureSessionCoordinator`
+- Added regression coverage for preserved permission diagnoses, shared onboarding mapping, and single-activation window picker presentation
+- Revalidated with `swift build`, `swiftlint lint --quiet`, `swift test`, `xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData`, `xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData -only-testing:CalouraSystemTests/CaptureSystemTests`, `scripts/permission_diagnose.sh`, and `scripts/perf_audit.sh --strict --min-samples 5`
+
+**Decisions Made:**
+- Keep explicit permission-failure preservation in memory only, scoped to the current app identity, so a live failure stays actionable within the current run without turning passive startup mismatches into stale-record failures
+- Centralize Screen Recording onboarding-state mapping in one helper rather than maintaining parallel switch statements in app launch and command routing
+- Keep window activation at the picker coordinator boundary so the window-capture hot path has one activation owner and one timing source
+
+---
+
 ## Task 14: Cursor-first capture hardening
 **Status:** Complete  
 **Branch:** `codex/task-14-cursor-hardening`  

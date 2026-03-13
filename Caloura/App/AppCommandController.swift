@@ -154,14 +154,10 @@ final class AppCommandController {
             }
 
             let state: OnboardingFlowState
-            switch status {
-            case .denied:
-                state = .grantScreenRecording
-            case .needsRelaunch, .staleRecord, .repairing:
-                state = .repairStalePermissionRecord
-            case .grantedNeedsValidation, .working:
-                state = .completed
-            }
+            state = onboardingFlowState(
+                for: status,
+                hasCompletedOnboarding: AppSettings.shared.hasCompletedOnboarding
+            )
 
             onboardingController.show(
                 settings: AppSettings.shared,

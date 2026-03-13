@@ -22,6 +22,22 @@ enum OnboardingFlowState: String, Equatable {
     }
 }
 
+func onboardingFlowState(
+    for status: ScreenRecordingState,
+    hasCompletedOnboarding: Bool
+) -> OnboardingFlowState {
+    switch status {
+    case .denied:
+        return .grantScreenRecording
+    case .grantedNeedsValidation:
+        return hasCompletedOnboarding ? .repairStalePermissionRecord : .readyForFirstCapture
+    case .needsRelaunch, .staleRecord, .repairing:
+        return .repairStalePermissionRecord
+    case .working:
+        return hasCompletedOnboarding ? .completed : .readyForFirstCapture
+    }
+}
+
 struct OnboardingFlowModel {
     private(set) var currentState: OnboardingFlowState
     private(set) var previousState: OnboardingFlowState

@@ -272,7 +272,6 @@ extension CapturePipeline {
         guard !appState.isCapturing else { return }
         appState.isCapturing = true
         let performanceSession = capturePerformanceRecorder.beginSession(mode: .window)
-        NSApplication.shared.activate(ignoringOtherApps: true)
 
         Task {
             let coordinator = makeWindowCaptureSession(

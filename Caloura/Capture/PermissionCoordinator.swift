@@ -202,6 +202,7 @@ final class PermissionCoordinator: ObservableObject {
     private var cooldownResetTask: Task<Void, Never>?
     private var liveValidatedIdentityFingerprint: String?
     private var recentPermissionRequestSession: PermissionRequestSession?
+    private var diagnosedFailure: DiagnosedFailure?
 
     private enum Keys {
         static let lastWorkingIdentityFingerprint = "permissionLastWorkingIdentityFingerprint"
@@ -212,6 +213,11 @@ final class PermissionCoordinator: ObservableObject {
     private struct PermissionRequestSession {
         let startedAt: Date
         var didAutoRelaunch = false
+    }
+
+    private struct DiagnosedFailure {
+        let identityFingerprint: String
+        let status: ScreenRecordingState
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -283,13 +289,20 @@ final class PermissionCoordinator: ObservableObject {
 
         let status: ScreenRecordingState
         if isLiveValidatedIdentity(identity) {
+            clearDiagnosedFailure()
             status = .working
         } else if !cgGranted {
             status = shouldTrustLiveValidationWithoutCoreGraphics(at: timestamp)
                 ? .grantedNeedsValidation
                 : .denied
+            if status == .denied {
+                clearDiagnosedFailure()
+            }
         } else if isKnownWorkingIdentity(identity) {
+            clearDiagnosedFailure()
             status = .working
+        } else if let diagnosedStatus = diagnosedFailureStatus(for: identity) {
+            status = diagnosedStatus
         } else {
             status = .grantedNeedsValidation
         }
@@ -334,16 +347,19 @@ final class PermissionCoordinator: ObservableObject {
     func primeIfPermissionGranted() async -> ScreenRecordingState {
         let identity = await identityProvider()
         if isLiveValidatedIdentity(identity) {
+            clearDiagnosedFailure()
             updateUIModel(status: .working, identity: identity)
             return .working
         }
 
         guard passiveCheck() else {
+            clearDiagnosedFailure()
             updateUIModel(status: .denied, identity: identity)
             return .denied
         }
 
         if isKnownWorkingIdentity(identity) {
+            clearDiagnosedFailure()
             updateUIModel(status: .working, identity: identity)
             return .working
         }
@@ -376,6 +392,7 @@ final class PermissionCoordinator: ObservableObject {
 
         guard cgGranted
             || shouldTrustLiveValidationWithoutCoreGraphics(at: timestamp) else {
+            clearDiagnosedFailure()
             updateUIModel(status: .denied, identity: identity)
             return .denied
         }
@@ -409,11 +426,13 @@ final class PermissionCoordinator: ObservableObject {
 
         if repairResult == .userDeclined {
             clearPermissionRequestSession()
+            clearDiagnosedFailure()
             updateUIModel(status: .denied, identity: identity)
             return .denied
         }
 
         let status = explicitFailureStatus(for: identity)
+        recordDiagnosedFailure(status, for: identity)
         updateUIModel(status: status, identity: identity)
         return status
     }
@@ -421,6 +440,7 @@ final class PermissionCoordinator: ObservableObject {
     /// Prompt macOS to grant screen recording permission via the system dialog.
     func requestPermissionFromSystem() -> Bool {
         logger.info("request_permission user_initiated=true")
+        clearDiagnosedFailure()
         recentPermissionRequestSession = PermissionRequestSession(startedAt: now())
         return permissionRequester()
     }
@@ -469,6 +489,7 @@ final class PermissionCoordinator: ObservableObject {
                     return .working
                 case .userDeclined:
                     clearPermissionRequestSession()
+                    clearDiagnosedFailure()
                     updateUIModel(status: .denied, identity: identity)
                     return .denied
                 case .transientFailure:
@@ -491,6 +512,7 @@ final class PermissionCoordinator: ObservableObject {
                             return .working
                         case .userDeclined:
                             clearPermissionRequestSession()
+                            clearDiagnosedFailure()
                             updateUIModel(status: .denied, identity: identity)
                             return .denied
                         case .transientFailure:
@@ -518,6 +540,7 @@ final class PermissionCoordinator: ObservableObject {
 
         clearPermissionRequestSession()
         let status = explicitFailureStatus(for: identity)
+        recordDiagnosedFailure(status, for: identity)
         updateUIModel(status: status, identity: identity)
         return status
     }
@@ -541,6 +564,7 @@ final class PermissionCoordinator: ObservableObject {
             }
 
             status = explicitFailureStatus(for: identity)
+            recordDiagnosedFailure(status, for: identity)
             updateUIModel(status: status, identity: identity)
         }
 
@@ -695,9 +719,32 @@ private extension PermissionCoordinator {
     }
 
     func recordWorkingIdentity(_ identity: PermissionIdentity) {
+        clearDiagnosedFailure()
         liveValidatedIdentityFingerprint = identity.fingerprint
         defaults.set(identity.fingerprint, forKey: Keys.lastWorkingIdentityFingerprint)
         defaults.set(identity.executablePath, forKey: Keys.lastWorkingExecutablePath)
+    }
+
+    func diagnosedFailureStatus(for identity: PermissionIdentity) -> ScreenRecordingState? {
+        guard let diagnosedFailure,
+              diagnosedFailure.identityFingerprint == identity.fingerprint else {
+            return nil
+        }
+        return diagnosedFailure.status
+    }
+
+    func recordDiagnosedFailure(_ status: ScreenRecordingState, for identity: PermissionIdentity) {
+        guard status == .needsRelaunch || status == .staleRecord else {
+            return
+        }
+        diagnosedFailure = DiagnosedFailure(
+            identityFingerprint: identity.fingerprint,
+            status: status
+        )
+    }
+
+    func clearDiagnosedFailure() {
+        diagnosedFailure = nil
     }
 
     func explicitFailureStatus(for identity: PermissionIdentity) -> ScreenRecordingState {

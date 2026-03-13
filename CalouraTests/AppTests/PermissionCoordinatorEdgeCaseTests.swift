@@ -278,6 +278,53 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         )
     }
 
+    func testRefreshPassiveStatusPreservesStaleRecordDiagnosisAfterInteractiveFailure() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+
+        let previousIdentity = PermissionIdentity(
+            bundleIdentifier: "com.caloura.app",
+            executablePath: "/Applications/Caloura.app/Contents/MacOS/Caloura",
+            teamIdentifier: "NG4ML6Q47T",
+            signingIdentityType: "developer-id",
+            designatedRequirementHash: "prod-hash"
+        )
+        defaults.set(
+            previousIdentity.fingerprint,
+            forKey: "permissionLastWorkingIdentityFingerprint"
+        )
+        defaults.set(
+            previousIdentity.executablePath,
+            forKey: "permissionLastWorkingExecutablePath"
+        )
+
+        let currentIdentity = PermissionIdentity(
+            bundleIdentifier: "com.caloura.app.debug",
+            executablePath: "/Users/dev/DerivedData/Caloura/Build/Debug/Caloura.app/Contents/MacOS/Caloura",
+            teamIdentifier: "NG4ML6Q47T",
+            signingIdentityType: "apple-development",
+            designatedRequirementHash: "debug-hash"
+        )
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: { true },
+            interactiveCheck: { .transientFailure },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { currentIdentity },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 23_100) },
+            repairSCKAccess: { .transientFailure }
+        )
+
+        let validationStatus = await coordinator.runUserInitiatedValidation()
+        let refreshStatus = await coordinator.refreshPassiveStatus()
+
+        XCTAssertEqual(validationStatus, .staleRecord)
+        XCTAssertEqual(refreshStatus, .staleRecord)
+        XCTAssertTrue(coordinator.permissionUIModel.shouldShowStaleRecordBanner)
+    }
+
     func testReleaseScriptUsesNeutralDmgBackgroundAsset() throws {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

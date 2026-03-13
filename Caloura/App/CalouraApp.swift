@@ -154,7 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if shouldResumePendingCapture {
                 onboardingController.show(
                     settings: AppSettings.shared,
-                    initialState: onboardingState(
+                    initialState: onboardingFlowState(
                         for: launchPermissionStatus,
                         hasCompletedOnboarding: AppSettings.shared.hasCompletedOnboarding
                     )
@@ -183,22 +183,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 "Passive permission diagnostics completed in \(permissionDuration, privacy: .public) ms"
             )
             appLaunchLogger.info("Launch flow ready in \(totalLaunchDuration, privacy: .public) ms")
-        }
-    }
-
-    private func onboardingState(
-        for status: ScreenRecordingState,
-        hasCompletedOnboarding: Bool
-    ) -> OnboardingFlowState {
-        switch status {
-        case .denied:
-            return .grantScreenRecording
-        case .grantedNeedsValidation:
-            return hasCompletedOnboarding ? .repairStalePermissionRecord : .readyForFirstCapture
-        case .needsRelaunch, .staleRecord, .repairing:
-            return .repairStalePermissionRecord
-        case .working:
-            return hasCompletedOnboarding ? .completed : .readyForFirstCapture
         }
     }
 
