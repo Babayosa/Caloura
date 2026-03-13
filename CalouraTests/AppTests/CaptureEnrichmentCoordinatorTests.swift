@@ -181,18 +181,32 @@ final class CaptureEnrichmentCoordinatorTests: XCTestCase {
 
         await fulfillment(of: [firstStarted, secondStarted], timeout: 1.0)
         let runningEvents = await log.snapshot()
-        XCTAssertEqual(runningEvents, ["start:first", "start:second"])
+        XCTAssertEqual(Set(runningEvents), Set(["start:first", "start:second"]))
+        XCTAssertEqual(runningEvents.count, 2)
 
         await releaseFirst.open()
 
         await fulfillment(of: [thirdStarted], timeout: 1.0)
         let finishedEvents = await log.snapshot()
         XCTAssertEqual(
-            finishedEvents,
-            ["start:first", "start:second", "finish:first", "start:third", "finish:third"]
+            Set(finishedEvents),
+            Set(["start:first", "start:second", "finish:first", "start:third", "finish:third"])
         )
+        XCTAssertEqual(finishedEvents.count, 5)
+        XCTAssertLessThan(index(of: "start:first", in: finishedEvents), index(of: "start:third", in: finishedEvents))
+        XCTAssertLessThan(index(of: "start:second", in: finishedEvents), index(of: "start:third", in: finishedEvents))
+        XCTAssertLessThan(index(of: "finish:first", in: finishedEvents), index(of: "start:third", in: finishedEvents))
+        XCTAssertLessThan(index(of: "start:third", in: finishedEvents), index(of: "finish:third", in: finishedEvents))
 
         await releaseSecond.open()
+    }
+
+    private func index(of event: String, in events: [String]) -> Int {
+        guard let index = events.firstIndex(of: event) else {
+            XCTFail("Missing event: \(event)")
+            return -1
+        }
+        return index
     }
 }
 

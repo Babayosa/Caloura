@@ -287,27 +287,11 @@ final class PermissionCoordinator: ObservableObject {
         }
         #endif
 
-        let status: ScreenRecordingState
-        if isLiveValidatedIdentity(identity) {
-            clearDiagnosedFailure()
-            status = .working
-        } else if !cgGranted {
-            status = shouldTrustLiveValidationWithoutCoreGraphics(at: timestamp)
-                ? .grantedNeedsValidation
-                : .denied
-            if status == .denied {
-                clearDiagnosedFailure()
-            }
-        } else if isKnownWorkingIdentity(identity) {
-            clearDiagnosedFailure()
-            status = .working
-        } else if let diagnosedStatus = diagnosedFailureStatus(for: identity) {
-            status = diagnosedStatus
-        } else {
-            status = .grantedNeedsValidation
-        }
-        updateUIModel(status: status, identity: identity)
-        return status
+        return publishPassiveStatus(
+            for: identity,
+            at: timestamp,
+            cgGranted: cgGranted
+        )
     }
 
     func armPendingCaptureResume() {
@@ -347,21 +331,15 @@ final class PermissionCoordinator: ObservableObject {
     func primeIfPermissionGranted() async -> ScreenRecordingState {
         let identity = await identityProvider()
         if isLiveValidatedIdentity(identity) {
-            clearDiagnosedFailure()
-            updateUIModel(status: .working, identity: identity)
-            return .working
+            return publishStatus(.working, identity: identity)
         }
 
         guard passiveCheck() else {
-            clearDiagnosedFailure()
-            updateUIModel(status: .denied, identity: identity)
-            return .denied
+            return publishDenied(identity)
         }
 
         if isKnownWorkingIdentity(identity) {
-            clearDiagnosedFailure()
-            updateUIModel(status: .working, identity: identity)
-            return .working
+            return publishStatus(.working, identity: identity)
         }
 
         let probeResult = await primeCheck()
@@ -370,14 +348,10 @@ final class PermissionCoordinator: ObservableObject {
         )
 
         if probeResult == .authorized {
-            recordWorkingIdentity(identity)
-            clearPermissionRequestSession()
-            updateUIModel(status: .working, identity: identity)
-            return .working
+            return publishWorkingValidated(identity)
         }
 
-        updateUIModel(status: .grantedNeedsValidation, identity: identity)
-        return .grantedNeedsValidation
+        return publishStatus(.grantedNeedsValidation, identity: identity)
     }
 
     /// Run a full interactive validation (CG + SCK) triggered by an explicit user action.
@@ -392,9 +366,7 @@ final class PermissionCoordinator: ObservableObject {
 
         guard cgGranted
             || shouldTrustLiveValidationWithoutCoreGraphics(at: timestamp) else {
-            clearDiagnosedFailure()
-            updateUIModel(status: .denied, identity: identity)
-            return .denied
+            return publishDenied(identity)
         }
 
         let validationResult = await interactiveCheck()
@@ -403,14 +375,11 @@ final class PermissionCoordinator: ObservableObject {
         )
 
         if validationResult == .authorized {
-            recordWorkingIdentity(identity)
-            clearPermissionRequestSession()
-            updateUIModel(status: .working, identity: identity)
-            return .working
+            return publishWorkingValidated(identity)
         }
 
         // SCK failed — attempt auto-repair via replayd restart
-        updateUIModel(status: .repairing, identity: identity)
+        _ = publishStatus(.repairing, identity: identity)
         logger.info("auto_repair_start")
         let repairResult = await repairSCKAccess()
         logger.info(
@@ -418,23 +387,14 @@ final class PermissionCoordinator: ObservableObject {
         )
 
         if repairResult == .authorized {
-            recordWorkingIdentity(identity)
-            clearPermissionRequestSession()
-            updateUIModel(status: .working, identity: identity)
-            return .working
+            return publishWorkingValidated(identity)
         }
 
         if repairResult == .userDeclined {
-            clearPermissionRequestSession()
-            clearDiagnosedFailure()
-            updateUIModel(status: .denied, identity: identity)
-            return .denied
+            return publishDenied(identity, clearPermissionRequest: true)
         }
 
-        let status = explicitFailureStatus(for: identity)
-        recordDiagnosedFailure(status, for: identity)
-        updateUIModel(status: status, identity: identity)
-        return status
+        return publishExplicitFailure(for: identity)
     }
 
     /// Prompt macOS to grant screen recording permission via the system dialog.
@@ -466,9 +426,8 @@ final class PermissionCoordinator: ObservableObject {
 
         while now() < deadline {
             if isLiveValidatedIdentity(identity) {
-                updateUIModel(status: .working, identity: identity)
                 clearPermissionRequestSession()
-                return .working
+                return publishStatus(.working, identity: identity)
             }
 
             let cgGranted = passiveCheck()
@@ -483,21 +442,15 @@ final class PermissionCoordinator: ObservableObject {
 
                 switch validationResult {
                 case .authorized:
-                    recordWorkingIdentity(identity)
-                    clearPermissionRequestSession()
-                    updateUIModel(status: .working, identity: identity)
-                    return .working
+                    return publishWorkingValidated(identity)
                 case .userDeclined:
-                    clearPermissionRequestSession()
-                    clearDiagnosedFailure()
-                    updateUIModel(status: .denied, identity: identity)
-                    return .denied
+                    return publishDenied(identity, clearPermissionRequest: true)
                 case .transientFailure:
-                    updateUIModel(status: .grantedNeedsValidation, identity: identity)
+                    _ = publishStatus(.grantedNeedsValidation, identity: identity)
 
                     if cgGranted, !attemptedRepair {
                         attemptedRepair = true
-                        updateUIModel(status: .repairing, identity: identity)
+                        _ = publishStatus(.repairing, identity: identity)
                         logger.info("settings_return_auto_repair_start")
                         let repairResult = await repairSCKAccess()
                         logger.info(
@@ -506,17 +459,11 @@ final class PermissionCoordinator: ObservableObject {
 
                         switch repairResult {
                         case .authorized:
-                            recordWorkingIdentity(identity)
-                            clearPermissionRequestSession()
-                            updateUIModel(status: .working, identity: identity)
-                            return .working
+                            return publishWorkingValidated(identity)
                         case .userDeclined:
-                            clearPermissionRequestSession()
-                            clearDiagnosedFailure()
-                            updateUIModel(status: .denied, identity: identity)
-                            return .denied
+                            return publishDenied(identity, clearPermissionRequest: true)
                         case .transientFailure:
-                            updateUIModel(status: .grantedNeedsValidation, identity: identity)
+                            _ = publishStatus(.grantedNeedsValidation, identity: identity)
                         }
                     }
                 }
@@ -532,17 +479,13 @@ final class PermissionCoordinator: ObservableObject {
         if canAutoRelaunchAfterSettingsReturn(at: now()) {
             armPendingCaptureResume()
             markAutoRelaunchIssued()
-            updateUIModel(status: .repairing, identity: identity)
+            _ = publishStatus(.repairing, identity: identity)
             logger.info("settings_return_auto_relaunch")
             relaunchApp()
             return .repairing
         }
 
-        clearPermissionRequestSession()
-        let status = explicitFailureStatus(for: identity)
-        recordDiagnosedFailure(status, for: identity)
-        updateUIModel(status: status, identity: identity)
-        return status
+        return publishExplicitFailure(for: identity, clearPermissionRequest: true)
     }
 
     /// Handle a capture failure due to missing permission, showing an alert if not rate-limited.
@@ -558,14 +501,11 @@ final class PermissionCoordinator: ObservableObject {
             let repairResult = await repairSCKAccess()
             if repairResult == .authorized {
                 logger.info("silent_repair_success — no alert needed")
-                recordWorkingIdentity(identity)
-                updateUIModel(status: .working, identity: identity)
+                _ = publishWorkingValidated(identity, clearPermissionRequest: false)
                 return
             }
 
-            status = explicitFailureStatus(for: identity)
-            recordDiagnosedFailure(status, for: identity)
-            updateUIModel(status: status, identity: identity)
+            status = publishExplicitFailure(for: identity)
         }
 
         let now = now()
@@ -609,6 +549,89 @@ final class PermissionCoordinator: ObservableObject {
 }
 
 private extension PermissionCoordinator {
+    func passiveStatus(
+        for identity: PermissionIdentity,
+        at timestamp: Date,
+        cgGranted: Bool
+    ) -> ScreenRecordingState {
+        if isLiveValidatedIdentity(identity) {
+            return .working
+        }
+        if !cgGranted {
+            return shouldTrustLiveValidationWithoutCoreGraphics(at: timestamp)
+                ? .grantedNeedsValidation
+                : .denied
+        }
+        if isKnownWorkingIdentity(identity) {
+            return .working
+        }
+        if let diagnosedStatus = diagnosedFailureStatus(for: identity) {
+            return diagnosedStatus
+        }
+        return .grantedNeedsValidation
+    }
+
+    @discardableResult
+    func publishPassiveStatus(
+        for identity: PermissionIdentity,
+        at timestamp: Date,
+        cgGranted: Bool
+    ) -> ScreenRecordingState {
+        let status = passiveStatus(for: identity, at: timestamp, cgGranted: cgGranted)
+        return publishStatus(status, identity: identity)
+    }
+
+    @discardableResult
+    func publishWorkingValidated(
+        _ identity: PermissionIdentity,
+        clearPermissionRequest: Bool = true
+    ) -> ScreenRecordingState {
+        recordWorkingIdentity(identity)
+        if clearPermissionRequest {
+            clearPermissionRequestSession()
+        }
+        return publishStatus(.working, identity: identity)
+    }
+
+    @discardableResult
+    func publishDenied(
+        _ identity: PermissionIdentity,
+        clearPermissionRequest: Bool = false
+    ) -> ScreenRecordingState {
+        if clearPermissionRequest {
+            clearPermissionRequestSession()
+        }
+        return publishStatus(.denied, identity: identity)
+    }
+
+    @discardableResult
+    func publishExplicitFailure(
+        for identity: PermissionIdentity,
+        clearPermissionRequest: Bool = false
+    ) -> ScreenRecordingState {
+        if clearPermissionRequest {
+            clearPermissionRequestSession()
+        }
+        let status = explicitFailureStatus(for: identity)
+        recordDiagnosedFailure(status, for: identity)
+        return publishStatus(status, identity: identity)
+    }
+
+    @discardableResult
+    func publishStatus(
+        _ status: ScreenRecordingState,
+        identity: PermissionIdentity
+    ) -> ScreenRecordingState {
+        switch status {
+        case .working, .denied:
+            clearDiagnosedFailure()
+        case .grantedNeedsValidation, .needsRelaunch, .staleRecord, .repairing:
+            break
+        }
+        updateUIModel(status: status, identity: identity)
+        return status
+    }
+
     func alertState(for status: ScreenRecordingState) -> ScreenCaptureManager.PermissionState {
         switch status {
         case .denied:

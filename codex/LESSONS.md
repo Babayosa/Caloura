@@ -186,6 +186,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: After a TCC reset or deleted Screen Recording record, historical metadata can still match the current app copy. If that metadata bypasses denial, the app never reappears in System Settings because macOS never sees a new request.
 - **Example**: `PermissionCoordinator.shouldTrustLiveValidationWithoutCoreGraphics(...)` now ignores historical path/fingerprint state, and `takePendingCaptureResumeIfFresh()` reconstructs the recent request session after the one automatic relaunch so the post-Settings recovery path still works.
 
+### Permission status publication should own transition side effects
+- **Rule**: Funnel Screen Recording status publication through shared coordinator helpers so working, denied, and explicit-failure transitions clear or preserve repair state the same way across passive refresh, live validation, settings-return checks, and capture-failure handling.
+- **Context**: Once the permission flow grew multiple entry points, repeating the side effects inline made it too easy for one path to clear a diagnosis or permission-request session while another path preserved it. That kind of drift recreates contradictory permission UI even when the status enum itself is correct.
+- **Example**: `PermissionCoordinator` now computes passive state with `passiveStatus(...)` and publishes outcomes through `publishStatus(...)`, `publishWorkingValidated(...)`, `publishDenied(...)`, and `publishExplicitFailure(...)` instead of reimplementing the same state mutation in each method.
+
 ### [Graduated] DMG install windows need dedicated neutral artwork
 - **Rule**: Use a purpose-built neutral background asset for the drag-to-Applications DMG window instead of repurposing product icons or in-app branding art.
 - **Context**: DMG install surfaces are Finder UI, not in-app onboarding. Reusing product artwork there reads as improvised and undermines the install presentation.
@@ -253,6 +258,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Rule**: For timing-sensitive async tests, coordinate progress with expectations, polling, or lightweight async gates instead of relying on short `Task.sleep` delays.
 - **Context**: Sub-200ms sleeps were letting capture, OCR, and picker tests race the scheduler, which made failures depend on machine load instead of state transitions.
 - **Example**: `CapturePipelineTests` and `ScrollCaptureEngineTests` now hold work at known points with `AsyncGate`, while deferred-history and picker tests wait through `pollUntil(...)` instead of fixed sleeps.
+
+### Multi-slot async tests must assert causality, not start order
+- **Rule**: When multiple workers are allowed to start immediately, assert the before/after relationship that matters instead of a total order between concurrently valid starts.
+- **Context**: `CaptureEnrichmentCoordinator` can start two jobs in parallel. The full suite flaked because `testFinish_startsNextPendingOperationWhenASlotOpens` assumed the first enqueued job would always log before the second, even though both were allowed to run.
+- **Example**: The enrichment coordinator test now checks that both initial jobs started before `start:third`, that `finish:first` opened the slot, and that `finish:third` followed `start:third`, without caring which of the first two workers logged first.
 
 ### Shared singleton state in tests must be restored at the fixture boundary
 - **Rule**: If a test touches process-global state, snapshot it in `setUp()` and restore it in `tearDown()` for the whole fixture.

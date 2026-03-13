@@ -21,6 +21,23 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 16: Permission state core normalization
+**Status:** Complete
+**Branch:** `codex/task-16-permission-state-core`
+**Changes:**
+- Centralized Screen Recording passive-state resolution and terminal status publication inside `PermissionCoordinator` so passive refresh, interactive validation, settings-return revalidation, and capture-failure repair all share the same working / denied / explicit-failure side effects
+- Added focused regression coverage proving that a fresh `requestPermissionFromSystem()` clears a previously diagnosed `.needsRelaunch` state and returns the coordinator to `.grantedNeedsValidation` until live validation succeeds again
+- Tightened `CaptureEnrichmentCoordinatorTests` so the full suite no longer flakes on a fabricated start-order assumption when two enrichment jobs are allowed to begin concurrently
+- Regenerated `Caloura.xcodeproj` so the new focused permission test is included in Xcode builds
+- Revalidated with `xcodegen generate`, `swift build`, `swiftlint lint --quiet`, and `swift test` (489 tests passing)
+
+**Decisions Made:**
+- Funnel all Screen Recording status publication through shared helper paths rather than repeating diagnosis-clearing and working-state side effects at each call site
+- Keep the normalization scoped to the permission coordinator; the only extra code change outside that area was the test-only fix required to make the full validation suite deterministic again
+- For concurrent enrichment tests, assert the causal relationship that matters (slot opens before the queued job starts) instead of assuming scheduler order between jobs that may legitimately start in either order
+
+---
+
 ## Task 14: Cursor-first capture hardening
 **Status:** Complete  
 **Branch:** `codex/task-14-cursor-hardening`  
