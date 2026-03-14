@@ -199,7 +199,7 @@ extension OnboardingView {
     private var permissionBody: String {
         switch flow.currentState {
         case .waitingForSettingsReturn:
-            return "Enable Caloura in System Settings, then return here. Caloura will re-check automatically as soon as you come back."
+            return "In System Settings, click the \"+\" button, select Caloura, and enable it. Then return here — Caloura will re-check automatically."
         case .repairStalePermissionRecord:
             switch permissionPresentation.detail {
             case .staleRecord:
