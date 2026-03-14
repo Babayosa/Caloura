@@ -11,7 +11,7 @@ private struct SecRequirementHandle {
         guard CFGetTypeID(requirementRef) == SecRequirementGetTypeID() else {
             return nil
         }
-        self.requirement = unsafeBitCast(requirementRef, to: SecRequirement.self)
+        self.requirement = unsafeDowncast(requirementRef as AnyObject, to: SecRequirement.self)
     }
 
     func stringValue() -> String? {

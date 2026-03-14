@@ -6,7 +6,7 @@ final class PresetManagerTests: XCTestCase {
 
     nonisolated(unsafe) private var presetManager: PresetManager!
 
-    override func setUp() {
+    override nonisolated func setUp() {
         super.setUp()
         presetManager = MainActor.assumeIsolated {
             PresetManager.shared

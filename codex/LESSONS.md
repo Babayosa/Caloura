@@ -211,10 +211,20 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: DMG install surfaces are Finder UI, not in-app onboarding. Reusing product artwork there reads as improvised and undermines the install presentation.
 - **Example**: `scripts/release.sh` now requires `scripts/assets/dmg-neutral-background.png` and fails fast if the neutral DMG background asset is missing.
 
+### Permission diagnostics should separate installed-app logs from XCTest hosts
+- **Rule**: Operational Screen Recording diagnostics must report installed-app logs separately from `xctest` logs so failure-path tests do not look like live permission regressions.
+- **Context**: `scripts/permission_diagnose.sh` originally tailed all matching subsystem logs together, which made a healthy installed app appear denied immediately after permission tests ran.
+- **Example**: The script now prints separate installed-app and test-host sections, and its actionable steps only refer to the installed-app logs.
+
 ### Window picker activation should happen in one layer only
 - **Rule**: The window-capture entry path should activate the app exactly once, inside the picker coordinator that owns presentation timing.
 - **Context**: Duplicating `NSApplication.shared.activate(...)` in both the pipeline entrypoint and the coordinator adds avoidable AppKit churn and muddies window-picker performance metrics on the hot path.
 - **Example**: `CapturePipeline.captureWindow()` no longer activates the app directly; `WindowCaptureSessionCoordinator.pick()` owns activation and records the `app_activated` event.
+
+### Window picker presentation should cross one main-actor turn and reject stale sessions
+- **Rule**: Present the system window picker only after yielding one main-actor turn, and generation-guard the scheduled presentation so a cancelled pick session cannot still surface stale UI.
+- **Context**: Immediate same-turn presentation left a small race where back-to-back `pickWindow()` requests could cancel the older session but still allow its picker presentation to reach AppKit, which is exactly the kind of edge case that shows up as transaction noise under severe audit conditions.
+- **Example**: `WindowPickerManager` now schedules presentation through an injected `schedulePresentation` closure, cancels any pending presentation task in `resumeAndClear(...)`, and ignores scheduled presents whose `pickSessionID` is no longer current.
 
 ## Persistence / Data Integrity
 
@@ -228,12 +238,22 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: Reusing the same smart title for multiple captures will otherwise overwrite earlier artifacts despite having “better” names.
 - **Example**: `FileOrganizer.save(...)` now resolves `release-notes.png`, `release-notes-2.png`, and so on before writing the file to disk.
 
+### Disposable encrypted caches should self-heal on unreadable payloads
+- **Rule**: If an encrypted store is a rebuildable cache rather than authoritative data, clear unreadable payloads on load failure instead of logging a persistent startup error and leaving the corrupt file in place.
+- **Context**: `EmbeddingStore` backs semantic-search acceleration, not user-authored source of truth. Treating unreadable bytes as a fatal startup error just created repeating log noise and prevented automatic recovery.
+- **Example**: `EmbeddingStore.load()` now logs unreadable cache payloads at debug and calls `clear()`, which removes the corrupt `embeddings.enc` file and resets in-memory state.
+
 ## Performance / Memory
 
 ### Full-canvas image assembly should not clone the final buffer
 - **Rule**: When building a large RGBA canvas for export, transfer ownership of the finished pixel buffer directly to Core Graphics instead of copying it into a second `Data` object.
 - **Context**: Scroll-capture stitching already holds the full output in memory. Re-wrapping that canvas through `Data(pixels)` doubles peak resident memory right at the largest allocation point.
 - **Example**: `ScrollCaptureHelpers.makeImage(...)` now uses `Data(bytesNoCopy:deallocator:)` so a 20,000 px stitched capture does not incur a second full-height canvas copy.
+
+### Unified-log perf gates need the capture run to finish before auditing
+- **Rule**: When a perf gate reads unified logs, run it only after the capture workload exits and the expected events are visible in `log show`.
+- **Context**: A strict perf audit can transiently report missing samples if it races the logger and runs before the latest Xcode-host capture metrics have landed in the unified log store.
+- **Example**: Task 20's first strict perf pass reported missing window-picker data, but rerunning after the `CaptureSystemTests` slice finished and the `picker_visible_*` events appeared in `log show` produced a clean pass.
 
 ### Debounced UI search still blocks if the actual work never leaves the main actor
 - **Rule**: If a UI path uses a debounce task, move the expensive search or scoring work onto a utility task instead of assuming the delay alone protects responsiveness.

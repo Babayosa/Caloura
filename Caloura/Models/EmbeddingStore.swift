@@ -115,13 +115,11 @@ final class EmbeddingStore: @unchecked Sendable {
                 return
             }
             replaceEntries(with: decoded.entries)
-        } catch let error as HistoryCryptoError {
-            let message = error.localizedDescription
-            embeddingStoreLogger.error("Failed to load embeddings: \(message, privacy: .public)")
-            resetInMemory()
         } catch {
             let message = error.localizedDescription
-            embeddingStoreLogger.error("Failed to load embeddings: \(message, privacy: .public)")
+            embeddingStoreLogger.debug(
+                "Discarding unreadable embedding store: \(message, privacy: .public)"
+            )
             clear()
         }
     }

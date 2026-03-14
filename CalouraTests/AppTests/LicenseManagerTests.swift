@@ -13,7 +13,7 @@ final class LicenseManagerTests: XCTestCase {
     nonisolated(unsafe) private var savedLastValidationDate: Date?
     nonisolated(unsafe) private var savedFurthestDateSeen: Date?
 
-    override func setUp() {
+    override nonisolated func setUp() {
         super.setUp()
         let settings = MainActor.assumeIsolated {
             AppSettings.shared
@@ -46,7 +46,7 @@ final class LicenseManagerTests: XCTestCase {
         }
     }
 
-    override func tearDown() {
+    override nonisolated func tearDown() {
         guard let settings else {
             super.tearDown()
             return

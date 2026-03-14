@@ -5,15 +5,20 @@ import XCTest
 
 @MainActor
 final class ScreenCaptureManagerPermissionTests: XCTestCase {
-    private var originalStatusMessage = ""
+    nonisolated(unsafe) private var originalStatusMessage = ""
 
-    override func setUp() {
+    override nonisolated func setUp() {
         super.setUp()
-        originalStatusMessage = AppState.shared.statusMessage
+        originalStatusMessage = MainActor.assumeIsolated {
+            AppState.shared.statusMessage
+        }
     }
 
-    override func tearDown() {
-        AppState.shared.statusMessage = originalStatusMessage
+    override nonisolated func tearDown() {
+        let restoredStatusMessage = originalStatusMessage
+        MainActor.assumeIsolated {
+            AppState.shared.statusMessage = restoredStatusMessage
+        }
         super.tearDown()
     }
 

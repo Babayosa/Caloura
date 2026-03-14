@@ -94,4 +94,16 @@ final class EmbeddingStoreTests: XCTestCase {
         XCTAssertEqual(reader.count, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
+
+    func testLoad_unreadableStore_clearsCorruptedFile() throws {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("test-corrupt-\(UUID().uuidString).enc")
+        try Data("not encrypted".utf8).write(to: url, options: .atomic)
+
+        let store = EmbeddingStore(storeURL: url)
+        store.load()
+
+        XCTAssertEqual(store.count, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
 }

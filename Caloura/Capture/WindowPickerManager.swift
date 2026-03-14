@@ -26,19 +26,28 @@ final class WindowPickerManager: NSObject {
         case failedToStart
     }
 
+    typealias PresentationScheduler = @MainActor () async -> Void
+
     static let shared = WindowPickerManager(picker: SystemWindowSharingPicker.shared)
 
     private var continuation: CheckedContinuation<Result, Never>?
     private var timeoutTask: Task<Void, Never>?
+    private var presentationTask: Task<Void, Never>?
+    private var pickSessionID: UInt = 0
     private let picker: any WindowSharingPicking
     private let timeout: Duration
+    private let schedulePresentation: PresentationScheduler
 
     init(
         picker: any WindowSharingPicking,
-        timeout: Duration = .seconds(30)
+        timeout: Duration = .seconds(30),
+        schedulePresentation: @escaping PresentationScheduler = {
+            await Task.yield()
+        }
     ) {
         self.picker = picker
         self.timeout = timeout
+        self.schedulePresentation = schedulePresentation
         super.init()
         picker.add(self)
         // Configure picker once at init for single window selection
@@ -60,12 +69,23 @@ final class WindowPickerManager: NSObject {
             resumeAndClear(returning: .cancelled)
         }
 
+        pickSessionID &+= 1
+        let sessionID = pickSessionID
         picker.isActive = true
 
         return await withCheckedContinuation { newContinuation in
             self.continuation = newContinuation
-            picker.present(using: .window)
-            onPresented?()
+            self.presentationTask?.cancel()
+            let schedulePresentation = self.schedulePresentation
+            self.presentationTask = Task { @MainActor [weak self] in
+                await schedulePresentation()
+                guard let self, !Task.isCancelled else { return }
+                guard self.pickSessionID == sessionID, self.continuation != nil else {
+                    return
+                }
+                self.picker.present(using: .window)
+                onPresented?()
+            }
 
             self.timeoutTask = Task { [weak self] in
                 try? await Task.sleep(for: self?.timeout ?? .seconds(30))
@@ -83,6 +103,8 @@ final class WindowPickerManager: NSObject {
 
     /// Safely resume the stored continuation exactly once, cancel the timeout, and nil both out.
     private func resumeAndClear(returning result: Result) {
+        presentationTask?.cancel()
+        presentationTask = nil
         timeoutTask?.cancel()
         timeoutTask = nil
         if let cont = continuation {

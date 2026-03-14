@@ -6,7 +6,7 @@ final class ClipboardManagerTests: XCTestCase {
 
     nonisolated(unsafe) private var testPasteboard: NSPasteboard!
 
-    override func setUp() {
+    override nonisolated func setUp() {
         super.setUp()
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("com.caloura.test.\(UUID().uuidString)"))
         self.testPasteboard = pasteboard
@@ -15,7 +15,7 @@ final class ClipboardManagerTests: XCTestCase {
         }
     }
 
-    override func tearDown() {
+    override nonisolated func tearDown() {
         let pasteboard: NSPasteboard = testPasteboard
         MainActor.assumeIsolated {
             ClipboardManager.pasteboardOverride = nil

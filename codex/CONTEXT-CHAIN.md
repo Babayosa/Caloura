@@ -4,6 +4,24 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 20: Severe production audit
+**Status:** Complete
+**Branch:** `codex/task-20-severe-production-audit`
+**Changes:**
+- Replaced the remaining type-ID-guarded `unsafeBitCast(...)` bridges in [PermissionCoordinator.swift](/Users/b/Caloura/Caloura/Capture/PermissionCoordinator.swift) and [ScrollCaptureTypes.swift](/Users/b/Caloura/Caloura/Capture/ScrollCaptureTypes.swift)
+- Hardened [WindowPickerManager.swift](/Users/b/Caloura/Caloura/Capture/WindowPickerManager.swift) so picker presentation crosses one main-actor boundary, stale scheduled presentations are cancelled, and back-to-back `pickWindow()` calls cannot surface stale UI
+- Made [EmbeddingStore.swift](/Users/b/Caloura/Caloura/Models/EmbeddingStore.swift) self-heal unreadable encrypted cache payloads and added a corruption regression in [EmbeddingStoreTests.swift](/Users/b/Caloura/CalouraTests/ProcessingTests/EmbeddingStoreTests.swift)
+- Converted the remaining actor-isolated XCTest lifecycle overrides in the touched fixtures to nonisolated overrides with `MainActor.assumeIsolated`, removing audit-noise concurrency warnings from the final validation pass
+- Updated [permission_diagnose.sh](/Users/b/Caloura/scripts/permission_diagnose.sh) to separate installed-app permission logs from `xctest` failure-path logs so operational diagnosis no longer misreads healthy app state after tests
+- Revalidated with `swift build`, `swiftlint lint --quiet`, `swift test`, `xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData`, `xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData -only-testing:CalouraSystemTests/CaptureSystemTests`, `scripts/permission_diagnose.sh`, and `scripts/perf_audit.sh --strict --min-samples 5`
+
+**Decisions Made:**
+- Treat audit infrastructure issues as real production-readiness work when they can misdiagnose healthy installed-app state or hide true runtime failures
+- Keep the window-picker hardening local to presentation timing and stale-session cancellation instead of broadening it into a larger picker abstraction
+- Treat the embedding store as a disposable encrypted cache: unreadable payloads should self-heal loudly enough for debugging but not create a permanent startup-error loop
+
+---
+
 ## Task 19: Capture entrypoint hardening
 **Status:** Complete
 **Branch:** `codex/task-19-capture-entrypoint-hardening`

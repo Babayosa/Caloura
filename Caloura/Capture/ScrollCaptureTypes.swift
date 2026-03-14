@@ -15,7 +15,7 @@ struct AXElementHandle: @unchecked Sendable {
             return nil
         }
 
-        self.element = unsafeBitCast(attributeValue, to: AXUIElement.self)
+        self.element = unsafeDowncast(attributeValue, to: AXUIElement.self)
     }
 }
 
@@ -28,7 +28,7 @@ struct AXValueHandle: @unchecked Sendable {
             return nil
         }
 
-        self.value = unsafeBitCast(attributeValue, to: AXValue.self)
+        self.value = unsafeDowncast(attributeValue, to: AXValue.self)
     }
 
     func cgPoint() -> CGPoint? {

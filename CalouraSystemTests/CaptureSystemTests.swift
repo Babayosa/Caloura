@@ -4,7 +4,7 @@ import XCTest
 
 @MainActor
 final class CaptureSystemTests: XCTestCase {
-    override func setUp() {
+    override nonisolated func setUp() {
         super.setUp()
         MainActor.assumeIsolated {
             _ = NSApplication.shared
@@ -12,7 +12,7 @@ final class CaptureSystemTests: XCTestCase {
         }
     }
 
-    override func tearDown() {
+    override nonisolated func tearDown() {
         MainActor.assumeIsolated {
             QuickAccessOverlay.shared.dismiss()
         }

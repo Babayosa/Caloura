@@ -106,6 +106,48 @@ final class WindowPickerManagerTests: XCTestCase {
         XCTAssertEqual(picker.presentCallCount, 2)
     }
 
+    func testPickWindow_secondCallBeforePresentationSkipsStalePresentation() async {
+        let picker = FakeWindowSharingPicker()
+        var scheduledPresentationCount = 0
+        let presentationGate = AsyncGate()
+        let manager = WindowPickerManager(
+            picker: picker,
+            timeout: .seconds(5),
+            schedulePresentation: {
+                scheduledPresentationCount += 1
+                await presentationGate.wait()
+            }
+        )
+
+        let firstTask = Task { await manager.pickWindow() }
+        await pollUntil(timeout: 1.0) {
+            scheduledPresentationCount == 1 && picker.isActive
+        }
+
+        let secondTask = Task { await manager.pickWindow() }
+        await pollUntil(timeout: 1.0) {
+            scheduledPresentationCount == 2
+        }
+
+        await presentationGate.open()
+        await pollUntil(timeout: 1.0) {
+            picker.presentCallCount == 1
+        }
+        manager.contentSharingPicker(SCContentSharingPicker.shared, didCancelFor: nil)
+
+        let first = await firstTask.value
+        let second = await secondTask.value
+
+        guard case .cancelled = first else {
+            return XCTFail("Expected first result to be cancelled, got \(first)")
+        }
+        guard case .cancelled = second else {
+            return XCTFail("Expected second result to be cancelled, got \(second)")
+        }
+        XCTAssertEqual(picker.presentCallCount, 1)
+        XCTAssertFalse(picker.isActive)
+    }
+
     private func waitForPendingPicker(_ picker: FakeWindowSharingPicker) async {
         await pollUntil(timeout: 1.0) {
             picker.presentCallCount > 0 && picker.isActive

@@ -3,19 +3,31 @@ import XCTest
 
 @MainActor
 final class URLSchemeHandlerTests: XCTestCase {
-    private var originalActivePreset = ""
-    private var originalLastHandledDate: Date?
+    nonisolated(unsafe) private var originalActivePreset = ""
+    nonisolated(unsafe) private var originalLastHandledDate: Date?
 
-    override func setUp() {
+    override nonisolated func setUp() {
         super.setUp()
-        originalActivePreset = AppSettings.shared.activePreset
-        originalLastHandledDate = URLSchemeHandler.lastHandledDate
-        URLSchemeHandler.resetThrottleForTesting()
+        let snapshot = MainActor.assumeIsolated {
+            (
+                AppSettings.shared.activePreset,
+                URLSchemeHandler.lastHandledDate
+            )
+        }
+        originalActivePreset = snapshot.0
+        originalLastHandledDate = snapshot.1
+        MainActor.assumeIsolated {
+            URLSchemeHandler.resetThrottleForTesting()
+        }
     }
 
-    override func tearDown() {
-        AppSettings.shared.activePreset = originalActivePreset
-        URLSchemeHandler.setLastHandledDateForTesting(originalLastHandledDate)
+    override nonisolated func tearDown() {
+        let restoredActivePreset = originalActivePreset
+        let restoredLastHandledDate = originalLastHandledDate
+        MainActor.assumeIsolated {
+            AppSettings.shared.activePreset = restoredActivePreset
+            URLSchemeHandler.setLastHandledDateForTesting(restoredLastHandledDate)
+        }
         super.tearDown()
     }
 

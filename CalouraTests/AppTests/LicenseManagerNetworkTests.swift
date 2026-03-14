@@ -87,7 +87,7 @@ final class LicenseManagerNetworkTests: XCTestCase {
     nonisolated(unsafe) private var savedEntitlement: LicenseEntitlement?
     nonisolated(unsafe) private var savedLastValidationDate: Date?
 
-    override func setUp() {
+    override nonisolated func setUp() {
         super.setUp()
         URLProtocol.registerClass(MockURLProtocol.self)
         let settings = MainActor.assumeIsolated {
@@ -118,7 +118,7 @@ final class LicenseManagerNetworkTests: XCTestCase {
         }
     }
 
-    override func tearDown() {
+    override nonisolated func tearDown() {
         MockURLProtocol.requestHandler = nil
         URLProtocol.unregisterClass(MockURLProtocol.self)
         guard let settings else {

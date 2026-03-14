@@ -7,7 +7,7 @@ final class AppStateDeferredHistoryTests: XCTestCase {
     nonisolated(unsafe) private var tempRoot: URL!
     nonisolated(unsafe) private var historyFileURL: URL!
 
-    override func setUp() {
+    override nonisolated func setUp() {
         super.setUp()
         tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("caloura-history-tests-\(UUID().uuidString)")
@@ -17,7 +17,7 @@ final class AppStateDeferredHistoryTests: XCTestCase {
         HistoryCrypto.resetCachedKeyForTesting()
     }
 
-    override func tearDown() {
+    override nonisolated func tearDown() {
         HistoryCrypto.setSecurityDirectoryForTesting(nil)
         HistoryCrypto.resetCachedKeyForTesting()
         try? FileManager.default.removeItem(at: tempRoot)
