@@ -21,7 +21,7 @@ Inherits global rules from `~/CLAUDE.md`.
 ## Project Conventions
 
 - No Keychain for runtime persistence — use `HistoryCrypto.encrypt()` instead
-- `CGPreflightScreenCaptureAccess()` is the only reliable permission check on Sequoia
+- Treat `CGPreflightScreenCaptureAccess()` as a coarse passive signal only; after an explicit Screen Recording grant attempt, trust live ScreenCaptureKit validation before falling back to repair or relaunch
 - `CGWindowListCopyWindowInfo` gives false positives — never use for permission checks
 - `NSCursor.hide()/unhide()` are reference-counted — must balance exactly
 - Use `NSCursor.push()`/`pop()`, not `.set()` — the cursor rect system overrides `.set()`

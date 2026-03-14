@@ -36,6 +36,17 @@ final class OnboardingFlowModelTests: XCTestCase {
         XCTAssertTrue(flow.isCompleted)
     }
 
+    func testOnboardingFlowStateMapsGrantedNeedsValidationByProgress() {
+        XCTAssertEqual(
+            onboardingFlowState(for: .grantedNeedsValidation, hasCompletedOnboarding: false),
+            .readyForFirstCapture
+        )
+        XCTAssertEqual(
+            onboardingFlowState(for: .grantedNeedsValidation, hasCompletedOnboarding: true),
+            .repairStalePermissionRecord
+        )
+    }
+
     func testInstallStateDetectionUsesApplicationsPath() {
         XCTAssertEqual(
             AppMover.installState(forBundlePath: "/Applications/Caloura.app"),

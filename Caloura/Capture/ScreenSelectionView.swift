@@ -39,6 +39,7 @@ final class ScreenSelectionView: NSView {
             window.acceptsMouseMovedEvents = true
             cursorController?.reassertCrosshair()
         }
+        window?.invalidateCursorRects(for: self)
     }
 
     override func updateTrackingAreas() {

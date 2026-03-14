@@ -59,7 +59,7 @@ struct ScreenCapturePermissionDependencies: Sendable {
         presentAlert: { state in
             let alert = NSAlert()
             alert.alertStyle = .warning
-            NSApp.activate()
+            NSApplication.shared.activate()
 
             switch state {
             case .neverGranted:
@@ -134,7 +134,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
 
     /// Once SCK fails permanently (e.g. user denied permission), skip it on
     /// subsequent captures to avoid repeated system prompts and latency.
-    var sckFailed: Bool = false
+    private(set) var sckFailed: Bool = false
 
     /// Consecutive transient SCK failure count. After
     /// `maxTransientFailures` consecutive transient failures, `sckFailed`
@@ -153,6 +153,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     private var didBecomeActiveObserver: (any NSObjectProtocol)?
     let permissionDependencies: ScreenCapturePermissionDependencies
     private let shareableContentProvider: @MainActor () async throws -> SCShareableContent
+    private let cgPreflightAuthorityProvider: @MainActor () -> Bool
     private let filteredScreenshotProvider: @MainActor (
         SCContentFilter,
         SCStreamConfiguration
@@ -161,7 +162,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     /// Reset the SCK failure flag so that the next capture retries SCK.
     /// Called when permission is freshly granted or on app reactivation.
     func resetSCKState() {
-        sckFailed = false
+        setSCKFailed(false)
         sckFailureCount = 0
         cachedContent = nil
         logger.info("SCK failure flag reset")
@@ -170,6 +171,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     init(
         permissionDependencies: ScreenCapturePermissionDependencies? = nil,
         shareableContentProvider: (@MainActor () async throws -> SCShareableContent)? = nil,
+        cgPreflightAuthorityProvider: (@MainActor () -> Bool)? = nil,
         filteredScreenshotProvider: (
             @MainActor (
                 SCContentFilter,
@@ -180,6 +182,9 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         self.permissionDependencies = permissionDependencies ?? .live
         self.shareableContentProvider = shareableContentProvider ?? {
             try await SCShareableContent.current
+        }
+        self.cgPreflightAuthorityProvider = cgPreflightAuthorityProvider ?? {
+            PermissionCoordinator.shared.coreGraphicsPreflightIsAuthoritative()
         }
         self.filteredScreenshotProvider = filteredScreenshotProvider ?? {
             contentFilter,
@@ -195,8 +200,8 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                     }
                     guard let image else {
                         continuation.resume(
-                            throwing: CaptureError.captureFailed(
-                                "ScreenCaptureKit returned no image"
+                            throwing: CaptureError.noContent(
+                                source: "ScreenCaptureKit screenshot"
                             )
                         )
                         return
@@ -261,7 +266,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     /// consecutive transient failures, SCK is disabled until reset.
     func handleSCKFailure(_ error: Error) {
         if isSCKErrorPermanent(error) {
-            sckFailed = true
+            setSCKFailed(true)
             sckFailureCount = 0
             logger.warning("SCK permanently disabled (user declined)")
         } else {
@@ -271,13 +276,31 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                 "SCK transient failure \(count)/\(self.maxTransientFailures)"
             )
             if sckFailureCount >= maxTransientFailures {
-                sckFailed = true
+                setSCKFailed(true)
                 let desc = error.localizedDescription
                 logger.warning(
                     "SCK disabled after \(count) transient failures: \(desc)"
                 )
             }
         }
+    }
+
+    func shouldTreatCoreGraphicsStateAsPermissionDenied() -> Bool {
+        guard cgPreflightAuthorityProvider() else {
+            return false
+        }
+        return !checkPermission()
+    }
+
+    /// Only a real ScreenCaptureKit permission denial should map directly to
+    /// `.noPermission` here. Today that means `SCStreamError.userDeclined`
+    /// (raw value `-3801`). Other SCK failures are treated as transient unless
+    /// CoreGraphics is currently authoritative and still denied.
+    func shouldTreatCaptureErrorAsPermissionDenied(_ error: Error) -> Bool {
+        if isSCKErrorPermanent(error) {
+            return true
+        }
+        return shouldTreatCoreGraphicsStateAsPermissionDenied()
     }
 
     // MARK: - SCShareableContent Cache
@@ -320,6 +343,16 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         }
     }
 
+    func setSCKFailed(_ failed: Bool) {
+        sckFailed = failed
+    }
+
+    #if DEBUG
+    func setSCKFailedForTesting(_ failed: Bool) {
+        setSCKFailed(failed)
+    }
+    #endif
+
     // MARK: - Full Screen Capture
 
     /// Capture the full screen, falling back from SCK to CLI.
@@ -332,13 +365,16 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                     "SCK captureFullScreen failed: \(error.localizedDescription)"
                 )
                 handleSCKFailure(error)
+                if shouldTreatCaptureErrorAsPermissionDenied(error) {
+                    throw CaptureError.noPermission
+                }
             }
         }
         do {
             logger.info("Trying screencapture CLI for fullscreen")
             return try await screencaptureFullScreen(screen: screen)
         } catch {
-            if !checkPermission() {
+            if shouldTreatCoreGraphicsStateAsPermissionDenied() {
                 throw CaptureError.noPermission
             }
             throw error
@@ -355,7 +391,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         guard rect.width > 0, rect.height > 0 else {
             let desc = rect.debugDescription
             logger.warning("Rejecting degenerate capture rect: \(desc)")
-            throw CaptureError.captureFailed("Zero or negative size rect")
+            throw CaptureError.invalidRegion(reason: desc)
         }
 
         if !sckFailed {
@@ -366,6 +402,9 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                     "SCK captureArea failed: \(error.localizedDescription)"
                 )
                 handleSCKFailure(error)
+                if shouldTreatCaptureErrorAsPermissionDenied(error) {
+                    throw CaptureError.noPermission
+                }
             }
         }
 
@@ -373,7 +412,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
             logger.info("Trying screencapture CLI for area")
             return try await screencaptureArea(rect: rect, screen: screen)
         } catch {
-            if !checkPermission() {
+            if shouldTreatCoreGraphicsStateAsPermissionDenied() {
                 throw CaptureError.noPermission
             }
             throw error
@@ -386,7 +425,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         guard rect.width > 0, rect.height > 0 else {
             let desc = rect.debugDescription
             logger.warning("Rejecting degenerate display-space rect: \(desc)")
-            throw CaptureError.captureFailed("Zero or negative size rect")
+            throw CaptureError.invalidRegion(reason: desc)
         }
 
         if !sckFailed {
@@ -397,6 +436,9 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                     "SCK captureAreaInDisplaySpace failed: \(error.localizedDescription)"
                 )
                 handleSCKFailure(error)
+                if shouldTreatCaptureErrorAsPermissionDenied(error) {
+                    throw CaptureError.noPermission
+                }
             }
         }
 
@@ -404,7 +446,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
             logger.info("Trying screencapture CLI for display-space area")
             return try await screencaptureAreaInDisplaySpace(rect: rect)
         } catch {
-            if !checkPermission() {
+            if shouldTreatCoreGraphicsStateAsPermissionDenied() {
                 throw CaptureError.noPermission
             }
             throw error
@@ -437,7 +479,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                 "SCK captureWindow failed: \(error.localizedDescription)"
             )
             handleSCKFailure(error)
-            if isSCKErrorPermanent(error) || !checkPermission() {
+            if shouldTreatCaptureErrorAsPermissionDenied(error) {
                 throw CaptureError.noPermission
             }
             throw error
@@ -451,21 +493,57 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
 enum CaptureError: LocalizedError {
     case noDisplay
     case noPermission
+    case invalidRegion(reason: String)
+    case timeout(operation: String)
+    case noContent(source: String)
     case captureFailed(String)
     case cancelled
 
-    var errorDescription: String? {
+    var userMessage: String {
         switch self {
         case .noDisplay:
-            return "No display found for capture."
+            return "No display is available for capture. "
+                + "Connect a display and try again."
         case .noPermission:
             return "Screen recording permission is required. "
-                + "Please enable it in System Settings "
-                + "> Privacy & Security > Screen Recording."
-        case .captureFailed(let reason):
-            return "Capture failed: \(reason)"
+                + "Enable Caloura in System Settings > Privacy & Security "
+                + "> Screen Recording, then try again."
+        case .invalidRegion:
+            return "The selected capture area is invalid. "
+                + "Select a larger area and try again."
+        case .timeout(let operation):
+            return "\(operation) timed out. Try again. "
+                + "If it keeps happening, restart Caloura."
+        case .noContent(let source):
+            return "\(source) did not produce an image. Try again."
+        case .captureFailed:
+            return "Capture failed before an image was produced. Try again. "
+                + "If it keeps happening, restart Caloura."
         case .cancelled:
             return "Capture was cancelled."
         }
+    }
+
+    var logMessage: String {
+        switch self {
+        case .noDisplay:
+            return "No display found for capture"
+        case .noPermission:
+            return "Screen recording permission is required"
+        case .invalidRegion(let reason):
+            return "Invalid capture region: \(reason)"
+        case .timeout(let operation):
+            return "\(operation) timed out"
+        case .noContent(let source):
+            return "\(source) returned no image content"
+        case .captureFailed(let reason):
+            return reason
+        case .cancelled:
+            return "Capture was cancelled"
+        }
+    }
+
+    var errorDescription: String? {
+        userMessage
     }
 }

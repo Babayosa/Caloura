@@ -64,6 +64,22 @@ final class EmbeddingStoreTests: XCTestCase {
         store.clear()
     }
 
+    func testFindSimilar_limitsTopKWithoutLosingOrder() {
+        let store = makeTestStore()
+        let top = UUID()
+        let second = UUID()
+        let third = UUID()
+        store.add(screenshotID: top, vector: [1.0, 0.0, 0.0], textHash: "top")
+        store.add(screenshotID: second, vector: [0.8, 0.2, 0.0], textHash: "second")
+        store.add(screenshotID: third, vector: [0.7, 0.3, 0.0], textHash: "third")
+
+        let results = store.findSimilar(to: [1.0, 0.0, 0.0], topK: 2, threshold: 0.0)
+
+        XCTAssertEqual(results.map(\.0), [top, second])
+        XCTAssertGreaterThanOrEqual(results[0].1, results[1].1)
+        store.clear()
+    }
+
     func testLoad_modelVersionMismatch_clearsStore() {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("test-version-mismatch-\(UUID().uuidString).enc")
@@ -76,6 +92,18 @@ final class EmbeddingStoreTests: XCTestCase {
         reader.load()
 
         XCTAssertEqual(reader.count, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    func testLoad_unreadableStore_clearsCorruptedFile() throws {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("test-corrupt-\(UUID().uuidString).enc")
+        try Data("not encrypted".utf8).write(to: url, options: .atomic)
+
+        let store = EmbeddingStore(storeURL: url)
+        store.load()
+
+        XCTAssertEqual(store.count, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
 }

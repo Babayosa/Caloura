@@ -143,11 +143,13 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         XCTAssertEqual(alertCount, 1)
     }
 
-    func testRevalidateAfterSettingsReturnUsesLiveValidationBeforeStaleDecision() async {
+    func testRevalidateAfterSettingsReturnAutoRelaunchesBeforeStaleDecision() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let identity = PermissionTestHelpers.makeIdentity("settings-stale")
         defaults.set("different-fingerprint", forKey: "permissionLastWorkingIdentityFingerprint")
         var passiveChecks = 0
+        var relaunchCount = 0
+        var currentTime = 16_000.0
 
         let coordinator = PermissionCoordinator(
             defaults: defaults,
@@ -160,10 +162,15 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             permissionRequester: { true },
             identityProvider: { identity },
             statusMessageSink: { _ in },
-            now: { Date(timeIntervalSince1970: 16_000 + Double(passiveChecks)) },
-            repairSCKAccess: { .transientFailure }
+            now: {
+                defer { currentTime += 0.8 }
+                return Date(timeIntervalSince1970: currentTime)
+            },
+            repairSCKAccess: { .transientFailure },
+            relaunchApp: { relaunchCount += 1 }
         )
 
+        XCTAssertTrue(coordinator.requestPermissionFromSystem())
         let status = await coordinator.revalidateAfterSettingsReturn(
             timeoutSeconds: 3,
             pollIntervalNanoseconds: 1_000_000,
@@ -171,7 +178,9 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             maxSCKRetries: 3
         )
 
-        XCTAssertEqual(status, .staleRecord)
+        XCTAssertEqual(status, .repairing)
+        XCTAssertEqual(relaunchCount, 1)
+        XCTAssertGreaterThanOrEqual(passiveChecks, 1)
     }
 
     func testExplicitFailureReturnsNeedsRelaunchForSamePathDifferentSigning() async {
@@ -267,6 +276,53 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
             status, .staleRecord,
             "Different path should be staleRecord"
         )
+    }
+
+    func testRefreshPassiveStatusPreservesStaleRecordDiagnosisAfterInteractiveFailure() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+
+        let previousIdentity = PermissionIdentity(
+            bundleIdentifier: "com.caloura.app",
+            executablePath: "/Applications/Caloura.app/Contents/MacOS/Caloura",
+            teamIdentifier: "NG4ML6Q47T",
+            signingIdentityType: "developer-id",
+            designatedRequirementHash: "prod-hash"
+        )
+        defaults.set(
+            previousIdentity.fingerprint,
+            forKey: "permissionLastWorkingIdentityFingerprint"
+        )
+        defaults.set(
+            previousIdentity.executablePath,
+            forKey: "permissionLastWorkingExecutablePath"
+        )
+
+        let currentIdentity = PermissionIdentity(
+            bundleIdentifier: "com.caloura.app.debug",
+            executablePath: "/Users/dev/DerivedData/Caloura/Build/Debug/Caloura.app/Contents/MacOS/Caloura",
+            teamIdentifier: "NG4ML6Q47T",
+            signingIdentityType: "apple-development",
+            designatedRequirementHash: "debug-hash"
+        )
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: { true },
+            interactiveCheck: { .transientFailure },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { currentIdentity },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 23_100) },
+            repairSCKAccess: { .transientFailure }
+        )
+
+        let validationStatus = await coordinator.runUserInitiatedValidation()
+        let refreshStatus = await coordinator.refreshPassiveStatus()
+
+        XCTAssertEqual(validationStatus, .staleRecord)
+        XCTAssertEqual(refreshStatus, .staleRecord)
+        XCTAssertTrue(coordinator.permissionUIModel.shouldShowStaleRecordBanner)
     }
 
     func testReleaseScriptUsesNeutralDmgBackgroundAsset() throws {

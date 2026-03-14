@@ -175,138 +175,27 @@ extension CapturePipeline {
         _ action: CaptureQuickAction,
         for screenshot: ProcessedScreenshot
     ) {
-        appState.lastScreenshot = screenshot
-
-        switch action {
-        case .copy:
-            Task {
-                do {
-                    try await ClipboardManager.copyImage(screenshot)
-                    await MainActor.run {
-                        OnboardingTipsController.shared.showIfNeeded(.share)
-                        self.appState.statusMessage = "Copied image"
-                    }
-                } catch {
-                    await MainActor.run {
-                        self.appState.statusMessage = error.localizedDescription
-                    }
-                }
-            }
-        case .save:
-            Task {
-                do {
-                    _ = try await ScreenshotArtifactCoordinator.shared.saveCapture(screenshot)
-                    await MainActor.run {
-                        OnboardingTipsController.shared.showIfNeeded(.share)
-                        let phase = self.appState.previewPhase(for: screenshot.id)
-                        let alreadyEnriched = phase == .enrichmentPending
-                            || phase == .enrichmentComplete
-                        if !alreadyEnriched {
-                            self.appState.setCapturePreviewPhase(
-                                .enrichmentPending,
-                                for: screenshot.id
-                            )
-                            self.addToHistoryWithOCR(screenshot)
-                        }
-                        self.appState.statusMessage = "Saved to disk"
-                    }
-                } catch {
-                    await MainActor.run {
-                        self.appState.statusMessage = "Save failed: \(error.localizedDescription)"
-                    }
-                }
-            }
-        case .markdown:
-            do {
-                try ClipboardManager.copyAsMarkdown(screenshot)
-                OnboardingTipsController.shared.showIfNeeded(.share)
-                appState.statusMessage = "Copied as Markdown"
-            } catch {
-                appState.statusMessage = error.localizedDescription
-            }
-        case .citation:
-            do {
-                try ClipboardManager.copyWithCitation(screenshot)
-                OnboardingTipsController.shared.showIfNeeded(.share)
-                appState.statusMessage = "Copied with citation"
-            } catch {
-                appState.statusMessage = error.localizedDescription
-            }
-        case .annotate:
-            AppCommandRouter.shared.dispatch(.annotateLastCapture)
-        case .pin:
-            AppCommandRouter.shared.dispatch(.pinScreenshot)
-        case .beautify:
-            AppCommandRouter.shared.dispatch(.beautifyLastCapture)
-        case .redact:
-            AppCommandRouter.shared.dispatch(.redactLastCapture)
-        case .dismiss:
-            QuickAccessOverlay.shared.dismiss()
-        }
+        distributionService.performQuickAction(action, for: screenshot)
     }
 
     func saveLastCapture() {
-        guard let screenshot = appState.lastScreenshot else {
-            appState.statusMessage = "No screenshot available"
-            return
-        }
-        performQuickAction(.save, for: screenshot)
+        distributionService.saveLastCapture()
     }
 
     func copyLastImage() {
-        guard let screenshot = appState.lastScreenshot else {
-            appState.statusMessage = "No screenshot available"
-            return
-        }
-        Task {
-            do {
-                try await ClipboardManager.copyImage(screenshot)
-                await MainActor.run {
-                    OnboardingTipsController.shared.showIfNeeded(.share)
-                    self.appState.statusMessage = "Copied image"
-                }
-            } catch {
-                await MainActor.run {
-                    self.appState.statusMessage = error.localizedDescription
-                }
-            }
-        }
+        distributionService.copyLastImage()
     }
 
     func copyLastAsMarkdown() {
-        guard let screenshot = appState.lastScreenshot else { return }
-        do {
-            try ClipboardManager.copyAsMarkdown(screenshot)
-            OnboardingTipsController.shared.showIfNeeded(.share)
-            appState.statusMessage = "Copied as Markdown"
-        } catch {
-            appState.statusMessage = error.localizedDescription
-        }
+        distributionService.copyLastAsMarkdown()
     }
 
     func copyLastWithCitation() {
-        guard let screenshot = appState.lastScreenshot else { return }
-        do {
-            try ClipboardManager.copyWithCitation(screenshot)
-            OnboardingTipsController.shared.showIfNeeded(.share)
-            appState.statusMessage = "Copied with citation"
-        } catch {
-            appState.statusMessage = error.localizedDescription
-        }
+        distributionService.copyLastWithCitation()
     }
 
     func copyLastOCRText() {
-        guard let lastItem = appState.recentScreenshots.first,
-              let text = lastItem.ocrText, !text.isEmpty else {
-            appState.statusMessage = "No OCR text available"
-            return
-        }
-        do {
-            try ClipboardManager.copyOCRText(text)
-            appState.statusMessage = "Copied OCR text"
-        } catch {
-            appState.statusMessage = error.localizedDescription
-        }
+        distributionService.copyLastOCRText()
     }
 }
 

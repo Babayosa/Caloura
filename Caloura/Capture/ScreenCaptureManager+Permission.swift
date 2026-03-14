@@ -149,12 +149,12 @@ extension ScreenCaptureManager {
         switch result {
         case .authorized:
             logger.info("SCK probe: authorized")
-            sckFailed = false
+            setSCKFailed(false)
             sckFailureCount = 0
         case .userDeclined:
             logger.info("SCK probe: user declined")
             if updatingFailureState {
-                sckFailed = true
+                setSCKFailed(true)
                 logger.error("SCK permanently disabled (user declined)")
             }
         case .transientFailure:
@@ -162,7 +162,7 @@ extension ScreenCaptureManager {
             if updatingFailureState {
                 sckFailureCount += 1
                 if sckFailureCount >= maxTransientFailures {
-                    sckFailed = true
+                    setSCKFailed(true)
                     logger.warning(
                         "SCK disabled after \(self.maxTransientFailures) consecutive transient failures"
                     )
@@ -195,8 +195,8 @@ extension ScreenCaptureManager {
                     }
                     guard image != nil else {
                         continuation.resume(
-                            throwing: CaptureError.captureFailed(
-                                "ScreenCaptureKit returned no probe image"
+                            throwing: CaptureError.noContent(
+                                source: "ScreenCaptureKit permission probe"
                             )
                         )
                         return

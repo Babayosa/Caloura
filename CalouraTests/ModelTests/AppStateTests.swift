@@ -164,8 +164,7 @@ final class AppStateTests: XCTestCase {
         let item = AppStateTestHelpers.makeItem(fileName: "title_test.png")
         appState.addScreenshot(item)
 
-        appState.recentScreenshots[0].title = "Edited Title"
-        appState.saveHistory()
+        appState.renameScreenshot(id: item.id, title: "Edited Title")
 
         XCTAssertEqual(appState.recentScreenshots[0].title, "Edited Title")
     }
@@ -174,14 +173,10 @@ final class AppStateTests: XCTestCase {
         let item = AppStateTestHelpers.makeItem(fileName: "tag_test.png")
         appState.addScreenshot(item)
 
-        // Add tag and save
-        appState.recentScreenshots[0].tags.append("CS101")
-        appState.saveHistory()
+        appState.addTag("CS101", to: item.id)
         XCTAssertEqual(appState.recentScreenshots[0].tags, ["CS101"])
 
-        // Remove tag and save
-        appState.recentScreenshots[0].tags.removeAll { $0 == "CS101" }
-        appState.saveHistory()
+        appState.removeTag("CS101", from: item.id)
         XCTAssertTrue(appState.recentScreenshots[0].tags.isEmpty)
     }
 
@@ -189,34 +184,61 @@ final class AppStateTests: XCTestCase {
         let item = AppStateTestHelpers.makeItem(fileName: "ocr_test.png")
         appState.addScreenshot(item)
 
-        // Set title and tags
-        appState.recentScreenshots[0].title = "My Screenshot"
-        appState.recentScreenshots[0].tags = ["lecture", "bio"]
-        appState.saveHistory()
-
-        // Simulate OCR update (same pattern as CapturePipeline)
-        let existing = appState.recentScreenshots[0]
-        let updated = ScreenshotItem(
-            id: existing.id,
-            timestamp: existing.timestamp,
-            filePath: existing.filePath,
-            fileName: existing.fileName,
-            sourceAppName: existing.sourceAppName,
-            sourceWindowTitle: existing.sourceWindowTitle,
-            captureMode: existing.captureMode,
-            presetName: existing.presetName,
-            ocrText: "Recognized text from OCR",
-            width: existing.width,
-            height: existing.height,
-            title: existing.title,
-            tags: existing.tags
-        )
-        appState.recentScreenshots[0] = updated
-        appState.saveHistory()
+        appState.renameScreenshot(id: item.id, title: "My Screenshot")
+        appState.addTag("lecture", to: item.id)
+        appState.addTag("bio", to: item.id)
+        appState.updateScreenshot(id: item.id) { storedItem in
+            storedItem.ocrText = "Recognized text from OCR"
+        }
 
         XCTAssertEqual(appState.recentScreenshots[0].title, "My Screenshot")
         XCTAssertEqual(appState.recentScreenshots[0].tags, ["lecture", "bio"])
         XCTAssertEqual(appState.recentScreenshots[0].ocrText, "Recognized text from OCR")
+    }
+
+    func testDeleteScreenshot_removesHistoryAndAssociatedState() {
+        let item = AppStateTestHelpers.makeItem(fileName: "delete_test.png")
+        appState.addScreenshot(item)
+        appState.setCapturePreviewPhase(.enrichmentPending, for: item.id)
+        appState.setPIIResult(
+            PIIDetectionResult(
+                detections: [PIIDetection(type: .email, text: "person@example.com", boundingBox: .zero, confidence: 1)],
+                screenshotID: item.id
+            )
+        )
+
+        appState.deleteScreenshot(id: item.id)
+
+        XCTAssertTrue(appState.recentScreenshots.isEmpty)
+        XCTAssertEqual(appState.previewPhase(for: item.id), .rawPreviewReady)
+        XCTAssertNil(appState.piiResult(for: item.id))
+    }
+
+    func testApplyMetadata_updatesGeneratedFields() {
+        let item = AppStateTestHelpers.makeItem(fileName: "metadata_test.png")
+        appState.addScreenshot(item)
+
+        appState.applyMetadata(
+            ScreenshotMetadata(
+                smartFileName: "meeting-notes",
+                summary: "Screenshot of meeting notes.",
+                tags: ["notes", "meeting"]
+            ),
+            to: item.id
+        )
+
+        XCTAssertEqual(appState.recentScreenshots[0].smartFileName, "meeting-notes")
+        XCTAssertEqual(appState.recentScreenshots[0].summary, "Screenshot of meeting notes.")
+        XCTAssertEqual(appState.recentScreenshots[0].autoTags, ["notes", "meeting"])
+    }
+
+    func testMarkEmbeddingVersion_updatesStoredItem() {
+        let item = AppStateTestHelpers.makeItem(fileName: "embedding_test.png")
+        appState.addScreenshot(item)
+
+        appState.markEmbeddingVersion(3, for: item.id)
+
+        XCTAssertEqual(appState.recentScreenshots[0].embeddingVersion, 3)
     }
 
 }

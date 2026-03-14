@@ -85,6 +85,12 @@ struct Annotation: Identifiable {
     }
 }
 
+private enum AnnotationOverlayDrawing {
+    static let lineWidth: CGFloat = 3
+    static let arrowLength: CGFloat = 15
+    static let highlightOpacity: CGFloat = 0.3
+}
+
 // MARK: - Annotation Overlay View
 
 struct AnnotationOverlayView: View {
@@ -239,7 +245,7 @@ struct AnnotationOverlayView: View {
 
     private func drawAnnotation(_ tool: AnnotationTool, start: CGPoint, end: CGPoint,
                                 color: NSColor, lineScale: CGFloat) {
-        let lineWidth = 3 * lineScale
+        let lineWidth = AnnotationOverlayDrawing.lineWidth * lineScale
 
         switch tool {
         case .arrow:
@@ -250,7 +256,7 @@ struct AnnotationOverlayView: View {
             path.line(to: end)
             path.stroke()
 
-            let arrowLength = 15 * lineScale
+            let arrowLength = AnnotationOverlayDrawing.arrowLength * lineScale
             let angle = atan2(end.y - start.y, end.x - start.x)
             let p1 = CGPoint(
                 x: end.x - arrowLength * cos(angle - .pi / 6),
@@ -279,7 +285,7 @@ struct AnnotationOverlayView: View {
             path.stroke()
 
         case .highlight:
-            color.withAlphaComponent(0.3).setFill()
+            color.withAlphaComponent(AnnotationOverlayDrawing.highlightOpacity).setFill()
             let rect = CGRect(
                 x: min(start.x, end.x), y: min(start.y, end.y),
                 width: abs(end.x - start.x), height: abs(end.y - start.y)
@@ -309,7 +315,7 @@ struct AnnotationShape: View {
                 path.move(to: annotation.startPoint)
                 path.addLine(to: annotation.endPoint)
             }
-            .stroke(annotation.color, lineWidth: 3)
+            .stroke(annotation.color, lineWidth: AnnotationOverlayDrawing.lineWidth)
             // Arrowhead (filled triangle — matches save path rendering)
             ArrowHeadShape(end: annotation.endPoint,
                            angle: atan2(annotation.endPoint.y - annotation.startPoint.y,
@@ -318,13 +324,13 @@ struct AnnotationShape: View {
 
         case .rectangle:
             Rectangle()
-                .stroke(annotation.color, lineWidth: 3)
+                .stroke(annotation.color, lineWidth: AnnotationOverlayDrawing.lineWidth)
                 .frame(width: annotation.rect.width, height: annotation.rect.height)
                 .position(x: annotation.rect.midX, y: annotation.rect.midY)
 
         case .highlight:
             Rectangle()
-                .fill(annotation.color.opacity(0.3))
+                .fill(annotation.color.opacity(Double(AnnotationOverlayDrawing.highlightOpacity)))
                 .frame(width: annotation.rect.width, height: annotation.rect.height)
                 .position(x: annotation.rect.midX, y: annotation.rect.midY)
         }
@@ -334,17 +340,16 @@ struct AnnotationShape: View {
 struct ArrowHeadShape: Shape {
     let end: CGPoint
     let angle: CGFloat
-    private let length: CGFloat = 15
 
     func path(in rect: CGRect) -> Path {
         Path { path in
             let p1 = CGPoint(
-                x: end.x - length * cos(angle - .pi / 6),
-                y: end.y - length * sin(angle - .pi / 6)
+                x: end.x - AnnotationOverlayDrawing.arrowLength * cos(angle - .pi / 6),
+                y: end.y - AnnotationOverlayDrawing.arrowLength * sin(angle - .pi / 6)
             )
             let p2 = CGPoint(
-                x: end.x - length * cos(angle + .pi / 6),
-                y: end.y - length * sin(angle + .pi / 6)
+                x: end.x - AnnotationOverlayDrawing.arrowLength * cos(angle + .pi / 6),
+                y: end.y - AnnotationOverlayDrawing.arrowLength * sin(angle + .pi / 6)
             )
             path.move(to: end)
             path.addLine(to: p1)

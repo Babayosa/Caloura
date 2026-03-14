@@ -183,9 +183,14 @@ extension OnboardingView {
         case .waitingForSettingsReturn:
             return "Finish Screen Recording in System Settings"
         case .repairStalePermissionRecord:
-            return permissionPresentation.detail == .staleRecord
-                ? "Fix the Screen Recording record"
-                : "Finish applying Screen Recording"
+            switch permissionPresentation.detail {
+            case .staleRecord:
+                return "Fix the Screen Recording record"
+            case .grantedNeedsValidation:
+                return "Finish validating Screen Recording"
+            default:
+                return "Finish applying Screen Recording"
+            }
         default:
             return "Grant Screen Recording when you’re ready"
         }
@@ -194,11 +199,16 @@ extension OnboardingView {
     private var permissionBody: String {
         switch flow.currentState {
         case .waitingForSettingsReturn:
-            return "Enable Caloura in System Settings, then return here. Caloura will re-check automatically as soon as you come back."
+            return "In System Settings, click the \"+\" button, select Caloura, and enable it. Then return here — Caloura will re-check automatically."
         case .repairStalePermissionRecord:
-            return permissionPresentation.detail == .staleRecord
-                ? "macOS is still pointing Screen Recording at a different Caloura copy. Use the installed app and refresh the permission once."
-                : "macOS has the permission record, but the current app process still needs a clean relaunch."
+            switch permissionPresentation.detail {
+            case .staleRecord:
+                return "macOS is still pointing Screen Recording at a different Caloura copy. Use the installed app and refresh the permission once."
+            case .grantedNeedsValidation:
+                return "Caloura has a matching Screen Recording record, but macOS still needs one successful live validation before capture can continue."
+            default:
+                return "macOS has the permission record, but the current app process still needs a clean relaunch."
+            }
         default:
             return "Caloura only asks for Screen Recording when you start a real capture."
         }

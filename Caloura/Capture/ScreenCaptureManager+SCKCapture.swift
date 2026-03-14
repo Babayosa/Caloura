@@ -55,8 +55,8 @@ extension ScreenCaptureManager {
                 }
                 guard let image else {
                     continuation.resume(
-                        throwing: CaptureError.captureFailed(
-                            "ScreenCaptureKit returned no image"
+                        throwing: CaptureError.noContent(
+                            source: "ScreenCaptureKit screenshot"
                         )
                     )
                     return
@@ -139,7 +139,7 @@ extension ScreenCaptureManager {
             shareableContent = try await self.shareableContent()
         } catch {
             handleSCKFailure(error)
-            if isSCKErrorPermanent(error) || !checkPermission() {
+            if shouldTreatCaptureErrorAsPermissionDenied(error) {
                 throw CaptureError.noPermission
             }
             throw error
@@ -157,7 +157,7 @@ extension ScreenCaptureManager {
                 refreshedContent = try await self.shareableContent(forceRefresh: true)
             } catch {
                 handleSCKFailure(error)
-                if isSCKErrorPermanent(error) || !checkPermission() {
+                if shouldTreatCaptureErrorAsPermissionDenied(error) {
                     throw CaptureError.noPermission
                 }
                 throw error
@@ -187,7 +187,7 @@ extension ScreenCaptureManager {
                 "SCK captureFrozenDisplaySnapshot failed: \(error.localizedDescription)"
             )
             handleSCKFailure(error)
-            if isSCKErrorPermanent(error) || !checkPermission() {
+            if shouldTreatCaptureErrorAsPermissionDenied(error) {
                 throw CaptureError.noPermission
             }
             throw error

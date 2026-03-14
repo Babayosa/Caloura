@@ -4,6 +4,246 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 20: Severe production audit
+**Status:** Complete
+**Branch:** `codex/task-20-severe-production-audit`
+**Changes:**
+- Replaced the remaining type-ID-guarded `unsafeBitCast(...)` bridges in [PermissionCoordinator.swift](/Users/b/Caloura/Caloura/Capture/PermissionCoordinator.swift) and [ScrollCaptureTypes.swift](/Users/b/Caloura/Caloura/Capture/ScrollCaptureTypes.swift)
+- Hardened [WindowPickerManager.swift](/Users/b/Caloura/Caloura/Capture/WindowPickerManager.swift) so picker presentation crosses one main-actor boundary, stale scheduled presentations are cancelled, and back-to-back `pickWindow()` calls cannot surface stale UI
+- Made [EmbeddingStore.swift](/Users/b/Caloura/Caloura/Models/EmbeddingStore.swift) self-heal unreadable encrypted cache payloads and added a corruption regression in [EmbeddingStoreTests.swift](/Users/b/Caloura/CalouraTests/ProcessingTests/EmbeddingStoreTests.swift)
+- Converted the remaining actor-isolated XCTest lifecycle overrides in the touched fixtures to nonisolated overrides with `MainActor.assumeIsolated`, removing audit-noise concurrency warnings from the final validation pass
+- Updated [permission_diagnose.sh](/Users/b/Caloura/scripts/permission_diagnose.sh) to separate installed-app permission logs from `xctest` failure-path logs so operational diagnosis no longer misreads healthy app state after tests
+- Revalidated with `swift build`, `swiftlint lint --quiet`, `swift test`, `xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData`, `xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData -only-testing:CalouraSystemTests/CaptureSystemTests`, `scripts/permission_diagnose.sh`, and `scripts/perf_audit.sh --strict --min-samples 5`
+
+**Decisions Made:**
+- Treat audit infrastructure issues as real production-readiness work when they can misdiagnose healthy installed-app state or hide true runtime failures
+- Keep the window-picker hardening local to presentation timing and stale-session cancellation instead of broadening it into a larger picker abstraction
+- Treat the embedding store as a disposable encrypted cache: unreadable payloads should self-heal loudly enough for debugging but not create a permanent startup-error loop
+
+---
+
+## Task 19: Capture entrypoint hardening
+**Status:** Complete
+**Branch:** `codex/task-19-capture-entrypoint-hardening`
+**Changes:**
+- Extracted [CaptureEntrypointService.swift](/Users/b/Caloura/Caloura/App/CaptureEntrypointService.swift) plus [CaptureEntrypointService+OverlaySessions.swift](/Users/b/Caloura/Caloura/App/CaptureEntrypointService+OverlaySessions.swift) so area, fullscreen, window, repeat, and delayed capture startup/teardown no longer live inline in `CapturePipeline`
+- Added [CaptureSessionState.swift](/Users/b/Caloura/Caloura/App/CaptureSessionState.swift) and [CapturePipeline+SessionState.swift](/Users/b/Caloura/Caloura/App/CapturePipeline+SessionState.swift) so overlay/session references, delayed countdown ownership, tracked session IDs, and first-mouse-down bookkeeping move out of the main pipeline type
+- Updated [CapturePipeline+EntryPoints.swift](/Users/b/Caloura/Caloura/App/CapturePipeline+EntryPoints.swift) to keep low-level area/fullscreen/window operations while delegating orchestration to the new entrypoint service, and updated [CapturePipeline+ScrollCapture.swift](/Users/b/Caloura/Caloura/App/CapturePipeline+ScrollCapture.swift) to reuse the shared tracked-session helpers
+- Added [CapturePipelineEntryPointLifecycleTests.swift](/Users/b/Caloura/CalouraTests/AppTests/CapturePipelineEntryPointLifecycleTests.swift) with focused coverage for stale frozen-image cancellation, fullscreen multi-display cancel symmetry, and delayed-task cleanup
+- Regenerated [project.pbxproj](/Users/b/Caloura/Caloura.xcodeproj/project.pbxproj) so the new source and test files are included in Xcode builds
+- Revalidated with `xcodegen generate`, `swift build`, `swiftlint lint --quiet`, `swift test`, and `xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData`
+
+**Decisions Made:**
+- Move capture entry behavior and its small shared mutable state together, rather than extracting orchestration into a helper that still mutates a long list of scattered `CapturePipeline` properties
+- Keep scroll capture execution inside `CapturePipeline` for now, but route its session-ID and first-interaction bookkeeping through the same shared session-state helpers used by area/fullscreen entry flows
+- Preserve the existing public façade methods on `CapturePipeline` so UI and command callers do not need interface churn during the hot-path refactor
+
+---
+
+## Task 18: Capture execution split
+**Status:** Complete
+**Branch:** `codex/task-18-capture-execution-split`
+**Changes:**
+- Extracted [CaptureExecutionService.swift](/Users/b/Caloura/Caloura/App/CaptureExecutionService.swift) so request resolution, image processing, raw preview publication, distribution, deferred save/enrichment scheduling, and failure handling no longer live inline in `CapturePipeline`
+- Updated [CapturePipeline.swift](/Users/b/Caloura/Caloura/App/CapturePipeline.swift) to keep entry-point orchestration and capture-session state while delegating post-capture work to the new execution service
+- Added [CaptureExecutionServiceTests.swift](/Users/b/Caloura/CalouraTests/AppTests/CaptureExecutionServiceTests.swift) with focused coverage for preview ordering, permission failure routing, generic failure messaging, and deferred save/enrichment completion
+- Regenerated [project.pbxproj](/Users/b/Caloura/Caloura.xcodeproj/project.pbxproj) so the new source and test files are included in Xcode builds
+- Revalidated with `xcodegen generate`, `swift build`, `swiftlint lint --quiet`, `swift test`, and `xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData`
+
+**Decisions Made:**
+- Keep `CapturePipeline` as the owner of capture entry points, overlay/session state, and coordinator creation, rather than broadening the extraction into a larger architecture change
+- Move the entire post-capture path together into one service so preview/distribution/save/enrichment behavior stays co-located and directly testable
+- Preserve the existing UX contract that raw preview becomes visible before clipboard work and before deferred enrichment finishes
+
+---
+
+## Task 15: Permission + capture production audit
+**Status:** Complete  
+**Branch:** `codex/task-15-permission-capture-audit`  
+**Changes:**
+- Audited the Screen Recording state machine and fixed a regression where `refreshPassiveStatus()` could erase an explicit `.needsRelaunch` or `.staleRecord` diagnosis and collapse the UI back to `.grantedNeedsValidation`
+- Extracted a shared `onboardingFlowState(for:hasCompletedOnboarding:)` helper and reused it from both launch and permission-repair entrypoints so repair UI no longer shows `.completed` while Screen Recording still needs validation
+- Removed duplicate AppKit activation from the window-capture entry path by leaving activation ownership inside `WindowCaptureSessionCoordinator`
+- Added regression coverage for preserved permission diagnoses, shared onboarding mapping, and single-activation window picker presentation
+- Revalidated with `swift build`, `swiftlint lint --quiet`, `swift test`, `xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData`, `xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData -only-testing:CalouraSystemTests/CaptureSystemTests`, `scripts/permission_diagnose.sh`, and `scripts/perf_audit.sh --strict --min-samples 5`
+
+**Decisions Made:**
+- Keep explicit permission-failure preservation in memory only, scoped to the current app identity, so a live failure stays actionable within the current run without turning passive startup mismatches into stale-record failures
+- Centralize Screen Recording onboarding-state mapping in one helper rather than maintaining parallel switch statements in app launch and command routing
+- Keep window activation at the picker coordinator boundary so the window-capture hot path has one activation owner and one timing source
+
+---
+
+## Task 16: Permission state core normalization
+**Status:** Complete
+**Branch:** `codex/task-16-permission-state-core`
+**Changes:**
+- Centralized Screen Recording passive-state resolution and terminal status publication inside `PermissionCoordinator` so passive refresh, interactive validation, settings-return revalidation, and capture-failure repair all share the same working / denied / explicit-failure side effects
+- Added focused regression coverage proving that a fresh `requestPermissionFromSystem()` clears a previously diagnosed `.needsRelaunch` state and returns the coordinator to `.grantedNeedsValidation` until live validation succeeds again
+- Tightened `CaptureEnrichmentCoordinatorTests` so the full suite no longer flakes on a fabricated start-order assumption when two enrichment jobs are allowed to begin concurrently
+- Regenerated `Caloura.xcodeproj` so the new focused permission test is included in Xcode builds
+- Revalidated with `xcodegen generate`, `swift build`, `swiftlint lint --quiet`, and `swift test` (489 tests passing)
+
+**Decisions Made:**
+- Funnel all Screen Recording status publication through shared helper paths rather than repeating diagnosis-clearing and working-state side effects at each call site
+- Keep the normalization scoped to the permission coordinator; the only extra code change outside that area was the test-only fix required to make the full validation suite deterministic again
+- For concurrent enrichment tests, assert the causal relationship that matters (slot opens before the queued job starts) instead of assuming scheduler order between jobs that may legitimately start in either order
+
+---
+
+## Task 17: Permission core split
+**Status:** Complete
+**Branch:** `codex/task-17-permission-core-split`
+**Changes:**
+- Extracted a pure `PermissionStatusCore` plus `PermissionStatusContext` so passive status resolution, explicit failure classification, permission UI model rendering, and non-blocking permission copy no longer live directly inside `PermissionCoordinator`
+- Kept `PermissionCoordinator` as the owner of live validation, repair orchestration, persistence, cooldown state, and status publication side effects while delegating rule evaluation to the new core
+- Added direct regression coverage for the extracted permission-rule engine and regenerated the Xcode project so the new source/test files are part of app-scheme builds
+- Revalidated with `xcodegen generate`, `swift build`, `swiftlint lint --quiet`, `swift test`, and `xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData`
+
+**Decisions Made:**
+- Split only the pure rule engine out of the coordinator; keep repair, persistence, and orchestration behavior in the coordinator so this stays an internal refactor instead of a permission-architecture rewrite
+- Test the extracted rule engine directly rather than only through coordinator integration paths, so future permission-copy or classification changes fail closer to the source of truth
+
+---
+
+## Task 14: Cursor-first capture hardening
+**Status:** Complete  
+**Branch:** `codex/task-14-cursor-hardening`  
+**Changes:**
+- Moved shared crosshair-session startup ahead of area/fullscreen overlay presentation so cursor ownership is established before any capture panel becomes visible
+- Removed the cursor watchdog timer, kept reassertion on real window/view events, and added key-transition hooks on capture overlays to re-prime the crosshair when the active panel becomes key
+- Replaced the cursor controller's `.set()`-based reassertion with balanced pop/push reinstallation, plus a coalesced next-turn re-prime and `didBecomeActive` coverage so AppKit's first cursor recomputation cannot easily reclaim the arrow
+- Changed area/fullscreen overlay presenters to front the mouse-screen panel first and keep the remaining overlays non-key to reduce cursor churn on multi-display entry
+- Added focused controller coverage for deferred cursor re-prime coalescing/cancellation, plus stronger coordinator and system assertions for real overlay reassertion and single-key-window behavior
+- Revalidated with `swift build`, `swiftlint lint --quiet`, `swift test`, `xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData`, and `xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData -only-testing:CalouraSystemTests/CaptureSystemTests`
+
+**Decisions Made:**
+- Keep the hardening on the shared session/overlay path so area and fullscreen stay behaviorally aligned
+- Use an injected overlay-presenter seam in the coordinators for deterministic ordering tests instead of adding broader production abstractions
+- Treat “first visible cursor frame” as the target and remove timer-based cursor polling in favor of explicit presentation, key-window ordering, and a single bounded deferred re-prime
+
+---
+
+## Audit Task 06: Access control tightening
+**Status:** Complete  
+**Branch:** `codex/task-06-access-control`  
+**Changes:**
+- Tightened `CapturePipeline.overlayWindows`, `screenOverlays`, `areaCaptureSession`, `fullscreenCaptureSession`, and `delayedCaptureTask` to `private(set)` in `Caloura/App/CapturePipeline.swift`
+- Routed `CapturePipeline` state mutation through same-file helper methods so extension-based entry points and scroll capture logic can still update session state without exposing writable properties module-wide
+- Tightened `ScreenCaptureManager.sckFailed` to `private(set)` and replaced direct test mutation with an explicit DEBUG test seam
+- Tightened `URLSchemeHandler.lastHandledDate` to `private(set)` and replaced direct test mutation with `resetThrottleForTesting()`
+- Restricted `captureAllScreens()` in `Caloura/App/CapturePipeline+FreezeCapture.swift` to `private`
+- Revalidated with `swift build`, `swiftlint`, and `swift test` (465 tests passing)
+
+**Decisions Made:**
+- Use type-owned helper methods instead of broader setters for `CapturePipeline` because the mutable state is written from extension files and `private(set)` alone would have broken those writes
+- Keep the new mutating seams narrow and task-scoped rather than refactoring unrelated mutable state like `captureSessionID` or `sckFailureCount`
+- Preserve test coverage by replacing writable-global/property access with explicit DEBUG-only reset/set helpers where read-only production access was required
+
+---
+
+## Audit Task 05: Concurrency safety audit
+**Status:** Complete  
+**Branch:** `codex/task-05-concurrency`  
+**Changes:**
+- Audited every source-level concurrency escape hatch and documented the findings in `codex/tasks/audit-05-concurrency.md`, including current counts, per-site assessments, strict-concurrency probe evidence, and a Swift 6 migration roadmap
+- Removed three `nonisolated(unsafe)` sites from `HistoryView` by replacing the thumbnail cache/metrics globals with an actor-backed `HistoryThumbnailStore`
+- Fixed a real DEBUG-only synchronization bug in `HistoryCrypto` by routing override reads and writes through the same `keyQueue` that guards the cached key, then resolved the resulting SwiftPM test crash by making queue-backed helper access reentrant-safe
+- Added locking to `DefaultScrollDriver` so its `@unchecked Sendable` conformance matches the `ScrollDriving: Sendable` contract
+- Removed unnecessary unchecked sendability from `ScrollCaptureOutput` and `ScrollStitchResult` now that `CGImage` is Sendable on this toolchain
+- Revalidated with `swift build -Xswiftc -strict-concurrency=complete -Xswiftc -warn-concurrency`, `swift build`, `swiftlint`, and `swift test` (465 tests passing)
+
+**Decisions Made:**
+- Treat the reported `ScreenCaptureManager` and `CapturePipeline` race candidates as actor-isolated false positives after verifying all mutable state stays on `@MainActor`
+- Keep `@preconcurrency` on ScreenCaptureKit, Sparkle, and the ScreenCaptureKit observer bridge because the macOS 26.2 SDK still lacks the needed Sendable annotations
+- Leave the remaining `HistoryCrypto` globals on `nonisolated(unsafe)` for now, but only after tightening all access through the external queue and documenting them as Swift 6 blockers
+- Keep the `HistoryCrypto` external-queue design for this task, but make nested helper reads reentrant-safe instead of broadening the refactor into an actor migration
+
+---
+
+## Audit Task 04: Error handling hardening
+**Status:** Complete  
+**Branch:** `codex/task-04-error-handling`  
+**Changes:**
+- Added structured `CaptureError` cases for invalid regions, timeouts, and no-content failures, and moved known ScreenCaptureKit / CLI empty-image paths onto those cases instead of generic string failures
+- Updated `CapturePipeline` to turn capture failures into actionable status messages while preserving technical detail in logs, including a timeout mapping for non-`CaptureError` timeout failures
+- Mapped `ScrollCaptureError` outcomes to user-friendly scroll-specific recovery messages and aligned the scroll progress overlay with the same failure wording
+- Documented the SCK permission-denial boundary in `shouldTreatCaptureErrorAsPermissionDenied`, including the `SCStreamError.userDeclined` (`-3801`) classification
+- Added focused regression coverage for structured capture errors, timeout messaging, and SCK user-declined permission classification; revalidated with `swift build`, `swiftlint`, and `swift test` (465 tests passing)
+
+**Decisions Made:**
+- Keep technical failure context in `logMessage` and reserve `errorDescription` / status text for recovery-oriented guidance
+- Introduce timeout handling at the pipeline boundary instead of adding new capture-operation deadlines in this task
+- Limit structured-case replacement to well-known invalid-region and empty-image paths, leaving truly unknown capture failures on the generic fallback path
+
+---
+
+## Audit Task 03: Singleton dependency audit
+**Status:** Complete  
+**Branch:** `codex/task-03-singletons`  
+**Changes:**
+- Audited all 25 custom `.shared` singletons and wrote the findings to `codex/tasks/audit-03-singletons.md`
+- Counted distinct access-file fanout for each singleton across app and test code, then classified every item into Tier 1 / Tier 2 / Tier 3
+- Cross-referenced the singleton catalog with the known test pollution issues around `AppSettings.shared.activePreset`, `AppState.shared.statusMessage`, and the singleton-adjacent `URLSchemeHandler.lastHandledDate`
+- Added concrete DI blueprints for the Tier 1 set: `AppSettings`, `AppState`, `AppCommandRouter`, `PermissionCoordinator`, `CapturePipeline`, and `ScreenshotArtifactCoordinator`
+- Revalidated with `swift build`, `swiftlint`, and `swift test` (460 tests passing)
+
+**Decisions Made:**
+- Treat the singleton problem as concentrated debt in a small set of mutable root services, not a flat “all 25 are equally urgent” cleanup
+- Use access-file fanout plus existing test pollution as the threshold for Tier 1, rather than raw singleton count alone
+- Prefer call-site refactors for services that already have injectable constructors before rewriting their internals
+
+---
+
+## Audit Task 02: Magic number extraction
+**Status:** Complete  
+**Branch:** `codex/task-02-magic-numbers`  
+**Changes:**
+- Added shared scroll-capture thresholds for minimum alignment confidence and minimum meaningful displacement, and replaced the duplicated `0.35` / displacement-threshold call sites across the engine, automatic fallback logic, and displacement helper
+- Replaced raw CGEvent scroll phase integers in the default scroll driver with a named `ScrollGesturePhase` enum
+- Extracted duplicated annotation drawing constants for line width, arrowhead length, and highlight opacity so the live overlay and saved-image rendering paths share one source of truth
+- Revalidated with `swift build`, `swiftlint`, and `swift test` (460 tests passing)
+
+**Decisions Made:**
+- Keep the task limited to duplicated behavioral thresholds and raw event phase values; do not sweep unrelated `12` literals that represent different concepts like sticky-header detection or UI spacing
+- Reuse the same confidence threshold for the displacement helper's vision fallback so confidence acceptance and fallback confidence stay aligned by construction
+- Limit the `AnnotationOverlay` cleanup to rendering constants that were duplicated between preview and save paths, rather than turning layout values into a broad style-token pass
+
+---
+
+## Audit Task 01: Lint suppression removal
+**Status:** Complete  
+**Branch:** `task-01-lint-suppression`  
+**Changes:**
+- Removed every `swiftlint:disable` / `swiftlint:enable` directive from `Caloura/`
+- Split scroll-capture source into focused files for AX bridges, protocols, engine flow, automatic/manual capture logic, accessibility helpers, bitmap preparation, displacement analysis, stitching, and geometry
+- Replaced the AX CoreFoundation bridge force casts with guarded `unsafeBitCast(...)` wrappers and replaced `PIIDetector`'s forced regex initialization with fail-fast compiled patterns
+- Refactored `CapturePipeline.captureArea()` into smaller helpers, moved the welcome tab view out of `PreferencesView.swift`, and updated scroll-capture tests plus production call sites for the new request/settling parameter objects
+- Revalidated with `swift build`, `swiftlint`, and `swift test` (460 tests passing)
+
+**Decisions Made:**
+- Keep the task strictly scoped to removing source suppressions and the minimum refactors needed to satisfy that cleanup; do not expand into broader warning-reduction work outside the affected surfaces
+- Use parameter objects where signature width was the actual lint pressure point (`ScrollCaptureEngine.Request`, `ScrollSettleRequest`) instead of weakening access or reintroducing local suppression
+- Preserve existing scroll-capture behavior by updating both production seams and synthetic-test doubles in the same refactor
+
+---
+
+## Task 13: Capture pipeline + command-surface refactor
+**Status:** Complete  
+**Branch:** `codex/task-13-post-grant-fix`  
+**Changes:**
+- Extracted capture orchestration collaborators: `CaptureRequestResolver`, `CaptureDistributionService`, `CaptureEnrichmentService`, and `AppCommandController`
+- Moved history-editing writes behind explicit `AppState` mutation APIs and updated `HistoryView` plus capture enrichment paths to stop mutating persistence and embedding state directly from views
+- Unified last-capture distribution actions with the same shared distribution path used by quick actions, and added characterization coverage for copy/save behavior plus the new `AppState` mutations
+- Removed dead `CaptureWindow.swift`, aligned `Package.swift` to `KeyboardShortcuts` 2.4.0, and regenerated `Caloura.xcodeproj` after the file deletion so Xcode builds stayed in sync
+- Revalidated the refactor with `swift build`, `swiftlint`, `swift test --enable-code-coverage`, and `xcodebuild test -only-testing:CalouraSystemTests`
+
+**Decisions Made:**
+- Keep the permission coordinator refactor separate from the active permission-loop work; this slice focused on capture/runtime seams, history ownership, and dead-code cleanup only
+- Prefer sendable dependency bundles over `@unchecked Sendable` when moving enrichment work behind async coordinators
+- Treat Xcode project regeneration as part of dead-code removal, not just new-file additions
+
+
 ## Task 10: Capture overlay + freeze snapshot hardening
 **Status:** Complete  
 **Branch:** `codex/task-10-capture-overlay-hardening`  
@@ -210,6 +450,140 @@ Running log of completed tasks. Read this to understand what changed before your
 **Decisions Made:**
 - Use a SwiftPM library target excluding `Caloura/App/CalouraApp.swift` to avoid duplicate `@main`
 - Disable several SwiftLint rules to avoid failing on legacy code until cleanup work
+
+---
+
+## Task 13: Screen Recording post-grant detection fix
+**Status:** Complete
+**Branch:** codex/task-13-post-grant-fix
+**Changes:**
+- Reworked post-Settings Screen Recording revalidation so `PermissionCoordinator` no longer waits for `CGPreflightScreenCaptureAccess()` to flip before attempting live SCK validation
+- Added recent permission-request session tracking, current-process live-validation caching, and one-time pending-capture resume across automatic relaunch
+- Updated onboarding and launch flow so stale in-process CG results keep the user in the waiting path instead of bouncing back to the grant screen
+- Tightened capture error classification so stale CG false no longer turns transient post-grant capture failures into `.noPermission`
+- Stopped showing the repaired/completed onboarding state for `grantedNeedsValidation`, and kept same-copy stale CG false in the validation/repair path instead of reopening System Settings immediately
+- Narrowed stale-CG suppression so historical “last working” state no longer blocks a fresh `CGRequestScreenCaptureAccess()` prompt after TCC reset, while the one auto-relaunch path recreates the recent request session in memory
+- Updated README, CLAUDE rules, and lessons to treat CG as coarse and SCK as authoritative after an explicit grant attempt
+
+**Decisions Made:**
+- Use one automatic self-relaunch only as the last resort after a 10s post-Settings grace window
+- Resume the pending first capture automatically after that relaunch instead of dumping the user back into generic onboarding
+
+---
+
+## Task 07: Test flakiness hardening
+**Status:** Complete
+**Branch:** codex/task-07-test-flakiness
+**Changes:**
+- Replaced timing-based synchronization in flaky capture and scroll tests with deterministic async gating via `AsyncGate`
+- Routed deferred-history waits and window-picker readiness checks through the shared polling helper instead of ad hoc `Task.sleep` loops
+- Increased the named flaky poll timeouts called out by the audit plan and kept `pollUntil(...)` fail-fast on timeout
+- Added fixture-level restoration for `AppSettings.shared.activePreset`, `AppState.shared.statusMessage`, and `URLSchemeHandler.lastHandledDate` to stop global state leakage between tests
+- Added a DEBUG-only `URLSchemeHandler.setLastHandledDateForTesting(_:)` seam so tests can restore throttle state without reopening access control
+
+**Decisions Made:**
+- Prefer explicit gates and expectations over sub-200ms sleeps for async test ordering
+- Restore shared singleton-backed test state in `tearDown()` instead of scattered per-test teardown blocks
+
+---
+
+## Task 08: ScrollCapture decomposition
+**Status:** Complete
+**Branch:** codex/task-08-scroll-decompose
+**Changes:**
+- Moved the shared scroll-capture enums, frame/viewport models, AX handle wrappers, error type, and protocols into [ScrollCaptureTypes.swift](/Users/b/Caloura/Caloura/Capture/ScrollCaptureTypes.swift)
+- Removed the now-redundant [ScrollCaptureAXHandles.swift](/Users/b/Caloura/Caloura/Capture/ScrollCaptureAXHandles.swift) and [ScrollCaptureProtocols.swift](/Users/b/Caloura/Caloura/Capture/ScrollCaptureProtocols.swift) files
+- Reduced [ScrollCaptureEngine.swift](/Users/b/Caloura/Caloura/Capture/ScrollCaptureEngine.swift) to engine-specific request/session/result orchestration only
+- Regenerated [Caloura.xcodeproj/project.pbxproj](/Users/b/Caloura/Caloura.xcodeproj/project.pbxproj) so the tracked Xcode project matches the source-file rename and deletions
+
+**Decisions Made:**
+- Centralize reusable scroll-capture declarations in one dedicated types file instead of spreading them across a protocol file and an AX-handle file
+- Leave engine-only request/session/result helpers nested on `ScrollCaptureEngine` so the new types file stays limited to shared declarations
+
+---
+
+## Task 09: Security audit
+**Status:** Complete
+**Branch:** codex/task-09-security
+**Changes:**
+- Added [audit-09-security.md](/Users/b/Caloura/codex/tasks/audit-09-security.md) covering crypto, license, PII, entitlements, and build-config review
+- Rated one High-severity licensing area and four lower-severity areas with concrete evidence from source files
+- Verified from code inspection that release builds require signed entitlements and do not use the configured license key value in any repo-local signing path
+
+**Decisions Made:**
+- Treat the legacy activation reconstruction path and defaults-backed trial anchor as one release-blocking licensing area
+- Record the configured entitlement key as provenance-unverified rather than calling it definitively public from static code inspection alone
+
+---
+
+## Task 10: Performance & memory audit
+**Status:** Complete
+**Branch:** codex/task-10-performance
+**Changes:**
+- Added [audit-10-performance.md](/Users/b/Caloura/codex/tasks/audit-10-performance.md) covering scroll-capture memory, history scaling, thumbnail caching, embedding search, debounce behavior, and startup blocking
+- Cached shared `NLEmbedding` instances in [EmbeddingEngine.swift](/Users/b/Caloura/Caloura/Processing/EmbeddingEngine.swift) and changed [EmbeddingStore.swift](/Users/b/Caloura/Caloura/Models/EmbeddingStore.swift) to keep only the bounded top-K matches instead of sorting every candidate
+- Moved semantic-search work off the UI task path and wrapped thumbnail decoding in an autorelease pool in [HistoryView.swift](/Users/b/Caloura/Caloura/UI/HistoryView.swift)
+- Reduced scroll-capture peak memory by wrapping frame preparation in autorelease pools and removing the stitched-canvas copy in [ScrollCaptureHelpers+Stitching.swift](/Users/b/Caloura/Caloura/Capture/ScrollCaptureHelpers+Stitching.swift)
+- Replaced raw `NSApp.activate(...)` callsites in the AppKit capture path with `NSApplication.shared.activate(...)` so SwiftPM window-capture tests no longer trap on a nil app singleton
+- Added targeted regression coverage for top-K embedding ordering in [EmbeddingStoreTests.swift](/Users/b/Caloura/CalouraTests/ProcessingTests/EmbeddingStoreTests.swift)
+
+**Decisions Made:**
+- Treat startup history/embedding hydration as a documented medium-severity finding rather than changing launch semantics in the same task
+- Keep the history-scaling item as an architectural finding because the current 50-item cap makes pagination a product-scope change, not a low-risk optimization
+- Use `swift test --parallel --num-workers 1` for the final full-suite validation because the default SwiftPM driver continued emitting runner-level signal errors around otherwise-passing AppKit tests, while the one-worker run completed all 466 tests cleanly
+
+---
+
+## Task 11: Dead code detection
+**Status:** Complete
+**Branch:** codex/task-11-dead-code
+**Changes:**
+- Added [audit-11-dead-code.md](/Users/b/Caloura/codex/tasks/audit-11-dead-code.md) documenting the method audit, type-alias audit, model-property audit, `KeychainHelper` lifecycle, and `UITestHostWindowController` production-build check
+- Removed confirmed dead API from [AppState.swift](/Users/b/Caloura/Caloura/Models/AppState.swift), [CapturePipeline.swift](/Users/b/Caloura/Caloura/App/CapturePipeline.swift), and [ProcessedScreenshot.swift](/Users/b/Caloura/Caloura/Models/ProcessedScreenshot.swift)
+- Updated [CapturePipelineTestHelpers.swift](/Users/b/Caloura/CalouraTests/Helpers/CapturePipelineTestHelpers.swift) to keep the test save-file seam local instead of routing it through dead `CapturePipeline` initializer surface
+- Wrapped [UITestHostWindowController.swift](/Users/b/Caloura/Caloura/App/UITestHostWindowController.swift) in `#if DEBUG` and switched [CalouraApp.swift](/Users/b/Caloura/Caloura/App/CalouraApp.swift) to a DEBUG-only UI-test-host path so release builds no longer compile the host window controller
+- Corrected the stale lifecycle comment in [KeychainHelper.swift](/Users/b/Caloura/Caloura/Security/KeychainHelper.swift) to reflect its live `HistoryCrypto` dependency
+
+**Decisions Made:**
+- Treat `AppState.upsertScreenshot(_:)`, `AppState.saveHistory()`, `CapturePipeline.SaveFileFn`, the matching test initializer parameter, `ProcessedScreenshotImageFormat`, and `ProcessedScreenshot.encodedImageData(format:)` as safe removals because repo-wide searches found no live callers beyond their own definitions or dead test seams
+- Keep `ScreenshotItem.captureMode` in place even though it is not read by current UI logic, because it is part of the persisted history schema and removing it would change on-disk payloads without a clear migration payoff
+- Keep `KeychainHelper.swift` because `HistoryCrypto` still uses it for the active history root key path and `AppSettings` still uses it for legacy license migration
+- Re-use `swift test --parallel --num-workers 1` for the final green test signal because plain `swift test` still reproduced the known SwiftPM harness-level signal-11 failure during an otherwise-passing AppKit-heavy run
+
+---
+
+## Task 12: Test coverage gaps
+**Status:** Complete
+**Branch:** codex/task-12-test-coverage
+**Changes:**
+- Added [CaptureEnrichmentCoordinatorTests.swift](/Users/b/Caloura/CalouraTests/AppTests/CaptureEnrichmentCoordinatorTests.swift) with 5 focused tests covering FIFO scheduling, concurrency limits, duplicate deduplication, cancellation, and slot handoff behavior
+- Added [CaptureDistributionServiceTests.swift](/Users/b/Caloura/CalouraTests/AppTests/CaptureDistributionServiceTests.swift) covering the save-path double-enrichment guard when preview state is already pending or OCR text is already present
+- Added [AppCommandControllerTests.swift](/Users/b/Caloura/CalouraTests/AppTests/AppCommandControllerTests.swift) and introduced a narrow routing seam in [AppCommandController.swift](/Users/b/Caloura/Caloura/App/AppCommandController.swift) so command dispatch can be verified without driving `CapturePipeline.shared`
+- Hardened [CaptureDistributionService.swift](/Users/b/Caloura/Caloura/App/CaptureDistributionService.swift) so save-triggered enrichment is skipped when OCR text is already attached to the screenshot
+- Added [audit-12-coverage.md](/Users/b/Caloura/codex/tasks/audit-12-coverage.md) documenting new coverage, pre-existing `CapturePipeline.performCapture` error coverage, and UI-heavy areas that remain better suited to system tests
+- Reworked [EmbeddingEngine.swift](/Users/b/Caloura/Caloura/Processing/EmbeddingEngine.swift) to keep cached `NLEmbedding` access behind a locked helper so the Xcode app-scheme build accepts the cache as concurrency-safe
+- Replaced the exact-once background expectation in [CapturePipelineTests.swift](/Users/b/Caloura/CalouraTests/AppTests/CapturePipelineTests.swift) with a locked counter and final assertion so the plain `swift test` suite no longer aborts mid-run
+
+**Decisions Made:**
+- Use an injected closure bundle for `AppCommandController` routing instead of mocking entire singleton controllers, because the gap was command dispatch coverage, not UI presentation behavior
+- Treat the `CaptureDistributionService` OCR-presence check as the minimal production fix for the known double-enrichment risk, rather than broadening preview-phase state modeling in the same task
+- Keep `CapturePipeline.performCapture` error-path work documented rather than duplicated because `testPerformCapture_permissionError` and `testPerformCapture_genericError` already covered the requested cases before this task
+- Fix the validation blockers inside the same task because both failures directly affected Task 12 sign-off: the plain `swift test` abort in `CapturePipelineTests` and the Xcode strict-concurrency rejection of cached embeddings
+
+---
+
+## Task 13: Build config & SwiftLint tightening
+**Status:** Complete
+**Branch:** codex/task-13-build-config
+**Changes:**
+- Tightened `.swiftlint.yml` so `line_length.error` is now `200` instead of `300`
+- Updated [Package.swift](/Users/b/Caloura/Package.swift) to use `.swiftLanguageMode(.v6)` for both the app and test targets, aligning the package build with the Xcode project's Swift 6 setting
+- Reworked the summary log construction in [CapturePerformanceRecorder.swift](/Users/b/Caloura/Caloura/App/CapturePerformanceRecorder.swift) so the file stays under the new hard line-length limit without tripping Swift 6 expression-type-check failures
+
+**Decisions Made:**
+- Kept `type_body_length` unchanged because the repo still has multiple warning-level offenders, so tightening it in Task 13 would create new lint debt instead of closing existing config drift
+- Did not enable `trailing_comma` because a targeted lint run showed broad existing warning fallout across the repo, and did not enable `redundant_optional_initialization` because that rule is not available in the installed SwiftLint build
+- Verified that [project.yml](/Users/b/Caloura/project.yml) and [Package.swift](/Users/b/Caloura/Package.swift) already agreed on the macOS 26 deployment target and package dependencies, and confirmed the Xcode project only contains the expected per-configuration `MACOSX_DEPLOYMENT_TARGET = 26.0` entries
 
 ---
 

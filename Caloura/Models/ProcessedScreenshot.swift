@@ -14,12 +14,6 @@ enum ProcessedScreenshotEncodingError: LocalizedError {
     }
 }
 
-enum ProcessedScreenshotImageFormat: String {
-    case png
-    case jpeg
-    case tiff
-}
-
 final class ProcessedScreenshot: @unchecked Sendable {
     let id: UUID
     let image: NSImage
@@ -155,17 +149,6 @@ final class ProcessedScreenshot: @unchecked Sendable {
             title: context.sourceWindowTitle ?? context.sourceAppName ?? "Untitled",
             tags: []
         )
-    }
-
-    func encodedImageData(format: ProcessedScreenshotImageFormat) throws -> Data {
-        switch format {
-        case .png:
-            return try pngData()
-        case .jpeg:
-            return try ImageProcessor.jpegRepresentation(of: cgImage)
-        case .tiff:
-            return try tiffData()
-        }
     }
 
     func replacingImage(

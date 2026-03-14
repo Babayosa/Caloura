@@ -42,19 +42,30 @@ echo ""
 print_codesign "$APP_PATH"
 print_codesign "$DERIVED_APP"
 
-echo "--- Recent Permission Logs (last 4h) ---"
+LOG_PREDICATE='subsystem == "com.caloura.app" && (category == "ScreenCapture" || category == "Permission" || category == "Onboarding" || category == "Launch")'
+
+echo "--- Recent Installed-App Permission Logs (last 4h) ---"
 /usr/bin/log show \
   --style compact \
   --last 4h \
-  --predicate 'subsystem == "com.caloura.app" && (category == "ScreenCapture" || category == "Permission" || category == "Onboarding" || category == "Launch")' \
+  --predicate "$LOG_PREDICATE && process != \"xctest\"" \
   | tail -n 200 || true
+echo ""
+
+echo "--- Recent Test-Host Permission Logs (last 4h, informational only) ---"
+/usr/bin/log show \
+  --style compact \
+  --last 4h \
+  --predicate "$LOG_PREDICATE && process == \"xctest\"" \
+  | tail -n 100 || true
 echo ""
 
 echo "--- Actionable Next Steps ---"
 echo "1. If /Applications and DerivedData signatures differ, test with only one build running."
 echo "2. Prefer /Applications/Caloura.app for end-user verification."
-echo "3. In System Settings -> Privacy & Security -> Screen & System Audio Recording:"
+echo "3. Ignore the test-host section unless you are debugging the XCTest permission fixtures."
+echo "4. In System Settings -> Privacy & Security -> Screen & System Audio Recording:"
 echo "   - Remove stale Caloura entries if present."
 echo "   - Re-enable permission for the build you are launching."
-echo "4. Relaunch Caloura after granting permission."
-echo "5. If prompts persist, share the log section above."
+echo "5. Relaunch Caloura after granting permission."
+echo "6. If prompts persist, share the installed-app log section above."

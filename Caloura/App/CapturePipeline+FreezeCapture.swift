@@ -23,7 +23,7 @@ extension CapturePipeline {
     /// Capture all connected screens so every overlay has a clean frozen image
     /// and the selection path never falls back to a live SCK capture.
     /// Launches captures in parallel for lower total latency on multi-monitor setups.
-    func captureAllScreens() async -> [NSScreen: CGImage] {
+    private func captureAllScreens() async -> [NSScreen: CGImage] {
         let screens = NSScreen.screens
         let tasks = screens.map { screen in
             (

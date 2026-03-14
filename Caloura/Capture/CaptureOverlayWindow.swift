@@ -75,9 +75,20 @@ final class CaptureOverlayWindow: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
+    override func becomeKey() {
+        super.becomeKey()
+        primeCrosshair()
+    }
+
     override func close() {
         tearDownHandlers()
         super.close()
+    }
+
+    private func primeCrosshair() {
+        guard let contentView else { return }
+        invalidateCursorRects(for: contentView)
+        cursorController?.reassertCrosshair()
     }
 
     private func tearDownHandlers() {
@@ -97,9 +108,11 @@ final class CaptureOverlayWindow: NSPanel {
         onCancelled: @escaping () -> Void,
         onFirstMouseDown: (() -> Void)? = nil
     ) -> [CaptureOverlayWindow] {
+        let screens = orderedPresentationScreens()
         var windows: [CaptureOverlayWindow] = []
+        windows.reserveCapacity(screens.count)
 
-        for screen in NSScreen.screens {
+        for (index, screen) in screens.enumerated() {
             let overlay = CaptureOverlayWindow(
                 for: screen,
                 cursorController: cursorController
@@ -132,17 +145,25 @@ final class CaptureOverlayWindow: NSPanel {
             }
             overlay.onFirstMouseDown = onFirstMouseDown
 
-            overlay.makeKeyAndOrderFront(nil)
+            if index == 0 {
+                overlay.makeKeyAndOrderFront(nil)
+            } else {
+                overlay.orderFrontRegardless()
+            }
             windows.append(overlay)
         }
 
-        // Make the overlay on the current screen key
-        if let mouseScreen = NSScreen.screens.first(where: { screen in
+        return windows
+    }
+
+    private static func orderedPresentationScreens() -> [NSScreen] {
+        let screens = NSScreen.screens
+        guard let mouseScreen = screens.first(where: { screen in
             NSMouseInRect(NSEvent.mouseLocation, screen.frame, false)
-        }) {
-            windows.first { $0.screen == mouseScreen }?.makeKey()
+        }) else {
+            return screens
         }
 
-        return windows
+        return [mouseScreen] + screens.filter { $0 != mouseScreen }
     }
 }

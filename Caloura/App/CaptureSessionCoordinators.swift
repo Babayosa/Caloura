@@ -28,6 +28,13 @@ final class AreaCaptureSessionCoordinator {
     typealias SelectionHandler = @MainActor (CGRect, NSScreen, CGImage?) async -> Void
     typealias CancelHandler = @MainActor () -> Void
     typealias EventHandler = @MainActor () -> Void
+    typealias OverlayPresenter = @MainActor (
+        CaptureCursorControlling?,
+        Bool,
+        @escaping (CGRect, NSScreen) -> Void,
+        @escaping () -> Void,
+        (() -> Void)?
+    ) -> [CaptureOverlayWindow]
 
     private let session: CapturePerformanceRecorder.Session
     private let performanceRecorder: CapturePerformanceRecorder
@@ -35,10 +42,27 @@ final class AreaCaptureSessionCoordinator {
     private let onSelection: SelectionHandler
     private let onCancel: CancelHandler
     private let onFirstInteraction: EventHandler?
+    private let overlayPresenter: OverlayPresenter
 
     private(set) var overlayWindows: [CaptureOverlayWindow] = []
     private var frozenImages: [NSScreen: CGImage] = [:]
     private var firstInteractionRecorded = false
+
+    private static func defaultOverlayPresenter(
+        cursorController: CaptureCursorControlling?,
+        suppressDimming: Bool,
+        onRegionSelected: @escaping (CGRect, NSScreen) -> Void,
+        onCancelled: @escaping () -> Void,
+        onFirstMouseDown: (() -> Void)?
+    ) -> [CaptureOverlayWindow] {
+        CaptureOverlayWindow.showOnAllScreens(
+            cursorController: cursorController,
+            suppressDimming: suppressDimming,
+            onRegionSelected: onRegionSelected,
+            onCancelled: onCancelled,
+            onFirstMouseDown: onFirstMouseDown
+        )
+    }
 
     init(
         session: CapturePerformanceRecorder.Session,
@@ -46,7 +70,8 @@ final class AreaCaptureSessionCoordinator {
         cursorController: CaptureCursorControlling,
         onSelection: @escaping SelectionHandler,
         onCancel: @escaping CancelHandler,
-        onFirstInteraction: EventHandler? = nil
+        onFirstInteraction: EventHandler? = nil,
+        overlayPresenter: OverlayPresenter? = nil
     ) {
         self.session = session
         self.performanceRecorder = performanceRecorder
@@ -54,13 +79,15 @@ final class AreaCaptureSessionCoordinator {
         self.onSelection = onSelection
         self.onCancel = onCancel
         self.onFirstInteraction = onFirstInteraction
+        self.overlayPresenter = overlayPresenter ?? Self.defaultOverlayPresenter
     }
 
     func present(suppressDimming: Bool = false) {
-        overlayWindows = CaptureOverlayWindow.showOnAllScreens(
-            cursorController: cursorController,
-            suppressDimming: suppressDimming,
-            onRegionSelected: { [weak self] rect, screen in
+        cursorController.beginCrosshairSession()
+        overlayWindows = overlayPresenter(
+            cursorController,
+            suppressDimming,
+            { [weak self] rect, screen in
                 guard let self = self else { return }
                 self.cursorController.endCrosshairSession()
                 self.overlayWindows = []
@@ -68,7 +95,7 @@ final class AreaCaptureSessionCoordinator {
                     await self.onSelection(rect, screen, self.frozenImages[screen])
                 }
             },
-            onCancelled: { [weak self] in
+            { [weak self] in
                 guard let self = self else { return }
                 self.cursorController.endCrosshairSession()
                 self.overlayWindows = []
@@ -76,7 +103,7 @@ final class AreaCaptureSessionCoordinator {
                     self.onCancel()
                 }
             },
-            onFirstMouseDown: { [weak self] in
+            { [weak self] in
                 guard let self = self else { return }
                 guard !self.firstInteractionRecorded else { return }
                 self.firstInteractionRecorded = true
@@ -84,8 +111,7 @@ final class AreaCaptureSessionCoordinator {
                 self.onFirstInteraction?()
             }
         )
-
-        cursorController.beginCrosshairSession()
+        cursorController.reassertCrosshair()
         performanceRecorder.mark(.overlayVisible, in: session)
     }
 
@@ -118,33 +144,54 @@ extension AreaCaptureSessionCoordinator: AreaCaptureSessionHandling {}
 final class FullscreenCaptureSessionCoordinator {
     typealias SelectionHandler = @MainActor (NSScreen) async -> Void
     typealias CancelHandler = @MainActor () -> Void
+    typealias OverlayPresenter = @MainActor (
+        CaptureCursorControlling?,
+        @escaping (NSScreen) -> Void,
+        @escaping () -> Void
+    ) -> [ScreenSelectionOverlayWindow]
 
     private let session: CapturePerformanceRecorder.Session
     private let performanceRecorder: CapturePerformanceRecorder
     private let cursorController: CaptureCursorControlling
     private let onSelection: SelectionHandler
     private let onCancel: CancelHandler
+    private let overlayPresenter: OverlayPresenter
 
     private(set) var overlayWindows: [ScreenSelectionOverlayWindow] = []
+
+    private static func defaultOverlayPresenter(
+        cursorController: CaptureCursorControlling?,
+        onScreenSelected: @escaping (NSScreen) -> Void,
+        onCancelled: @escaping () -> Void
+    ) -> [ScreenSelectionOverlayWindow] {
+        ScreenSelectionOverlayWindow.showOnAllScreens(
+            cursorController: cursorController,
+            onScreenSelected: onScreenSelected,
+            onCancelled: onCancelled
+        )
+    }
 
     init(
         session: CapturePerformanceRecorder.Session,
         performanceRecorder: CapturePerformanceRecorder,
         cursorController: CaptureCursorControlling,
         onSelection: @escaping SelectionHandler,
-        onCancel: @escaping CancelHandler
+        onCancel: @escaping CancelHandler,
+        overlayPresenter: OverlayPresenter? = nil
     ) {
         self.session = session
         self.performanceRecorder = performanceRecorder
         self.cursorController = cursorController
         self.onSelection = onSelection
         self.onCancel = onCancel
+        self.overlayPresenter = overlayPresenter ?? Self.defaultOverlayPresenter
     }
 
     func present() {
-        overlayWindows = ScreenSelectionOverlayWindow.showOnAllScreens(
-            cursorController: cursorController,
-            onScreenSelected: { [weak self] screen in
+        cursorController.beginCrosshairSession()
+        overlayWindows = overlayPresenter(
+            cursorController,
+            { [weak self] screen in
                 guard let self = self else { return }
                 self.cursorController.endCrosshairSession()
                 self.performanceRecorder.mark(.firstInteraction, in: self.session)
@@ -153,7 +200,7 @@ final class FullscreenCaptureSessionCoordinator {
                     await self.onSelection(screen)
                 }
             },
-            onCancelled: { [weak self] in
+            { [weak self] in
                 guard let self = self else { return }
                 self.cursorController.endCrosshairSession()
                 self.overlayWindows = []
@@ -162,8 +209,7 @@ final class FullscreenCaptureSessionCoordinator {
                 }
             }
         )
-
-        cursorController.beginCrosshairSession()
+        cursorController.reassertCrosshair()
         performanceRecorder.mark(.overlayVisible, in: session)
     }
 
@@ -193,6 +239,7 @@ final class WindowCaptureSessionCoordinator {
     private let session: CapturePerformanceRecorder.Session
     private let performanceRecorder: CapturePerformanceRecorder
     private let hasWarmContent: Bool
+    private let activateApplication: @MainActor () -> Void
     private let prewarmContent: @MainActor () async -> Void
     private let pickWindow: PickerHandler
 
@@ -200,18 +247,22 @@ final class WindowCaptureSessionCoordinator {
         session: CapturePerformanceRecorder.Session,
         performanceRecorder: CapturePerformanceRecorder,
         hasWarmContent: Bool,
+        activateApplication: @escaping @MainActor () -> Void = {
+            NSApplication.shared.activate(ignoringOtherApps: true)
+        },
         prewarmContent: @escaping @MainActor () async -> Void,
         pickWindow: @escaping PickerHandler
     ) {
         self.session = session
         self.performanceRecorder = performanceRecorder
         self.hasWarmContent = hasWarmContent
+        self.activateApplication = activateApplication
         self.prewarmContent = prewarmContent
         self.pickWindow = pickWindow
     }
 
     func pick() async -> SelectionResult {
-        NSApp.activate(ignoringOtherApps: true)
+        activateApplication()
         performanceRecorder.mark(.appActivated, in: session)
 
         let wasWarm = hasWarmContent

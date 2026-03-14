@@ -71,8 +71,22 @@ final class CapturePipelineTests: XCTestCase {
 
         XCTAssertFalse(permissionFailureCalled)
         XCTAssertTrue(
-            pipeline.appState.statusMessage.contains("Capture failed")
+            pipeline.appState.statusMessage.contains("Try again")
         )
+        XCTAssertFalse(pipeline.appState.statusMessage.contains("test error"))
+        XCTAssertFalse(pipeline.appState.isCapturing)
+    }
+
+    func testPerformCapture_timeoutError() async {
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function
+        )
+
+        await pipeline.performCapture(mode: .area) {
+            throw TimeoutError.timedOut
+        }
+
+        XCTAssertTrue(pipeline.appState.statusMessage.contains("timed out"))
         XCTAssertFalse(pipeline.appState.isCapturing)
     }
 
@@ -256,11 +270,15 @@ final class CapturePipelineTests: XCTestCase {
     }
 
     func testHistoryWithOCR_preservesEnrichmentForRapidCaptures() async {
+        let firstRecognitionStarted = expectation(description: "first OCR started")
+        let releaseFirstRecognition = AsyncGate()
+
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function,
             recognizeText: { cgImage in
                 if cgImage.width == 101 {
-                    try? await Task.sleep(for: .milliseconds(300))
+                    firstRecognitionStarted.fulfill()
+                    await releaseFirstRecognition.wait()
                 }
                 return "text-\(cgImage.width)"
             }
@@ -274,7 +292,12 @@ final class CapturePipelineTests: XCTestCase {
         pipeline.addToHistoryWithOCR(first)
         pipeline.addToHistoryWithOCR(second)
 
-        await pollUntil(timeout: 2.0) {
+        await fulfillment(of: [firstRecognitionStarted], timeout: 2.0)
+        await pollUntil(timeout: 5.0) {
+            pipeline.appState.recentScreenshots.first(where: { $0.id == second.id })?.ocrText == "text-102"
+        }
+        await releaseFirstRecognition.open()
+        await pollUntil(timeout: 5.0) {
             let items = pipeline.appState.recentScreenshots
             let firstText = items.first(where: { $0.id == first.id })?.ocrText
             let secondText = items.first(where: { $0.id == second.id })?.ocrText
@@ -314,6 +337,78 @@ final class CapturePipelineTests: XCTestCase {
             pipeline.appState.previewPhase(for: processed.id),
             .enrichmentFailed
         )
+    }
+
+    func testCopyLastImage_usesSharedDistributionCopyPath() async {
+        let copyExpectation = expectation(description: "copy called")
+        var copiedModes: [CopyMode] = []
+
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            copyToClipboard: { _, mode in
+                copiedModes.append(mode)
+                copyExpectation.fulfill()
+            }
+        )
+        let screenshot = CapturePipelineTestHelpers.makeProcessed()
+        pipeline.appState.lastScreenshot = screenshot
+
+        pipeline.copyLastImage()
+
+        await fulfillment(of: [copyExpectation], timeout: 2.0)
+        await pollUntil(timeout: 2.0) {
+            pipeline.appState.statusMessage == "Copied image"
+        }
+
+        XCTAssertEqual(copiedModes, [.image])
+        XCTAssertEqual(pipeline.appState.statusMessage, "Copied image")
+    }
+
+    func testSaveLastCapture_doesNotDoubleTriggerEnrichmentWhilePending() async {
+        let saveExpectation = expectation(description: "save called twice")
+        saveExpectation.expectedFulfillmentCount = 2
+        let ocrCounter = LockedCounter()
+        let defaults = CapturePipelineTestHelpers.makeDefaults(#function)
+        let historyURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pipeline-save-last-\(UUID().uuidString).json")
+        let appState = AppState(defaults: defaults, historyStoreURL: historyURL)
+        let settings = AppSettings(defaults: defaults)
+
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            settings: settings,
+            appState: appState,
+            saveCaptureAction: { screenshot in
+                let url = URL(fileURLWithPath: "/tmp/\(screenshot.id.uuidString).png")
+                screenshot.filePath = url
+                screenshot.fileName = url.lastPathComponent
+                appState.lastScreenshot = screenshot
+                appState.syncProcessedScreenshot(screenshot)
+                saveExpectation.fulfill()
+                return url
+            },
+            recognizeText: { _ in
+                ocrCounter.increment()
+                try? await Task.sleep(for: .milliseconds(250))
+                return "recognized"
+            }
+        )
+        let screenshot = CapturePipelineTestHelpers.makeProcessed()
+        pipeline.appState.lastScreenshot = screenshot
+
+        pipeline.saveLastCapture()
+
+        await pollUntil(timeout: 2.0) {
+            pipeline.appState.previewPhase(for: screenshot.id) == .enrichmentPending
+        }
+
+        pipeline.saveLastCapture()
+
+        await fulfillment(of: [saveExpectation], timeout: 2.0)
+        await pollUntil(timeout: 3.0) {
+            pipeline.appState.recentScreenshots.first(where: { $0.id == screenshot.id })?.ocrText == "recognized"
+        }
+        XCTAssertEqual(ocrCounter.value, 1)
     }
 
     func testCaptureRepeat_usesInjectedCaptureManager() async {
@@ -499,6 +594,8 @@ final class CapturePipelineTests: XCTestCase {
 
     func testPreviewPhase_transitionsFromPendingToComplete() async {
         let saveExpectation = expectation(description: "saveFile called")
+        let recognitionStarted = expectation(description: "recognition started")
+        let releaseRecognition = AsyncGate()
 
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function,
@@ -507,7 +604,8 @@ final class CapturePipelineTests: XCTestCase {
                 return URL(fileURLWithPath: "/tmp/preview-phase.png")
             },
             recognizeText: { _ in
-                try? await Task.sleep(nanoseconds: 150_000_000)
+                recognitionStarted.fulfill()
+                await releaseRecognition.wait()
                 return ""
             }
         )
@@ -517,13 +615,14 @@ final class CapturePipelineTests: XCTestCase {
         await pipeline.performCapture(mode: .area) { img }
         let screenshot = try? XCTUnwrap(pipeline.appState.lastScreenshot)
 
-        await fulfillment(of: [saveExpectation], timeout: 2.0)
+        await fulfillment(of: [saveExpectation, recognitionStarted], timeout: 5.0)
         if let screenshot {
             XCTAssertEqual(
                 pipeline.appState.previewPhase(for: screenshot.id),
                 .enrichmentPending
             )
-            await pollUntil(timeout: 3.0) {
+            await releaseRecognition.open()
+            await pollUntil(timeout: 5.0) {
                 pipeline.appState.previewPhase(for: screenshot.id) == .enrichmentComplete
             }
             XCTAssertEqual(
@@ -531,5 +630,22 @@ final class CapturePipelineTests: XCTestCase {
                 .enrichmentComplete
             )
         }
+    }
+}
+
+private final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func increment() {
+        lock.lock()
+        storage += 1
+        lock.unlock()
     }
 }

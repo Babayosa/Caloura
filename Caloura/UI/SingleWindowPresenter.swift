@@ -35,7 +35,7 @@ final class SingleWindowPresenter<Content: View> {
     ) -> Bool {
         if let existing = window, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
-            NSApp.activate()
+            NSApplication.shared.activate()
             return false
         }
 
@@ -68,7 +68,7 @@ final class SingleWindowPresenter<Content: View> {
 
         newWindow.center()
         newWindow.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        NSApplication.shared.activate()
 
         self.window = newWindow
 
@@ -91,7 +91,7 @@ final class SingleWindowPresenter<Content: View> {
 
     func bringToFront() {
         window?.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        NSApplication.shared.activate()
     }
 
     private func handleWindowWillClose() {

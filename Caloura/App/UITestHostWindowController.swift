@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 
 enum UITestLaunchContext {
@@ -130,7 +131,7 @@ final class UITestHostWindowController: NSWindowController {
     func show() {
         reset()
         NSRunningApplication.current.activate(options: [.activateAllWindows])
-        NSApp.activate(ignoringOtherApps: true)
+        NSApplication.shared.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         window?.orderFrontRegardless()
@@ -295,3 +296,4 @@ final class UITestHostWindowController: NSWindowController {
         return ctx.makeImage()!
     }()
 }
+#endif

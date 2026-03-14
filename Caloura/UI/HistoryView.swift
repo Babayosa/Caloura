@@ -1,36 +1,43 @@
-// swiftlint:disable file_length
 import SwiftUI
 import os.log
 
-private enum HistoryThumbnailCache {
-    nonisolated(unsafe) static let shared: NSCache<NSString, NSImage> = {
+private actor HistoryThumbnailStore {
+    static let shared = HistoryThumbnailStore()
+
+    private let cache: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
         cache.countLimit = 200
         cache.totalCostLimit = 50 * 1024 * 1024
         return cache
     }()
-}
 
-private let historyLogger = Logger(subsystem: "com.caloura.app", category: "HistoryUI")
+    private var requests = 0
+    private var hits = 0
+    private let reportInterval = 50
 
-private enum HistoryThumbnailMetrics {
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var requests = 0
-    nonisolated(unsafe) private static var hits = 0
-    private static let reportInterval = 50
-
-    static func recordRequest(cacheHit: Bool) {
-        lock.lock()
+    func cachedImage(forKey key: String) -> NSImage? {
+        let cacheKey = key as NSString
+        let cached = cache.object(forKey: cacheKey)
         requests += 1
-        if cacheHit {
+        if cached != nil {
             hits += 1
         }
-        let shouldReport = requests % reportInterval == 0
+        maybeReportMetrics()
+        return cached
+    }
+
+    func store(
+        _ image: NSImage,
+        forKey key: String,
+        cost: Int
+    ) {
+        cache.setObject(image, forKey: key as NSString, cost: cost)
+    }
+
+    private func maybeReportMetrics() {
+        guard requests % reportInterval == 0 else { return }
         let currentRequests = requests
         let currentHits = hits
-        lock.unlock()
-
-        guard shouldReport else { return }
         let ratio = (Double(currentHits) / Double(max(currentRequests, 1))) * 100.0
         let cacheMsg = "thumbnail_cache_summary"
             + " requests=\(currentRequests)"
@@ -39,6 +46,8 @@ private enum HistoryThumbnailMetrics {
         historyLogger.info("\(cacheMsg, privacy: .public)")
     }
 }
+
+private let historyLogger = Logger(subsystem: "com.caloura.app", category: "HistoryUI")
 
 struct HistoryView: View {
     @ObservedObject var appState: AppState
@@ -160,10 +169,7 @@ struct HistoryView: View {
         )) {
             Button("Delete", role: .destructive) {
                 if let item = itemToDelete {
-                    appState.recentScreenshots.removeAll { $0.id == item.id }
-                    appState.embeddingStore.remove(screenshotID: item.id)
-                    appState.embeddingStore.save()
-                    appState.saveHistory()
+                    appState.deleteScreenshot(id: item.id)
                 }
                 itemToDelete = nil
             }
@@ -178,13 +184,15 @@ struct HistoryView: View {
             semanticResults = []
             guard !newValue.isEmpty,
                   AppSettings.shared.semanticSearchEnabled else { return }
+            let query = newValue
+            let store = appState.embeddingStore
             semanticSearchTask = Task {
                 try? await Task.sleep(for: .milliseconds(300))
                 guard !Task.isCancelled else { return }
-                let results = EmbeddingEngine.search(
-                    query: newValue,
-                    in: appState.embeddingStore
-                )
+                let results = await Task.detached(priority: .utility) {
+                    EmbeddingEngine.search(query: query, in: store)
+                }.value
+                guard !Task.isCancelled else { return }
                 semanticResults = Set(results.map(\.id))
             }
         }
@@ -208,9 +216,9 @@ struct HistoryView: View {
         guard let image = NSImage(contentsOf: url) else { return }
         do {
             try ClipboardManager.copyNSImage(image)
-            appState.statusMessage = "Copied image"
+            appState.setStatusMessage("Copied image")
         } catch {
-            appState.statusMessage = error.localizedDescription
+            appState.setStatusMessage(error.localizedDescription)
         }
     }
 }
@@ -361,10 +369,7 @@ struct HistoryGridItem: View {
     private func commitTitleEdit() {
         let trimmed = editingTitle.trimmingCharacters(in: .whitespaces)
         if !trimmed.isEmpty {
-            if let index = appState.recentScreenshots.firstIndex(where: { $0.id == item.id }) {
-                appState.recentScreenshots[index].title = trimmed
-                appState.saveHistory()
-            }
+            appState.renameScreenshot(id: item.id, title: trimmed)
         }
         isEditingTitle = false
     }
@@ -372,51 +377,47 @@ struct HistoryGridItem: View {
     private func commitNewTag() {
         let trimmed = newTagText.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        if let index = appState.recentScreenshots.firstIndex(where: { $0.id == item.id }) {
-            let normalizedNew = trimmed.lowercased()
-            if !appState.recentScreenshots[index].tags.contains(where: { $0.lowercased() == normalizedNew }) {
-                appState.recentScreenshots[index].tags.append(trimmed)
-                appState.saveHistory()
-            }
-        }
+        appState.addTag(trimmed, to: item.id)
         newTagText = ""
         isAddingTag = false
     }
 
     private func removeTag(_ tag: String) {
-        if let index = appState.recentScreenshots.firstIndex(where: { $0.id == item.id }) {
-            appState.recentScreenshots[index].tags.removeAll { $0 == tag }
-            appState.saveHistory()
-        }
+        appState.removeTag(tag, from: item.id)
     }
 
     private func loadThumbnailAsync() async -> NSImage? {
         let cacheKey = "\(item.id.uuidString)|\(item.filePath)"
-        if let cached = HistoryThumbnailCache.shared.object(forKey: cacheKey as NSString) {
-            HistoryThumbnailMetrics.recordRequest(cacheHit: true)
+        if let cached = await HistoryThumbnailStore.shared.cachedImage(forKey: cacheKey) {
             return cached
         }
-        HistoryThumbnailMetrics.recordRequest(cacheHit: false)
 
         let path = item.filePath
-        return await Task.detached {
-            let url = URL(fileURLWithPath: path) as CFURL
-            guard let source = CGImageSourceCreateWithURL(url, nil) else { return nil as NSImage? }
+        return await Task.detached(priority: .utility) {
+            let generatedThumbnail = autoreleasepool { () -> (image: NSImage, cost: Int)? in
+                let url = URL(fileURLWithPath: path) as CFURL
+                guard let source = CGImageSourceCreateWithURL(url, nil) else { return nil }
 
-            let maxDimension = 320 // 160pt × 2 for Retina
-            let options: [CFString: Any] = [
-                kCGImageSourceThumbnailMaxPixelSize: maxDimension,
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceShouldCacheImmediately: true
-            ]
-            guard let cgThumb = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-                return nil as NSImage?
+                let maxDimension = 320 // 160pt × 2 for Retina
+                let options: [CFString: Any] = [
+                    kCGImageSourceThumbnailMaxPixelSize: maxDimension,
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true
+                ]
+                guard let cgThumb = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+                    return nil
+                }
+                let thumbnail = NSImage(cgImage: cgThumb, size: NSSize(width: cgThumb.width, height: cgThumb.height))
+                let cost = cgThumb.width * cgThumb.height * 4
+                return (thumbnail, cost)
             }
-            let thumbnail = NSImage(cgImage: cgThumb, size: NSSize(width: cgThumb.width, height: cgThumb.height))
-            let cost = cgThumb.width * cgThumb.height * 4
-            HistoryThumbnailCache.shared.setObject(thumbnail, forKey: cacheKey as NSString, cost: cost)
-            return thumbnail
+            guard let generatedThumbnail else { return nil }
+            await HistoryThumbnailStore.shared.store(
+                generatedThumbnail.image,
+                forKey: cacheKey,
+                cost: generatedThumbnail.cost
+            )
+            return generatedThumbnail.image
         }.value
     }
 }

@@ -21,9 +21,10 @@ enum LegacyKeychainReadResult {
     case failure(OSStatus)
 }
 
-/// Deprecated runtime helper.
-/// New runtime persistence must not depend on Keychain; this helper exists only
-/// for best-effort, non-interactive migration of legacy values.
+/// Transitional keychain helper.
+/// It still backs the live history root key in `HistoryCrypto` and also handles
+/// best-effort, non-interactive migration of legacy license values in
+/// `AppSettings`.
 enum KeychainHelper {
     static func readDataNonInteractive(service: String, account: String) -> KeychainDataReadResult {
         let authContext = LAContext()

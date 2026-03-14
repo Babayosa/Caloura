@@ -18,13 +18,14 @@ extension CapturePipeline {
     func captureScroll() {
         guard !appState.isCapturing else { return }
         appState.isCapturing = true
-        captureSessionID &+= 1
+        let sessionID = beginTrackedCaptureSession()
 
         Task {
             let entryStart = CFAbsoluteTimeGetCurrent()
             scrollEntryLogger.debug("Scroll capture entry: request received")
             let frozenImages = await freezeScreens(entryStart: entryStart)
             showScrollAreaOverlays(
+                sessionID: sessionID,
                 frozenImages: frozenImages,
                 entryStart: entryStart
             )
@@ -32,19 +33,17 @@ extension CapturePipeline {
     }
 
     private func showScrollAreaOverlays(
+        sessionID: UInt,
         frozenImages: [NSScreen: CGImage],
         entryStart: CFAbsoluteTime
     ) {
-        firstMouseDownLogged = false
-        let sessionID = captureSessionID
-
-        overlayWindows = CaptureOverlayWindow.showOnAllScreens(
+        replaceOverlayWindows(CaptureOverlayWindow.showOnAllScreens(
             frozenImages: frozenImages,
             onRegionSelected: { [weak self] rect, screen in
                 guard let self = self else { return }
                 Task { @MainActor in
-                    guard self.captureSessionID == sessionID else { return }
-                    self.overlayWindows = []
+                    guard self.isCurrentTrackedCaptureSession(sessionID) else { return }
+                    self.clearOverlayWindows()
                     self.appState.lastCaptureRect = rect
                     self.appState.lastCaptureScreen = screen
                     await self.performScrollCapture(
@@ -56,14 +55,14 @@ extension CapturePipeline {
             onCancelled: { [weak self] in
                 guard let self = self else { return }
                 Task { @MainActor in
-                    guard self.captureSessionID == sessionID else { return }
-                    self.overlayWindows = []
+                    guard self.isCurrentTrackedCaptureSession(sessionID) else { return }
+                    self.clearOverlayWindows()
                     self.appState.isCapturing = false
                 }
             },
             onFirstMouseDown: { [weak self] in
-                guard let self = self, !self.firstMouseDownLogged else { return }
-                self.firstMouseDownLogged = true
+                guard let self = self,
+                      self.recordFirstMouseDownIfNeeded() else { return }
                 let duration = self.elapsedMilliseconds(since: entryStart)
                 scrollEntryLogger.info(
                     "Scroll capture entry: first mouseDown at \(duration, privacy: .public) ms"
@@ -73,7 +72,7 @@ extension CapturePipeline {
                     milliseconds: duration
                 )
             }
-        )
+        ))
     }
 
     func performScrollCapture(rect: CGRect, screen: NSScreen) async {
@@ -129,13 +128,16 @@ extension CapturePipeline {
         }
 
         let engine = ScrollCaptureEngine()
+        let request = ScrollCaptureEngine.Request(
+            region: rect,
+            geometry: geometry,
+            config: config,
+            targetAppName: targetAppName
+        )
         let task = Task {
             await engine.capture(
-                region: rect,
-                geometry: geometry,
-                config: config,
+                request,
                 control: sessionCoordinator.control,
-                targetAppName: targetAppName,
                 captureFrame: captureFrameFn,
                 onProgress: { progress in
                     sessionCoordinator.update(progress)
@@ -163,11 +165,60 @@ extension CapturePipeline {
             appState.isCapturing = false
             await PermissionCoordinator.shared.handleCapturePermissionFailure()
         case .failed(let error):
-            let description = error.localizedDescription
-            scrollCaptureLogger.error("Scroll capture failed: \(description, privacy: .public)")
-            appState.statusMessage = "Scroll capture failed: \(description)"
+            let logMessage = scrollCaptureFailureLogMessage(for: error)
+            scrollCaptureLogger.error(
+                "Scroll capture failed: \(logMessage, privacy: .public)"
+            )
+            appState.statusMessage = scrollCaptureFailureStatusMessage(for: error)
             appState.isCapturing = false
         }
+    }
+
+    private func scrollCaptureFailureStatusMessage(for error: Error) -> String {
+        if let scrollError = error as? ScrollCaptureError {
+            switch scrollError {
+            case .noScrollableViewport:
+                return "No scrollable area was found in that selection. "
+                    + "Select only the scrolling content and try again."
+            case .noScrollTarget:
+                return "The selected area did not scroll. "
+                    + "Select a scrolling area and try again."
+            case .unstableScrolling:
+                return "Scroll capture could not stabilize the page. "
+                    + "Wait for motion to stop, or switch to manual mode."
+            case .framePreparationFailed:
+                return "Scroll capture could not prepare the captured frames. "
+                    + "Try again after the content finishes loading."
+            case .noFramesCaptured:
+                return "Scroll capture did not capture any content. Try again."
+            case .canvasCreationFailed:
+                return "Scroll capture could not assemble the final image. "
+                    + "Try a smaller region or lower the maximum scroll height."
+            }
+        }
+
+        return captureFailureStatusMessage(for: error, operation: "Scroll capture")
+    }
+
+    private func scrollCaptureFailureLogMessage(for error: Error) -> String {
+        if let scrollError = error as? ScrollCaptureError {
+            switch scrollError {
+            case .noScrollableViewport:
+                return "No scrollable viewport found in selected region"
+            case .noScrollTarget:
+                return "Selected region did not scroll"
+            case .unstableScrolling:
+                return "Scroll stabilization failed"
+            case .framePreparationFailed:
+                return "Failed to prepare a captured scroll frame"
+            case .noFramesCaptured:
+                return "Scroll capture produced zero frames"
+            case .canvasCreationFailed:
+                return "Failed to stitch scroll capture frames"
+            }
+        }
+
+        return captureFailureLogMessage(for: error, operation: "Scroll capture")
     }
 }
 

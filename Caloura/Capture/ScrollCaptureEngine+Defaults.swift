@@ -3,6 +3,12 @@ import CoreGraphics
 
 // MARK: - Default Implementations
 
+private enum ScrollGesturePhase: Int64 {
+    case began = 1
+    case changed = 2
+    case ended = 4
+}
+
 struct DefaultViewportDetector: ScrollViewportDetecting, Sendable {
     private struct Candidate {
         let element: AXUIElement
@@ -269,6 +275,7 @@ struct DefaultViewportDetector: ScrollViewportDetecting, Sendable {
 }
 
 final class DefaultScrollDriver: ScrollDriving, @unchecked Sendable {
+    private let stateLock = NSLock()
     private var hasStartedScroll = false
 
     func scroll(by pixels: Int) {
@@ -283,18 +290,29 @@ final class DefaultScrollDriver: ScrollDriving, @unchecked Sendable {
             return
         }
 
+        stateLock.lock()
+        let shouldMarkChanged = hasStartedScroll
+        hasStartedScroll = true
+        stateLock.unlock()
+
         event.setIntegerValueField(
             .scrollWheelEventScrollPhase,
-            value: hasStartedScroll ? 2 : 1
+            value: shouldMarkChanged
+                ? ScrollGesturePhase.changed.rawValue
+                : ScrollGesturePhase.began.rawValue
         )
         event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: 0)
         event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
-        hasStartedScroll = true
         event.post(tap: .cghidEventTap)
     }
 
     func finishGesture() {
-        guard hasStartedScroll,
+        stateLock.lock()
+        let hadStartedScroll = hasStartedScroll
+        hasStartedScroll = false
+        stateLock.unlock()
+
+        guard hadStartedScroll,
               let event = CGEvent(
                 scrollWheelEvent2Source: nil,
                 units: .pixel,
@@ -303,15 +321,13 @@ final class DefaultScrollDriver: ScrollDriving, @unchecked Sendable {
                 wheel2: 0,
                 wheel3: 0
               ) else {
-            hasStartedScroll = false
             return
         }
 
-        event.setIntegerValueField(.scrollWheelEventScrollPhase, value: 4)
+        event.setIntegerValueField(.scrollWheelEventScrollPhase, value: ScrollGesturePhase.ended.rawValue)
         event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: 0)
         event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
         event.post(tap: .cghidEventTap)
-        hasStartedScroll = false
     }
 }
 
@@ -331,15 +347,11 @@ struct DefaultScrollSettling: ScrollSettling, Sendable {
     }
 
     func settle(
-        region: CGRect,
+        request: ScrollSettleRequest,
         captureFrame: @escaping @Sendable (CGRect) async throws -> CGImage,
-        previousAcceptedFrame: ScrollCaptureHelpers.PreparedFrame?,
-        expectedDisplacement: Int?,
-        stickyHeaderHeight: Int,
-        mode: ScrollCaptureMode,
         displacementEstimator: any ScrollDisplacementEstimating
     ) async throws -> ScrollSettledFrame? {
-        let startDelay = mode == .manual ? 80_000_000 : initialDelayNanos
+        let startDelay = request.mode == .manual ? 80_000_000 : initialDelayNanos
         try await Task.sleep(nanoseconds: startDelay)
 
         var probes: [ScrollCaptureHelpers.PreparedFrame] = []
@@ -347,20 +359,22 @@ struct DefaultScrollSettling: ScrollSettling, Sendable {
 
         for probeIndex in 0..<maxProbes {
             try Task.checkCancellation()
-            let image = try await captureFrame(region)
-            guard let prepared = ScrollCaptureHelpers.prepareFrame(image) else {
+            let image = try await captureFrame(request.region)
+            guard let prepared = autoreleasepool(invoking: {
+                ScrollCaptureHelpers.prepareFrame(image)
+            }) else {
                 continue
             }
 
-            if mode == .manual,
+            if request.mode == .manual,
                probeIndex == 0,
-               let previousAcceptedFrame {
+               let previousAcceptedFrame = request.previousAcceptedFrame {
                 let movement = displacementEstimator.estimate(
                     previous: previousAcceptedFrame,
                     current: prepared,
                     options: .manual(
-                        expectedDisplacement: expectedDisplacement,
-                        stickyHeaderHeight: stickyHeaderHeight,
+                        expectedDisplacement: request.expectedDisplacement,
+                        stickyHeaderHeight: request.stickyHeaderHeight,
                         unstableBands: []
                     )
                 )

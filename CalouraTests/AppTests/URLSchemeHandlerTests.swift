@@ -3,14 +3,32 @@ import XCTest
 
 @MainActor
 final class URLSchemeHandlerTests: XCTestCase {
+    nonisolated(unsafe) private var originalActivePreset = ""
+    nonisolated(unsafe) private var originalLastHandledDate: Date?
 
-    override func setUp() {
+    override nonisolated func setUp() {
         super.setUp()
-        MainActor.assumeIsolated {
-            // Reset throttle state so each test can fire a URL scheme request
-            // without being rejected by the rate limiter.
-            URLSchemeHandler.lastHandledDate = nil
+        let snapshot = MainActor.assumeIsolated {
+            (
+                AppSettings.shared.activePreset,
+                URLSchemeHandler.lastHandledDate
+            )
         }
+        originalActivePreset = snapshot.0
+        originalLastHandledDate = snapshot.1
+        MainActor.assumeIsolated {
+            URLSchemeHandler.resetThrottleForTesting()
+        }
+    }
+
+    override nonisolated func tearDown() {
+        let restoredActivePreset = originalActivePreset
+        let restoredLastHandledDate = originalLastHandledDate
+        MainActor.assumeIsolated {
+            AppSettings.shared.activePreset = restoredActivePreset
+            URLSchemeHandler.setLastHandledDateForTesting(restoredLastHandledDate)
+        }
+        super.tearDown()
     }
 
     // MARK: - Parse: Capture Modes
@@ -135,11 +153,6 @@ final class URLSchemeHandlerTests: XCTestCase {
 
     @MainActor
     func testHandle_presetNormalization() {
-        let originalPreset = AppSettings.shared.activePreset
-        addTeardownBlock { @MainActor in
-            AppSettings.shared.activePreset = originalPreset
-        }
-
         let url = URL(string: "caloura://capture/area?preset=lecture-notes")!
         URLSchemeHandler.handle(url)
         XCTAssertEqual(AppSettings.shared.activePreset, "Lecture Notes")

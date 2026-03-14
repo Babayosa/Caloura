@@ -33,7 +33,12 @@ enum HistoryCrypto {
     private static let keychainAccount = "history-root-key-v1"
     nonisolated private static let keychainService = (Bundle.main.bundleIdentifier ?? "com.caloura.app")
         + ".security"
-    private static let keyQueue = DispatchQueue(label: "com.caloura.historycrypto.key")
+    private static let keyQueueContext = DispatchSpecificKey<Void>()
+    private static let keyQueue: DispatchQueue = {
+        let queue = DispatchQueue(label: "com.caloura.historycrypto.key")
+        queue.setSpecific(key: keyQueueContext, value: ())
+        return queue
+    }()
     nonisolated(unsafe) private static var cachedKey: SymmetricKey?
     #if DEBUG
     nonisolated(unsafe) private static var securityDirectoryOverride: URL?
@@ -90,13 +95,13 @@ enum HistoryCrypto {
     }
 
     private static func getOrCreateKey() throws -> SymmetricKey {
-        try keyQueue.sync {
+        try keyQueueSync {
             if let cachedKey {
                 return cachedKey
             }
 
             #if DEBUG
-            if securityDirectoryOverride != nil {
+            if securityDirectoryOverrideLocked() != nil {
                 let key = try getOrCreateFileBackedKey()
                 cachedKey = key
                 return key
@@ -241,7 +246,7 @@ enum HistoryCrypto {
         let fileManager = FileManager.default
 
         #if DEBUG
-        if securityDirectoryOverride != nil {
+        if securityDirectoryOverrideLocked() != nil {
             do {
                 let securityDirectory = try securityDirectoryURL()
                 if fileManager.fileExists(atPath: securityDirectory.path) {
@@ -316,7 +321,7 @@ enum HistoryCrypto {
 
     private static func securityDirectoryURL() throws -> URL {
         #if DEBUG
-        if let override = securityDirectoryOverride {
+        if let override = securityDirectoryOverrideLocked() {
             return override
         }
         #endif
@@ -330,7 +335,7 @@ enum HistoryCrypto {
 
     private static func keychainIdentifier() -> (service: String, account: String) {
         #if DEBUG
-        if let override = keychainItemOverride {
+        if let override = keychainItemOverrideLocked() {
             return override
         }
         #endif
@@ -341,21 +346,42 @@ enum HistoryCrypto {
 
     #if DEBUG
     static func resetCachedKeyForTesting() {
-        keyQueue.sync { cachedKey = nil }
+        keyQueueSync { cachedKey = nil }
     }
 
     static func setSecurityDirectoryForTesting(_ url: URL?) {
-        securityDirectoryOverride = url
-        keyQueue.sync { cachedKey = nil }
+        keyQueueSync {
+            securityDirectoryOverride = url
+            cachedKey = nil
+        }
     }
 
     static func setKeychainItemForTesting(service: String?, account: String = keychainAccount) {
-        if let service {
-            keychainItemOverride = (service: service, account: account)
-        } else {
-            keychainItemOverride = nil
+        keyQueueSync {
+            if let service {
+                keychainItemOverride = (service: service, account: account)
+            } else {
+                keychainItemOverride = nil
+            }
+            cachedKey = nil
         }
-        keyQueue.sync { cachedKey = nil }
     }
     #endif
+
+    #if DEBUG
+    private static func securityDirectoryOverrideLocked() -> URL? {
+        keyQueueSync { securityDirectoryOverride }
+    }
+
+    private static func keychainItemOverrideLocked() -> (service: String, account: String)? {
+        keyQueueSync { keychainItemOverride }
+    }
+    #endif
+
+    private static func keyQueueSync<T>(_ body: () throws -> T) rethrows -> T {
+        if DispatchQueue.getSpecific(key: keyQueueContext) != nil {
+            return try body()
+        }
+        return try keyQueue.sync(execute: body)
+    }
 }

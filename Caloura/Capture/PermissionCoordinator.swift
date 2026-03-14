@@ -11,7 +11,7 @@ private struct SecRequirementHandle {
         guard CFGetTypeID(requirementRef) == SecRequirementGetTypeID() else {
             return nil
         }
-        self.requirement = unsafeBitCast(requirementRef, to: SecRequirement.self)
+        self.requirement = unsafeDowncast(requirementRef as AnyObject, to: SecRequirement.self)
     }
 
     func stringValue() -> String? {
@@ -197,11 +197,27 @@ final class PermissionCoordinator: ObservableObject {
     private var isShowingAlert = false
     private var lastBlockingAlertAt: Date?
     private let alertCooldownSeconds: TimeInterval = 45
+    private let permissionRequestLifetimeSeconds: TimeInterval = 180
+    private let pendingCaptureResumeTTLSeconds: TimeInterval = 120
     private var cooldownResetTask: Task<Void, Never>?
+    private var liveValidatedIdentityFingerprint: String?
+    private var recentPermissionRequestSession: PermissionRequestSession?
+    private var diagnosedFailure: DiagnosedFailure?
 
     private enum Keys {
         static let lastWorkingIdentityFingerprint = "permissionLastWorkingIdentityFingerprint"
         static let lastWorkingExecutablePath = "permissionLastWorkingExecutablePath"
+        static let pendingCaptureResumeRequestedAt = "permissionPendingCaptureResumeRequestedAt"
+    }
+
+    private struct PermissionRequestSession {
+        let startedAt: Date
+        var didAutoRelaunch = false
+    }
+
+    private struct DiagnosedFailure {
+        let identityFingerprint: String
+        let status: ScreenRecordingState
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -254,6 +270,8 @@ final class PermissionCoordinator: ObservableObject {
     @discardableResult
     func refreshPassiveStatus() async -> ScreenRecordingState {
         let identity = await identityProvider()
+        let timestamp = now()
+        clearExpiredPermissionRequestSessionIfNeeded(at: timestamp)
         let cgGranted = passiveCheck()
         let execPath = identity.executablePath
         let signingType = identity.signingIdentityType
@@ -269,16 +287,41 @@ final class PermissionCoordinator: ObservableObject {
         }
         #endif
 
-        let status: ScreenRecordingState
-        if !cgGranted {
-            status = .denied
-        } else if isKnownWorkingIdentity(identity) {
-            status = .working
-        } else {
-            status = .grantedNeedsValidation
+        return publishPassiveStatus(
+            for: identity,
+            at: timestamp,
+            cgGranted: cgGranted
+        )
+    }
+
+    func armPendingCaptureResume() {
+        defaults.set(now(), forKey: Keys.pendingCaptureResumeRequestedAt)
+    }
+
+    func clearPendingCaptureResume() {
+        defaults.removeObject(forKey: Keys.pendingCaptureResumeRequestedAt)
+    }
+
+    func takePendingCaptureResumeIfFresh() -> Bool {
+        defer { clearPendingCaptureResume() }
+        guard let requestedAt = defaults.object(forKey: Keys.pendingCaptureResumeRequestedAt) as? Date else {
+            return false
         }
-        updateUIModel(status: status, identity: identity)
-        return status
+        guard now().timeIntervalSince(requestedAt) <= pendingCaptureResumeTTLSeconds else {
+            return false
+        }
+        recentPermissionRequestSession = PermissionRequestSession(
+            startedAt: requestedAt,
+            didAutoRelaunch: true
+        )
+        return true
+    }
+
+    func coreGraphicsPreflightIsAuthoritative() -> Bool {
+        let timestamp = now()
+        clearExpiredPermissionRequestSessionIfNeeded(at: timestamp)
+        return recentPermissionRequestSession == nil
+            && liveValidatedIdentityFingerprint == nil
     }
 
     /// Perform a non-blocking live validation once CoreGraphics already
@@ -287,14 +330,16 @@ final class PermissionCoordinator: ObservableObject {
     @discardableResult
     func primeIfPermissionGranted() async -> ScreenRecordingState {
         let identity = await identityProvider()
+        if isLiveValidatedIdentity(identity) {
+            return publishStatus(.working, identity: identity)
+        }
+
         guard passiveCheck() else {
-            updateUIModel(status: .denied, identity: identity)
-            return .denied
+            return publishDenied(identity)
         }
 
         if isKnownWorkingIdentity(identity) {
-            updateUIModel(status: .working, identity: identity)
-            return .working
+            return publishStatus(.working, identity: identity)
         }
 
         let probeResult = await primeCheck()
@@ -303,13 +348,10 @@ final class PermissionCoordinator: ObservableObject {
         )
 
         if probeResult == .authorized {
-            recordWorkingIdentity(identity)
-            updateUIModel(status: .working, identity: identity)
-            return .working
+            return publishWorkingValidated(identity)
         }
 
-        updateUIModel(status: .grantedNeedsValidation, identity: identity)
-        return .grantedNeedsValidation
+        return publishStatus(.grantedNeedsValidation, identity: identity)
     }
 
     /// Run a full interactive validation (CG + SCK) triggered by an explicit user action.
@@ -319,11 +361,12 @@ final class PermissionCoordinator: ObservableObject {
         sckStateResetter()
         let identity = await identityProvider()
         let cgGranted = passiveCheck()
+        let timestamp = now()
         logger.info("interactive_check_start cg_granted=\(cgGranted, privacy: .public)")
 
-        guard cgGranted else {
-            updateUIModel(status: .denied, identity: identity)
-            return .denied
+        guard cgGranted
+            || shouldTrustLiveValidationWithoutCoreGraphics(at: timestamp) else {
+            return publishDenied(identity)
         }
 
         let validationResult = await interactiveCheck()
@@ -332,13 +375,11 @@ final class PermissionCoordinator: ObservableObject {
         )
 
         if validationResult == .authorized {
-            recordWorkingIdentity(identity)
-            updateUIModel(status: .working, identity: identity)
-            return .working
+            return publishWorkingValidated(identity)
         }
 
         // SCK failed — attempt auto-repair via replayd restart
-        updateUIModel(status: .repairing, identity: identity)
+        _ = publishStatus(.repairing, identity: identity)
         logger.info("auto_repair_start")
         let repairResult = await repairSCKAccess()
         logger.info(
@@ -346,59 +387,105 @@ final class PermissionCoordinator: ObservableObject {
         )
 
         if repairResult == .authorized {
-            recordWorkingIdentity(identity)
-            updateUIModel(status: .working, identity: identity)
-            return .working
+            return publishWorkingValidated(identity)
         }
 
-        let status = explicitFailureStatus(for: identity)
-        updateUIModel(status: status, identity: identity)
-        return status
+        if repairResult == .userDeclined {
+            return publishDenied(identity, clearPermissionRequest: true)
+        }
+
+        return publishExplicitFailure(for: identity)
     }
 
     /// Prompt macOS to grant screen recording permission via the system dialog.
     func requestPermissionFromSystem() -> Bool {
         logger.info("request_permission user_initiated=true")
+        clearDiagnosedFailure()
+        recentPermissionRequestSession = PermissionRequestSession(startedAt: now())
         return permissionRequester()
     }
 
     /// Poll passive TCC state after the user returns from System Settings,
-    /// then run one interactive validation once macOS reports access.
+    /// then run live validation even if CoreGraphics still looks stale.
     @discardableResult
     func revalidateAfterSettingsReturn(
-        timeoutSeconds: TimeInterval = 4,
+        timeoutSeconds: TimeInterval = 10,
         pollIntervalNanoseconds: UInt64 = 350_000_000,
         sckRetryDelayNanoseconds: UInt64 = 1_000_000_000,
         maxSCKRetries: Int = 5
     ) async -> ScreenRecordingState {
         sckStateResetter()
-        let deadline = now().addingTimeInterval(timeoutSeconds)
-
-        while now() < deadline {
-            let passiveStatus = await refreshPassiveStatus()
-            switch passiveStatus {
-            case .denied:
-                try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
-            case .grantedNeedsValidation, .working:
-                for attempt in 1...maxSCKRetries {
-                    let result = await runUserInitiatedValidation()
-                    if result == .working {
-                        return .working
-                    }
-                    if result == .denied {
-                        return .denied
-                    }
-                    if attempt < maxSCKRetries {
-                        try? await Task.sleep(nanoseconds: sckRetryDelayNanoseconds)
-                    }
-                }
-                return permissionUIModel.status
-            case .needsRelaunch, .staleRecord, .repairing:
-                return passiveStatus
-            }
+        let identity = await identityProvider()
+        let startedAt = now()
+        guard hasFreshPermissionRequestSession(at: startedAt) else {
+            return await refreshPassiveStatus()
         }
 
-        return await refreshPassiveStatus()
+        let deadline = startedAt.addingTimeInterval(timeoutSeconds)
+        var attemptedRepair = false
+
+        while now() < deadline {
+            if isLiveValidatedIdentity(identity) {
+                clearPermissionRequestSession()
+                return publishStatus(.working, identity: identity)
+            }
+
+            let cgGranted = passiveCheck()
+            logger.info("settings_return_poll cg_granted=\(cgGranted, privacy: .public)")
+
+            for attempt in 1...maxSCKRetries {
+                let validationResult = await interactiveCheck()
+                let validationLog = "settings_return_validation attempt=\(attempt)"
+                    + " cg_granted=\(cgGranted)"
+                    + " result=\(String(describing: validationResult))"
+                logger.info("\(validationLog, privacy: .public)")
+
+                switch validationResult {
+                case .authorized:
+                    return publishWorkingValidated(identity)
+                case .userDeclined:
+                    return publishDenied(identity, clearPermissionRequest: true)
+                case .transientFailure:
+                    _ = publishStatus(.grantedNeedsValidation, identity: identity)
+
+                    if cgGranted, !attemptedRepair {
+                        attemptedRepair = true
+                        _ = publishStatus(.repairing, identity: identity)
+                        logger.info("settings_return_auto_repair_start")
+                        let repairResult = await repairSCKAccess()
+                        logger.info(
+                            "settings_return_auto_repair_result result=\(String(describing: repairResult), privacy: .public)"
+                        )
+
+                        switch repairResult {
+                        case .authorized:
+                            return publishWorkingValidated(identity)
+                        case .userDeclined:
+                            return publishDenied(identity, clearPermissionRequest: true)
+                        case .transientFailure:
+                            _ = publishStatus(.grantedNeedsValidation, identity: identity)
+                        }
+                    }
+                }
+
+                if attempt < maxSCKRetries {
+                    try? await Task.sleep(nanoseconds: sckRetryDelayNanoseconds)
+                }
+            }
+
+            try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
+        }
+
+        if canAutoRelaunchAfterSettingsReturn(at: now()) {
+            armPendingCaptureResume()
+            markAutoRelaunchIssued()
+            _ = publishStatus(.repairing, identity: identity)
+            logger.info("settings_return_auto_relaunch")
+            relaunchApp()
+            return .repairing
+        }
+
+        return publishExplicitFailure(for: identity, clearPermissionRequest: true)
     }
 
     /// Handle a capture failure due to missing permission, showing an alert if not rate-limited.
@@ -414,13 +501,11 @@ final class PermissionCoordinator: ObservableObject {
             let repairResult = await repairSCKAccess()
             if repairResult == .authorized {
                 logger.info("silent_repair_success — no alert needed")
-                recordWorkingIdentity(identity)
-                updateUIModel(status: .working, identity: identity)
+                _ = publishWorkingValidated(identity, clearPermissionRequest: false)
                 return
             }
 
-            status = explicitFailureStatus(for: identity)
-            updateUIModel(status: status, identity: identity)
+            status = publishExplicitFailure(for: identity)
         }
 
         let now = now()
@@ -461,7 +546,92 @@ final class PermissionCoordinator: ObservableObject {
         relaunchApp()
     }
 
-    private func alertState(for status: ScreenRecordingState) -> ScreenCaptureManager.PermissionState {
+}
+
+private extension PermissionCoordinator {
+    @discardableResult
+    func publishPassiveStatus(
+        for identity: PermissionIdentity,
+        at timestamp: Date,
+        cgGranted: Bool
+    ) -> ScreenRecordingState {
+        let status = PermissionStatusCore.passiveStatus(
+            cgGranted: cgGranted,
+            context: makeStatusContext(for: identity, at: timestamp)
+        )
+        return publishStatus(status, identity: identity)
+    }
+
+    @discardableResult
+    func publishWorkingValidated(
+        _ identity: PermissionIdentity,
+        clearPermissionRequest: Bool = true
+    ) -> ScreenRecordingState {
+        recordWorkingIdentity(identity)
+        if clearPermissionRequest {
+            clearPermissionRequestSession()
+        }
+        return publishStatus(.working, identity: identity)
+    }
+
+    @discardableResult
+    func publishDenied(
+        _ identity: PermissionIdentity,
+        clearPermissionRequest: Bool = false
+    ) -> ScreenRecordingState {
+        if clearPermissionRequest {
+            clearPermissionRequestSession()
+        }
+        return publishStatus(.denied, identity: identity)
+    }
+
+    @discardableResult
+    func publishExplicitFailure(
+        for identity: PermissionIdentity,
+        clearPermissionRequest: Bool = false
+    ) -> ScreenRecordingState {
+        if clearPermissionRequest {
+            clearPermissionRequestSession()
+        }
+        let status = PermissionStatusCore.explicitFailureStatus(
+            for: makeStatusContext(for: identity, at: now())
+        )
+        recordDiagnosedFailure(status, for: identity)
+        return publishStatus(status, identity: identity)
+    }
+
+    @discardableResult
+    func publishStatus(
+        _ status: ScreenRecordingState,
+        identity: PermissionIdentity
+    ) -> ScreenRecordingState {
+        switch status {
+        case .working, .denied:
+            clearDiagnosedFailure()
+        case .grantedNeedsValidation, .needsRelaunch, .staleRecord, .repairing:
+            break
+        }
+        updateUIModel(status: status, identity: identity)
+        return status
+    }
+
+    func makeStatusContext(
+        for identity: PermissionIdentity,
+        at timestamp: Date
+    ) -> PermissionStatusContext {
+        PermissionStatusContext(
+            identity: identity,
+            hasFreshPermissionRequest: hasFreshPermissionRequestSession(at: timestamp),
+            hasLiveValidatedIdentity: isLiveValidatedIdentity(identity),
+            isKnownWorkingIdentity: isKnownWorkingIdentity(identity),
+            lastWorkingExecutablePathMatches: lastWorkingExecutablePathMatches(identity),
+            diagnosedFailureStatus: diagnosedFailureStatus(for: identity),
+            hasKnownWorkingMismatch: hasKnownWorkingMismatch(for: identity),
+            didAutoRelaunchAfterRequest: recentPermissionRequestSession?.didAutoRelaunch == true
+        )
+    }
+
+    func alertState(for status: ScreenRecordingState) -> ScreenCaptureManager.PermissionState {
         switch status {
         case .denied:
             return .neverGranted
@@ -474,19 +644,19 @@ final class PermissionCoordinator: ObservableObject {
         }
     }
 
-    private func isCooldownActive(at timestamp: Date) -> Bool {
+    func isCooldownActive(at timestamp: Date) -> Bool {
         guard let lastBlockingAlertAt else { return false }
         return timestamp.timeIntervalSince(lastBlockingAlertAt) < alertCooldownSeconds
     }
 
-    private func updateCooldownInModel(cooldownActive: Bool) {
+    func updateCooldownInModel(cooldownActive: Bool) {
         permissionUIModel.isAlertCooldownActive = cooldownActive
         if cooldownActive {
             scheduleCooldownReset()
         }
     }
 
-    private func scheduleCooldownReset() {
+    func scheduleCooldownReset() {
         cooldownResetTask?.cancel()
         let seconds = alertCooldownSeconds
         cooldownResetTask = Task { [weak self] in
@@ -496,7 +666,7 @@ final class PermissionCoordinator: ObservableObject {
         }
     }
 
-    private func knownWorkingFingerprint() -> String? {
+    func knownWorkingFingerprint() -> String? {
         guard let fingerprint = defaults.string(forKey: Keys.lastWorkingIdentityFingerprint),
               !fingerprint.isEmpty else {
             return nil
@@ -504,81 +674,111 @@ final class PermissionCoordinator: ObservableObject {
         return fingerprint
     }
 
-    private func isKnownWorkingIdentity(_ identity: PermissionIdentity) -> Bool {
+    func isKnownWorkingIdentity(_ identity: PermissionIdentity) -> Bool {
         knownWorkingFingerprint() == identity.fingerprint
     }
 
-    private func hasKnownWorkingMismatch(for identity: PermissionIdentity) -> Bool {
+    func isLiveValidatedIdentity(_ identity: PermissionIdentity) -> Bool {
+        liveValidatedIdentityFingerprint == identity.fingerprint
+    }
+
+    func lastWorkingExecutablePath() -> String? {
+        guard let path = defaults.string(forKey: Keys.lastWorkingExecutablePath),
+              !path.isEmpty else {
+            return nil
+        }
+        return path
+    }
+
+    func lastWorkingExecutablePathMatches(_ identity: PermissionIdentity) -> Bool {
+        lastWorkingExecutablePath() == identity.executablePath
+    }
+
+    func shouldTrustLiveValidationWithoutCoreGraphics(at timestamp: Date) -> Bool {
+        hasFreshPermissionRequestSession(at: timestamp)
+            || liveValidatedIdentityFingerprint != nil
+    }
+
+    func hasFreshPermissionRequestSession(at timestamp: Date) -> Bool {
+        guard let session = recentPermissionRequestSession else {
+            return false
+        }
+        return timestamp.timeIntervalSince(session.startedAt) <= permissionRequestLifetimeSeconds
+    }
+
+    func clearExpiredPermissionRequestSessionIfNeeded(at timestamp: Date) {
+        guard !hasFreshPermissionRequestSession(at: timestamp) else {
+            return
+        }
+        recentPermissionRequestSession = nil
+    }
+
+    func clearPermissionRequestSession() {
+        recentPermissionRequestSession = nil
+    }
+
+    func canAutoRelaunchAfterSettingsReturn(at timestamp: Date) -> Bool {
+        guard hasFreshPermissionRequestSession(at: timestamp),
+              let session = recentPermissionRequestSession else {
+            return false
+        }
+        return !session.didAutoRelaunch
+    }
+
+    func markAutoRelaunchIssued() {
+        guard var session = recentPermissionRequestSession else {
+            return
+        }
+        session.didAutoRelaunch = true
+        recentPermissionRequestSession = session
+    }
+
+    func hasKnownWorkingMismatch(for identity: PermissionIdentity) -> Bool {
         guard let lastWorkingFingerprint = knownWorkingFingerprint() else {
             return false
         }
         return lastWorkingFingerprint != identity.fingerprint
     }
 
-    private func recordWorkingIdentity(_ identity: PermissionIdentity) {
+    func recordWorkingIdentity(_ identity: PermissionIdentity) {
+        clearDiagnosedFailure()
+        liveValidatedIdentityFingerprint = identity.fingerprint
         defaults.set(identity.fingerprint, forKey: Keys.lastWorkingIdentityFingerprint)
         defaults.set(identity.executablePath, forKey: Keys.lastWorkingExecutablePath)
     }
 
-    private func explicitFailureStatus(for identity: PermissionIdentity) -> ScreenRecordingState {
-        guard hasKnownWorkingMismatch(for: identity) else {
-            return .needsRelaunch
+    func diagnosedFailureStatus(for identity: PermissionIdentity) -> ScreenRecordingState? {
+        guard let diagnosedFailure,
+              diagnosedFailure.identityFingerprint == identity.fingerprint else {
+            return nil
         }
-        let lastPath = defaults.string(forKey: Keys.lastWorkingExecutablePath)
-        if lastPath == identity.executablePath {
-            return .needsRelaunch
-        }
-        return .staleRecord
+        return diagnosedFailure.status
     }
 
-    private func updateUIModel(status: ScreenRecordingState, identity: PermissionIdentity) {
-        let shouldShowStaleRecordBanner = shouldShowStaleRecordBanner(for: status)
-        let guidance = guidance(for: status, identity: identity)
-        let cooldownActive = isCooldownActive(at: now())
-        permissionUIModel = PermissionUIModel(
-            status: status,
-            guidanceText: guidance,
-            shouldShowStaleRecordBanner: shouldShowStaleRecordBanner,
-            isAlertCooldownActive: cooldownActive
+    func recordDiagnosedFailure(_ status: ScreenRecordingState, for identity: PermissionIdentity) {
+        guard status == .needsRelaunch || status == .staleRecord else {
+            return
+        }
+        diagnosedFailure = DiagnosedFailure(
+            identityFingerprint: identity.fingerprint,
+            status: status
         )
     }
 
-    private func shouldShowStaleRecordBanner(for status: ScreenRecordingState) -> Bool {
-        status == .staleRecord
+    func clearDiagnosedFailure() {
+        diagnosedFailure = nil
     }
 
-    private func guidance(for status: ScreenRecordingState, identity: PermissionIdentity) -> String? {
-        switch status {
-        case .staleRecord:
-            return "Current app: \(identity.executablePath)\n\n"
-                + "macOS appears to trust a different Caloura copy. "
-                + "In System Settings > Privacy > Screen Recording, remove the old Caloura entry, "
-                + "then re-add /Applications/Caloura.app."
-        case .needsRelaunch:
-            return "Screen Recording is granted, but macOS needs a Caloura relaunch to fully apply it. "
-                + "If restarting doesn't help, try logging out and back in."
-        case .denied:
-            return "Caloura needs Screen Recording access to capture screenshots."
-        case .grantedNeedsValidation:
-            return "Screen Recording looks granted. Start a capture to finish validation."
-        case .repairing:
-            return "Restarting screen recording service."
-        case .working:
-            return nil
-        }
+    func updateUIModel(status: ScreenRecordingState, identity: PermissionIdentity) {
+        let timestamp = now()
+        permissionUIModel = PermissionStatusCore.uiModel(
+            status: status,
+            context: makeStatusContext(for: identity, at: timestamp),
+            cooldownActive: isCooldownActive(at: timestamp)
+        )
     }
 
-    private func nonBlockingMessage(for status: ScreenRecordingState) -> String {
-        switch status {
-        case .staleRecord:
-            return "Screen Recording appears tied to a different Caloura copy. "
-                + "Open /Applications/Caloura.app and try again."
-        case .denied:
-            return "Screen Recording permission required. Open System Settings to continue capturing."
-        case .needsRelaunch:
-            return "macOS still needs Caloura to relaunch before capture is available."
-        case .grantedNeedsValidation, .working, .repairing:
-            return "Screen Recording is still initializing. Try again in a moment."
-        }
+    func nonBlockingMessage(for status: ScreenRecordingState) -> String {
+        PermissionStatusCore.nonBlockingMessage(for: status)
     }
 }

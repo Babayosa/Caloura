@@ -10,7 +10,7 @@ let package = Package(
         .library(name: "Caloura", targets: ["Caloura"])
     ],
     dependencies: [
-        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.0.0"),
+        .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.4.0"),
         .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.8.1")
     ],
     targets: [
@@ -26,7 +26,7 @@ let package = Package(
                 "App/CalouraApp.swift"
             ],
             swiftSettings: [
-                .swiftLanguageMode(.v5)
+                .swiftLanguageMode(.v6)
             ]
         ),
         .testTarget(
@@ -34,7 +34,7 @@ let package = Package(
             dependencies: ["Caloura"],
             path: "CalouraTests",
             swiftSettings: [
-                .swiftLanguageMode(.v5)
+                .swiftLanguageMode(.v6)
             ]
         )
     ]

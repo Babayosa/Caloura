@@ -1,9 +1,26 @@
 import Foundation
+@preconcurrency import ScreenCaptureKit
 import XCTest
 @testable import Caloura
 
 @MainActor
 final class ScreenCaptureManagerPermissionTests: XCTestCase {
+    nonisolated(unsafe) private var originalStatusMessage = ""
+
+    override nonisolated func setUp() {
+        super.setUp()
+        originalStatusMessage = MainActor.assumeIsolated {
+            AppState.shared.statusMessage
+        }
+    }
+
+    override nonisolated func tearDown() {
+        let restoredStatusMessage = originalStatusMessage
+        MainActor.assumeIsolated {
+            AppState.shared.statusMessage = restoredStatusMessage
+        }
+        super.tearDown()
+    }
 
     func testCheckPermission_usesInjectedPreflightResult() {
         let manager = ScreenCaptureManager(
@@ -27,7 +44,7 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
                 sckProbe: { .authorized }
             )
         )
-        manager.sckFailed = true
+        manager.setSCKFailedForTesting(true)
 
         let result = await manager.checkSCKAccess()
 
@@ -54,7 +71,6 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
                 sckProbe: { .transientFailure }
             )
         )
-        manager.sckFailed = false
 
         let result = await manager.primeSCKAccessIfPossible()
 
@@ -73,6 +89,47 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
 
         XCTAssertEqual(result, .authorized)
         XCTAssertFalse(manager.sckFailed)
+    }
+
+    func testCoreGraphicsPermissionFailureCheckCanBeSuppressedDuringRecentGrantWindow() {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(preflight: { false }),
+            cgPreflightAuthorityProvider: { false }
+        )
+
+        XCTAssertFalse(manager.shouldTreatCoreGraphicsStateAsPermissionDenied())
+        XCTAssertFalse(
+            manager.shouldTreatCaptureErrorAsPermissionDenied(
+                NSError(domain: "tests", code: 1)
+            )
+        )
+    }
+
+    func testCoreGraphicsPermissionFailureCheckStillAppliesWhenAuthoritative() {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(preflight: { false }),
+            cgPreflightAuthorityProvider: { true }
+        )
+
+        XCTAssertTrue(manager.shouldTreatCoreGraphicsStateAsPermissionDenied())
+        XCTAssertTrue(
+            manager.shouldTreatCaptureErrorAsPermissionDenied(
+                NSError(domain: "tests", code: 1)
+            )
+        )
+    }
+
+    func testSCKUserDeclinedMapsToPermissionDeniedWithoutCoreGraphicsFallback() {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(preflight: { true }),
+            cgPreflightAuthorityProvider: { false }
+        )
+        let error = NSError(
+            domain: SCStreamError.errorDomain,
+            code: SCStreamError.Code.userDeclined.rawValue
+        )
+
+        XCTAssertTrue(manager.shouldTreatCaptureErrorAsPermissionDenied(error))
     }
 
     func testRepairSCKAccess_runsRepairToolAndRechecksAuthorization() async {
@@ -124,11 +181,6 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
     }
 
     func testRelaunchApp_failureUpdatesStatusMessage() async {
-        let originalStatus = AppState.shared.statusMessage
-        addTeardownBlock { @MainActor in
-            AppState.shared.statusMessage = originalStatus
-        }
-
         let box = DependencyBox()
         let manager = ScreenCaptureManager(
             permissionDependencies: makeDependencies(
@@ -143,7 +195,9 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
         AppState.shared.statusMessage = ""
 
         manager.relaunchApp()
-        await pollUntil { AppState.shared.statusMessage == "Restart failed: boom" }
+        await pollUntil(timeout: 5.0) {
+            AppState.shared.statusMessage == "Restart failed: boom"
+        }
 
         XCTAssertEqual(AppState.shared.statusMessage, "Restart failed: boom")
     }

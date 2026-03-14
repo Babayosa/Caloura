@@ -3,6 +3,7 @@ import AppKit
 final class ScreenSelectionOverlayWindow: NSPanel {
     var onScreenSelected: ((NSScreen) -> Void)?
     var onCancelled: (() -> Void)?
+    private weak var cursorController: CaptureCursorControlling?
 
     convenience init(
         for screen: NSScreen,
@@ -36,11 +37,23 @@ final class ScreenSelectionOverlayWindow: NSPanel {
         selectionView.onCancelled = { [weak self] in
             self?.onCancelled?()
         }
+        self.cursorController = cursorController
         self.contentView = selectionView
     }
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override func becomeKey() {
+        super.becomeKey()
+        primeCrosshair()
+    }
+
+    private func primeCrosshair() {
+        guard let contentView else { return }
+        invalidateCursorRects(for: contentView)
+        cursorController?.reassertCrosshair()
+    }
 
     @MainActor
     static func showOnAllScreens(
@@ -48,9 +61,11 @@ final class ScreenSelectionOverlayWindow: NSPanel {
         onScreenSelected: @escaping (NSScreen) -> Void,
         onCancelled: @escaping () -> Void
     ) -> [ScreenSelectionOverlayWindow] {
+        let screens = orderedPresentationScreens()
         var overlays: [ScreenSelectionOverlayWindow] = []
+        overlays.reserveCapacity(screens.count)
 
-        for screen in NSScreen.screens {
+        for (index, screen) in screens.enumerated() {
             let overlay = ScreenSelectionOverlayWindow(
                 for: screen,
                 cursorController: cursorController
@@ -70,17 +85,25 @@ final class ScreenSelectionOverlayWindow: NSPanel {
                 closeAll()
                 onCancelled()
             }
-            overlay.makeKeyAndOrderFront(nil)
+            if index == 0 {
+                overlay.makeKeyAndOrderFront(nil)
+            } else {
+                overlay.orderFrontRegardless()
+            }
             overlays.append(overlay)
         }
 
-        // Make the overlay on the screen with the mouse key
-        if let mouseScreen = NSScreen.screens.first(where: { screen in
+        return overlays
+    }
+
+    private static func orderedPresentationScreens() -> [NSScreen] {
+        let screens = NSScreen.screens
+        guard let mouseScreen = screens.first(where: { screen in
             NSMouseInRect(NSEvent.mouseLocation, screen.frame, false)
-        }) {
-            overlays.first { $0.screen == mouseScreen }?.makeKey()
+        }) else {
+            return screens
         }
 
-        return overlays
+        return [mouseScreen] + screens.filter { $0 != mouseScreen }
     }
 }
