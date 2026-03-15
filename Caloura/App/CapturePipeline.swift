@@ -141,10 +141,12 @@ final class CapturePipeline: ObservableObject {
         }
         self.selectWindowCapture = makeCapturePipelineSelectWindowCapture()
         self.makeAreaCaptureSession = makeCapturePipelineAreaCaptureSessionFactory(
-            performanceRecorder: performanceRecorder
+            performanceRecorder: performanceRecorder,
+            cursorController: self.sessionState.cursorController
         )
         self.makeFullscreenCaptureSession = makeCapturePipelineFullscreenCaptureSessionFactory(
-            performanceRecorder: performanceRecorder
+            performanceRecorder: performanceRecorder,
+            cursorController: self.sessionState.cursorController
         )
         self.makeWindowCaptureSession = makeCapturePipelineWindowCaptureSessionFactory(
             performanceRecorder: performanceRecorder,
@@ -210,11 +212,12 @@ final class CapturePipeline: ObservableObject {
         self.showQuickAccess = showQuickAccess
         self.postNotification = postNotification
         self.selectWindowCapture = selectWindowCapture
+        let sharedCursor = self.sessionState.cursorController
         self.makeAreaCaptureSession = makeAreaCaptureSession ?? { session, onSelection, onCancel, onFirstInteraction in
             AreaCaptureSessionCoordinator(
                 session: session,
                 performanceRecorder: capturePerformanceRecorder,
-                cursorController: CaptureCursorController(),
+                cursorController: sharedCursor,
                 onSelection: onSelection,
                 onCancel: onCancel,
                 onFirstInteraction: onFirstInteraction
@@ -224,7 +227,7 @@ final class CapturePipeline: ObservableObject {
             FullscreenCaptureSessionCoordinator(
                 session: session,
                 performanceRecorder: capturePerformanceRecorder,
-                cursorController: CaptureCursorController(),
+                cursorController: sharedCursor,
                 onSelection: onSelection,
                 onCancel: onCancel
             )
@@ -380,13 +383,14 @@ private func makeCapturePipelineSelectWindowCapture() -> CapturePipeline.SelectW
 
 @MainActor
 private func makeCapturePipelineAreaCaptureSessionFactory(
-    performanceRecorder: CapturePerformanceRecorder
+    performanceRecorder: CapturePerformanceRecorder,
+    cursorController: CaptureCursorControlling
 ) -> CapturePipeline.MakeAreaCaptureSessionFn {
     { session, onSelection, onCancel, onFirstInteraction in
         AreaCaptureSessionCoordinator(
             session: session,
             performanceRecorder: performanceRecorder,
-            cursorController: CaptureCursorController(),
+            cursorController: cursorController,
             onSelection: onSelection,
             onCancel: onCancel,
             onFirstInteraction: onFirstInteraction
@@ -396,13 +400,14 @@ private func makeCapturePipelineAreaCaptureSessionFactory(
 
 @MainActor
 private func makeCapturePipelineFullscreenCaptureSessionFactory(
-    performanceRecorder: CapturePerformanceRecorder
+    performanceRecorder: CapturePerformanceRecorder,
+    cursorController: CaptureCursorControlling
 ) -> CapturePipeline.MakeFullscreenCaptureSessionFn {
     { session, onSelection, onCancel in
         FullscreenCaptureSessionCoordinator(
             session: session,
             performanceRecorder: performanceRecorder,
-            cursorController: CaptureCursorController(),
+            cursorController: cursorController,
             onSelection: onSelection,
             onCancel: onCancel
         )

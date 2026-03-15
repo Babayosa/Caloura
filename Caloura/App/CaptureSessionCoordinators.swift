@@ -5,7 +5,7 @@ import ScreenCaptureKit
 protocol AreaCaptureSessionHandling: AnyObject {
     var overlayWindows: [CaptureOverlayWindow] { get }
 
-    func present(suppressDimming: Bool)
+    func present(windows: [CaptureOverlayWindow], suppressDimming: Bool)
     func updateFrozenImages(_ images: [NSScreen: CGImage])
     func dismiss()
 }
@@ -28,13 +28,6 @@ final class AreaCaptureSessionCoordinator {
     typealias SelectionHandler = @MainActor (CGRect, NSScreen, CGImage?) async -> Void
     typealias CancelHandler = @MainActor () -> Void
     typealias EventHandler = @MainActor () -> Void
-    typealias OverlayPresenter = @MainActor (
-        CaptureCursorControlling?,
-        Bool,
-        @escaping (CGRect, NSScreen) -> Void,
-        @escaping () -> Void,
-        (() -> Void)?
-    ) -> [CaptureOverlayWindow]
 
     private let session: CapturePerformanceRecorder.Session
     private let performanceRecorder: CapturePerformanceRecorder
@@ -42,27 +35,10 @@ final class AreaCaptureSessionCoordinator {
     private let onSelection: SelectionHandler
     private let onCancel: CancelHandler
     private let onFirstInteraction: EventHandler?
-    private let overlayPresenter: OverlayPresenter
 
     private(set) var overlayWindows: [CaptureOverlayWindow] = []
     private var frozenImages: [NSScreen: CGImage] = [:]
     private var firstInteractionRecorded = false
-
-    private static func defaultOverlayPresenter(
-        cursorController: CaptureCursorControlling?,
-        suppressDimming: Bool,
-        onRegionSelected: @escaping (CGRect, NSScreen) -> Void,
-        onCancelled: @escaping () -> Void,
-        onFirstMouseDown: (() -> Void)?
-    ) -> [CaptureOverlayWindow] {
-        CaptureOverlayWindow.showOnAllScreens(
-            cursorController: cursorController,
-            suppressDimming: suppressDimming,
-            onRegionSelected: onRegionSelected,
-            onCancelled: onCancelled,
-            onFirstMouseDown: onFirstMouseDown
-        )
-    }
 
     init(
         session: CapturePerformanceRecorder.Session,
@@ -70,8 +46,7 @@ final class AreaCaptureSessionCoordinator {
         cursorController: CaptureCursorControlling,
         onSelection: @escaping SelectionHandler,
         onCancel: @escaping CancelHandler,
-        onFirstInteraction: EventHandler? = nil,
-        overlayPresenter: OverlayPresenter? = nil
+        onFirstInteraction: EventHandler? = nil
     ) {
         self.session = session
         self.performanceRecorder = performanceRecorder
@@ -79,38 +54,48 @@ final class AreaCaptureSessionCoordinator {
         self.onSelection = onSelection
         self.onCancel = onCancel
         self.onFirstInteraction = onFirstInteraction
-        self.overlayPresenter = overlayPresenter ?? Self.defaultOverlayPresenter
     }
 
-    func present(suppressDimming: Bool = false) {
+    func present(windows: [CaptureOverlayWindow], suppressDimming: Bool = false) {
+        firstInteractionRecorded = false
+        frozenImages = [:]
         cursorController.beginCrosshairSession()
-        overlayWindows = overlayPresenter(
-            cursorController,
-            suppressDimming,
-            { [weak self] rect, screen in
-                guard let self = self else { return }
-                self.cursorController.endCrosshairSession()
-                self.overlayWindows = []
+        overlayWindows = windows
+
+        for (index, window) in windows.enumerated() {
+            if suppressDimming {
+                window.isDimmingSuppressed = true
+            }
+
+            window.onRegionSelected = { [weak self] rect, screen in
+                guard let self else { return }
+                self.releaseOverlays()
                 Task { @MainActor in
                     await self.onSelection(rect, screen, self.frozenImages[screen])
                 }
-            },
-            { [weak self] in
-                guard let self = self else { return }
-                self.cursorController.endCrosshairSession()
-                self.overlayWindows = []
+            }
+            window.onCancelled = { [weak self] in
+                guard let self else { return }
+                self.releaseOverlays()
                 Task { @MainActor in
                     self.onCancel()
                 }
-            },
-            { [weak self] in
-                guard let self = self else { return }
+            }
+            window.onFirstMouseDown = { [weak self] in
+                guard let self else { return }
                 guard !self.firstInteractionRecorded else { return }
                 self.firstInteractionRecorded = true
                 self.performanceRecorder.mark(.firstInteraction, in: self.session)
                 self.onFirstInteraction?()
             }
-        )
+
+            if index == 0 {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                window.orderFrontRegardless()
+            }
+        }
+
         cursorController.reassertCrosshair()
         performanceRecorder.mark(.overlayVisible, in: session)
     }
@@ -127,14 +112,12 @@ final class AreaCaptureSessionCoordinator {
     }
 
     func dismiss() {
-        for overlay in overlayWindows {
-            overlay.onRegionSelected = nil
-            overlay.onCancelled = nil
-            overlay.onFirstMouseDown = nil
-            overlay.close()
-        }
-        overlayWindows = []
+        releaseOverlays()
+    }
+
+    private func releaseOverlays() {
         cursorController.endCrosshairSession()
+        overlayWindows = []
     }
 }
 

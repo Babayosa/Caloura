@@ -4,7 +4,7 @@ import XCTest
 
 @MainActor
 final class CaptureCursorControllerTests: XCTestCase {
-    func testBeginCrosshairSessionCreatesExactlyOneActiveSession() {
+    func testBeginCrosshairSessionActivatesAndSchedulesReassertion() {
         let driver = CaptureCrosshairDriverSpy()
         let scheduler = CaptureCursorSchedulerSpy()
         let controller = CaptureCursorController(
@@ -15,25 +15,19 @@ final class CaptureCursorControllerTests: XCTestCase {
 
         controller.beginCrosshairSession()
 
-        XCTAssertEqual(driver.pushCalls, 1)
-        XCTAssertEqual(driver.popCalls, 0)
         XCTAssertEqual(driver.setCalls, 0)
-        XCTAssertEqual(driver.activeSessions, 1)
         XCTAssertEqual(scheduler.scheduleCalls, 1)
         XCTAssertEqual(scheduler.pendingCount, 1)
 
         scheduler.runPendingActions()
 
-        XCTAssertEqual(driver.pushCalls, 1)
-        XCTAssertEqual(driver.popCalls, 0)
         XCTAssertEqual(driver.setCalls, 1)
-        XCTAssertEqual(driver.activeSessions, 1)
         XCTAssertEqual(scheduler.pendingCount, 0)
 
         controller.endCrosshairSession()
     }
 
-    func testRepeatedBeginCrosshairSessionDoesNotStackPushes() {
+    func testRepeatedBeginCrosshairSessionSchedulesOnce() {
         let driver = CaptureCrosshairDriverSpy()
         let scheduler = CaptureCursorSchedulerSpy()
         let controller = CaptureCursorController(
@@ -45,19 +39,13 @@ final class CaptureCursorControllerTests: XCTestCase {
         controller.beginCrosshairSession()
         controller.beginCrosshairSession()
 
-        XCTAssertEqual(driver.pushCalls, 1)
-        XCTAssertEqual(driver.popCalls, 0)
         XCTAssertEqual(driver.setCalls, 0)
-        XCTAssertEqual(driver.activeSessions, 1)
         XCTAssertEqual(scheduler.scheduleCalls, 1)
         XCTAssertEqual(scheduler.pendingCount, 1)
 
         scheduler.runPendingActions()
 
-        XCTAssertEqual(driver.pushCalls, 1)
-        XCTAssertEqual(driver.popCalls, 0)
         XCTAssertEqual(driver.setCalls, 1)
-        XCTAssertEqual(driver.activeSessions, 1)
 
         controller.endCrosshairSession()
     }
@@ -82,16 +70,13 @@ final class CaptureCursorControllerTests: XCTestCase {
 
         scheduler.runPendingActions()
 
-        XCTAssertEqual(driver.pushCalls, 1)
-        XCTAssertEqual(driver.popCalls, 0)
         XCTAssertEqual(driver.setCalls, 2)
-        XCTAssertEqual(driver.activeSessions, 1)
         XCTAssertEqual(scheduler.pendingCount, 0)
 
         controller.endCrosshairSession()
     }
 
-    func testEndCrosshairSessionCancelsPendingReprimeAndBalancesOwnership() {
+    func testEndCrosshairSessionCancelsPendingReassertion() {
         let driver = CaptureCrosshairDriverSpy()
         let scheduler = CaptureCursorSchedulerSpy()
         let controller = CaptureCursorController(
@@ -104,30 +89,29 @@ final class CaptureCursorControllerTests: XCTestCase {
         controller.endCrosshairSession()
         scheduler.runPendingActions()
 
-        XCTAssertEqual(driver.pushCalls, 1)
-        XCTAssertEqual(driver.popCalls, 1)
-        XCTAssertEqual(driver.activeSessions, 0)
+        XCTAssertEqual(driver.setCalls, 0)
         XCTAssertEqual(scheduler.pendingCount, 0)
         XCTAssertEqual(scheduler.cancelledCount, 1)
+    }
+
+    func testReassertCrosshairNoOpWhenInactive() {
+        let driver = CaptureCrosshairDriverSpy()
+        let scheduler = CaptureCursorSchedulerSpy()
+        let controller = CaptureCursorController(
+            crosshairDriver: driver,
+            scheduler: scheduler,
+            notificationCenter: NotificationCenter()
+        )
+
+        controller.reassertCrosshair()
+
+        XCTAssertEqual(driver.setCalls, 0)
     }
 }
 
 @MainActor
 private final class CaptureCrosshairDriverSpy: CaptureCrosshairDriving {
-    private(set) var pushCalls = 0
-    private(set) var popCalls = 0
     private(set) var setCalls = 0
-    private(set) var activeSessions = 0
-
-    func pushCrosshair() {
-        pushCalls += 1
-        activeSessions += 1
-    }
-
-    func popCursor() {
-        popCalls += 1
-        activeSessions = max(0, activeSessions - 1)
-    }
 
     func setCrosshair() {
         setCalls += 1

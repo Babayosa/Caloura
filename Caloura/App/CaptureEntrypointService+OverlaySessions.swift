@@ -39,6 +39,7 @@ extension CaptureEntrypointService {
         performanceSession: CapturePerformanceRecorder.Session
     ) async {
         guard sessionState.isCurrentTrackedSession(sessionID) else { return }
+        sessionState.overlayWindowPool.release()
         sessionState.overlayWindows = []
         sessionState.areaCaptureSession = nil
         appState.lastCaptureRect = rect
@@ -62,6 +63,7 @@ extension CaptureEntrypointService {
         performanceSession: CapturePerformanceRecorder.Session
     ) {
         guard sessionState.isCurrentTrackedSession(sessionID) else { return }
+        sessionState.overlayWindowPool.release()
         sessionState.overlayWindows = []
         sessionState.areaCaptureSession = nil
         finishInterruptedCapture(performanceSession)
@@ -80,7 +82,10 @@ extension CaptureEntrypointService {
         _ coordinator: any AreaCaptureSessionHandling,
         entryStart: CFAbsoluteTime
     ) {
-        coordinator.present(suppressDimming: freezeScreensEnabled)
+        let windows = sessionState.overlayWindowPool.acquire(
+            cursorController: sessionState.cursorController
+        )
+        coordinator.present(windows: windows, suppressDimming: freezeScreensEnabled)
         sessionState.overlayWindows = coordinator.overlayWindows
 
         let overlayVisibleDuration = elapsedMilliseconds(entryStart)

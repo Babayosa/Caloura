@@ -91,13 +91,19 @@ final class CaptureOverlayWindow: NSPanel {
         cursorController?.reassertCrosshair()
     }
 
-    private func tearDownHandlers() {
+    func tearDownHandlers() {
         onRegionSelected = nil
         onCancelled = nil
         onFirstMouseDown = nil
         selectionView?.onRegionSelected = nil
         selectionView?.onCancelled = nil
         selectionView?.onFirstMouseDown = nil
+    }
+
+    func resetForReuse(cursorController: CaptureCursorControlling?) {
+        tearDownHandlers()
+        self.cursorController = cursorController
+        selectionView?.resetForReuse(cursorController: cursorController)
     }
 
     static func showOnAllScreens(
@@ -156,7 +162,7 @@ final class CaptureOverlayWindow: NSPanel {
         return windows
     }
 
-    private static func orderedPresentationScreens() -> [NSScreen] {
+    static func orderedPresentationScreens() -> [NSScreen] {
         let screens = NSScreen.screens
         guard let mouseScreen = screens.first(where: { screen in
             NSMouseInRect(NSEvent.mouseLocation, screen.frame, false)

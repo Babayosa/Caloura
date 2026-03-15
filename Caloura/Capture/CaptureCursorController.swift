@@ -9,8 +9,6 @@ protocol CaptureCursorControlling: AnyObject {
 
 @MainActor
 protocol CaptureCrosshairDriving {
-    func pushCrosshair()
-    func popCursor()
     func setCrosshair()
 }
 
@@ -26,14 +24,6 @@ protocol CaptureCursorScheduling {
 
 @MainActor
 private struct SystemCaptureCrosshairDriver: CaptureCrosshairDriving {
-    func pushCrosshair() {
-        NSCursor.crosshair.push()
-    }
-
-    func popCursor() {
-        NSCursor.pop()
-    }
-
     func setCrosshair() {
         NSCursor.crosshair.set()
     }
@@ -74,7 +64,7 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
     private let scheduler: CaptureCursorScheduling
     private let notificationCenter: NotificationCenter
 
-    private var cursorPushed = false
+    private var cursorActive = false
     private var pendingReassertion: CaptureCursorScheduledAction?
 
     init(
@@ -96,24 +86,19 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
     }
 
     func beginCrosshairSession() {
-        if !cursorPushed {
-            crosshairDriver.pushCrosshair()
-            cursorPushed = true
-        }
+        cursorActive = true
         ensureReassertionScheduled()
     }
 
     func reassertCrosshair() {
-        guard cursorPushed else { return }
+        guard cursorActive else { return }
         crosshairDriver.setCrosshair()
     }
 
     func endCrosshairSession() {
         pendingReassertion?.cancel()
         pendingReassertion = nil
-        guard cursorPushed else { return }
-        crosshairDriver.popCursor()
-        cursorPushed = false
+        cursorActive = false
     }
 
     func handleApplicationDidBecomeActive() {
@@ -126,7 +111,7 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
     }
 
     private func ensureReassertionScheduled() {
-        guard cursorPushed, pendingReassertion == nil else { return }
+        guard cursorActive, pendingReassertion == nil else { return }
         pendingReassertion = scheduler.schedule { [weak self] in
             guard let self = self else { return }
             self.pendingReassertion = nil

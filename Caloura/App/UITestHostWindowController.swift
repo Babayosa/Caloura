@@ -165,7 +165,9 @@ final class UITestHostWindowController: NSWindowController {
                 self?.updateState("area-cancelled", detail: RegionSelectionView.hintText)
             }
         )
-        coordinator.present()
+        let screens = CaptureOverlayWindow.orderedPresentationScreens()
+        let windows = screens.map { CaptureOverlayWindow(for: $0, cursorController: cursorController) }
+        coordinator.present(windows: windows)
         areaSession = coordinator
         updateState("area-overlay-visible", detail: RegionSelectionView.hintText)
     }

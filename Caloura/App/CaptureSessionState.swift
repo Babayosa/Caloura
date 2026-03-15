@@ -2,6 +2,10 @@ import AppKit
 
 @MainActor
 final class CaptureSessionState {
+    let overlayWindowPool = CaptureOverlayWindowPool()
+    /// Shared across area and fullscreen coordinators. Safe because `beginCaptureIfIdle`
+    /// prevents concurrent capture sessions.
+    let cursorController: CaptureCursorControlling = CaptureCursorController()
     var overlayWindows: [CaptureOverlayWindow] = []
     var screenOverlays: [ScreenSelectionOverlayWindow] = []
     var areaCaptureSession: (any AreaCaptureSessionHandling)?

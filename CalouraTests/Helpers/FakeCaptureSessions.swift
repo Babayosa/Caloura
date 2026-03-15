@@ -12,6 +12,7 @@ final class FakeAreaCaptureSession: AreaCaptureSessionHandling {
     private(set) var presentCalls = 0
     private(set) var dismissCalls = 0
     private(set) var lastSuppressDimming = false
+    private(set) var lastPresentedWindows: [CaptureOverlayWindow] = []
     private(set) var updateFrozenImagesCalls = 0
 
     init(
@@ -24,8 +25,9 @@ final class FakeAreaCaptureSession: AreaCaptureSessionHandling {
         self.onFirstInteraction = onFirstInteraction
     }
 
-    func present(suppressDimming: Bool) {
+    func present(windows: [CaptureOverlayWindow], suppressDimming: Bool) {
         presentCalls += 1
+        lastPresentedWindows = windows
         lastSuppressDimming = suppressDimming
     }
 

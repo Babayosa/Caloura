@@ -79,6 +79,20 @@ final class RegionSelectionView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    func resetForReuse(cursorController: CaptureCursorControlling?) {
+        self.cursorController = cursorController
+        selectionStart = nil
+        selectionEnd = nil
+        isSelecting = false
+        hasSentFirstMouseDown = false
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        frozenImage = nil
+        isDimmingSuppressed = false
+        updateLayerVisibility()
+        CATransaction.commit()
+    }
+
     func revealFrozenImage(_ image: CGImage) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)

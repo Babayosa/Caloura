@@ -8,34 +8,20 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
         let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 10, reportInterval: 50)
         let session = recorder.beginSession(mode: .area)
         let cursor = CoordinatorCursorSpy()
-        var beginCallsAtPresentation = 0
-        var reassertCallsAtPresentation = 0
-        var overlayVisibleCountAtPresentation: Int?
 
         let coordinator = AreaCaptureSessionCoordinator(
             session: session,
             performanceRecorder: recorder,
             cursorController: cursor,
             onSelection: { _, _, _ in },
-            onCancel: { },
-            overlayPresenter: { _, _, _, _, _ in
-                beginCallsAtPresentation = cursor.beginCalls
-                reassertCallsAtPresentation = cursor.reassertCalls
-                overlayVisibleCountAtPresentation = recorder.summary(
-                    for: .area,
-                    event: .overlayVisible
-                )?.sampleCount
-                return []
-            }
+            onCancel: { }
         )
 
-        coordinator.present()
+        coordinator.present(windows: [])
         coordinator.dismiss()
         recorder.finishSession(session)
 
-        XCTAssertEqual(beginCallsAtPresentation, 1)
-        XCTAssertEqual(reassertCallsAtPresentation, 0)
-        XCTAssertNil(overlayVisibleCountAtPresentation)
+        XCTAssertEqual(cursor.beginCalls, 1)
         XCTAssertEqual(
             recorder.summary(for: .area, event: .overlayVisible)?.sampleCount,
             1
@@ -95,12 +81,11 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
             performanceRecorder: recorder,
             cursorController: cursor,
             onSelection: { _, _, _ in },
-            onCancel: { },
-            overlayPresenter: { _, _, _, _, _ in [] }
+            onCancel: { }
         )
 
         for _ in 0..<3 {
-            coordinator.present()
+            coordinator.present(windows: [])
             coordinator.dismiss()
         }
         recorder.finishSession(session)
@@ -119,7 +104,6 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
         let expectedRegion = CGRect(x: 10, y: 12, width: 80, height: 60)
         let expectedScreen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
         var capturedRegion: CGRect?
-        var presentedSelection: ((CGRect, NSScreen) -> Void)?
 
         let coordinator = AreaCaptureSessionCoordinator(
             session: session,
@@ -130,15 +114,14 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
                 XCTAssertEqual(screen, expectedScreen)
                 selectionExpectation.fulfill()
             },
-            onCancel: { },
-            overlayPresenter: { _, _, onRegionSelected, _, _ in
-                presentedSelection = onRegionSelected
-                return []
-            }
+            onCancel: { }
         )
 
-        coordinator.present()
-        presentedSelection?(expectedRegion, expectedScreen)
+        let stubWindow = CaptureOverlayWindow(for: expectedScreen, cursorController: nil)
+        coordinator.present(windows: [stubWindow])
+
+        // Simulate selection via the window's callback
+        stubWindow.onRegionSelected?(expectedRegion, expectedScreen)
         await fulfillment(of: [selectionExpectation], timeout: 1.0)
         recorder.finishSession(session)
 
