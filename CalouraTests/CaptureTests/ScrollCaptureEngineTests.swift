@@ -392,4 +392,31 @@ struct ScrollCaptureEngineTests {
         #expect(estimate.displacement == 0)
         #expect(estimate.confidence == 0)
     }
+
+    @Test("Wrong scroll direction on first step self-corrects")
+    func wrongDirectionOnFirstStep_selfCorrects() async throws {
+        let surface = SyntheticScrollSurface(
+            width: 120,
+            viewportHeight: 160,
+            contentHeight: 520
+        )
+        // Start mid-content so wrong-direction scroll produces negative displacement
+        // (scrolling up when we should scroll down)
+        surface.setOffset(200)
+        let reversed = ReversedFakeScrollDriver(surface: surface)
+        let engine = makeEngine(surface: surface, scrollDriver: reversed)
+
+        let result = await engine.capture(
+            .init(
+                region: surface.region,
+                geometry: surface.geometry,
+                config: .init(maxHeightPx: 2_000, scrollToTop: false)
+            ),
+            captureFrame: { _ in surface.capture() },
+            onProgress: { _ in }
+        )
+
+        let output = try requireSuccess(result)
+        #expect(output.terminationReason == .reachedBottom)
+    }
 }

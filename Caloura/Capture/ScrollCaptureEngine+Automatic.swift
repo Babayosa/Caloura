@@ -85,6 +85,7 @@ extension ScrollCaptureEngine {
                     )
                     if probe.confidence >= ScrollCaptureThresholds.minimumAlignmentConfidence,
                        probe.displacement < -ScrollCaptureThresholds.minimumMeaningfulDisplacement {
+                        scrollDriver.scroll(by: scrollDirection * state.requestedDisplacement)
                         scrollDirection = -scrollDirection
                         continue
                     }

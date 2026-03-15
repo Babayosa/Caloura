@@ -6,11 +6,12 @@ import Testing
 func makeEngine(
     surface: SyntheticScrollSurface,
     detector: FakeViewportDetector = FakeViewportDetector(mode: .automatic),
+    scrollDriver: (any ScrollDriving)? = nil,
     settleDelayNanos: UInt64 = 0
 ) -> ScrollCaptureEngine {
     ScrollCaptureEngine(
         viewportDetector: detector,
-        scrollDriver: FakeScrollDriver(surface: surface),
+        scrollDriver: scrollDriver ?? FakeScrollDriver(surface: surface),
         settling: ImmediateSettler(delayNanos: settleDelayNanos),
         displacementEstimator: TestDisplacementEstimator(),
         stitcher: TestStitcher()
@@ -67,6 +68,20 @@ final class FakeScrollDriver: ScrollDriving, @unchecked Sendable {
 
     func scroll(by pixels: Int) {
         surface.applyProgrammaticScroll(by: pixels)
+    }
+
+    func finishGesture() {}
+}
+
+final class ReversedFakeScrollDriver: ScrollDriving, @unchecked Sendable {
+    private let surface: SyntheticScrollSurface
+
+    init(surface: SyntheticScrollSurface) {
+        self.surface = surface
+    }
+
+    func scroll(by pixels: Int) {
+        surface.applyProgrammaticScroll(by: -pixels)
     }
 
     func finishGesture() {}
