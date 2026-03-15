@@ -100,7 +100,11 @@ extension ScrollCaptureEngine {
                 ),
                 session: session
             )
-            try await scrollToTopIfNeeded(scrollBar: viewport.verticalScrollBar)
+            try await scrollToTopIfNeeded(
+                scrollBar: viewport.verticalScrollBar,
+                viewportHeight: Int(viewport.captureRect.height * session.request.geometry.scale),
+                session: session
+            )
         }
 
         guard let firstPrepared = try await prepareCapturedFrame(
@@ -137,24 +141,7 @@ extension ScrollCaptureEngine {
             session: session
         )
 
-        var scrollDirection = initialScrollDirection(for: session.request.config)
-        if mode == .automatic {
-            let calibration = try await calibrateDirection(
-                viewport: viewport,
-                baselineFrame: firstPrepared,
-                currentDirection: scrollDirection,
-                session: session,
-                diagnostics: &diagnostics
-            )
-            scrollDirection = calibration.scrollDirection
-            frames[0] = ScrollCaptureFrame(
-                preparedFrame: calibration.baselineFrame,
-                placement: ScrollFramePlacement(originY: 0, displacementFromPrevious: 0),
-                unstableBands: [],
-                stickyHeaderHeight: 0,
-                displacementConfidence: 1.0
-            )
-        }
+        let scrollDirection = initialScrollDirection(for: session.request.config)
 
         return ScrollCaptureStart(
             viewport: viewport,
@@ -368,82 +355,6 @@ extension ScrollCaptureEngine {
         return autoreleasepool {
             ScrollCaptureHelpers.prepareFrame(image)
         }
-    }
-
-    private func calibrateDirection(
-        viewport: ScrollCaptureViewport,
-        baselineFrame: ScrollCaptureHelpers.PreparedFrame,
-        currentDirection: Int,
-        session: Session,
-        diagnostics: inout ScrollCaptureDiagnostics
-    ) async throws -> (
-        baselineFrame: ScrollCaptureHelpers.PreparedFrame,
-        scrollDirection: Int
-    ) {
-        let maximumUsefulDisplacement = max(40, baselineFrame.height - 32)
-        let trialDisplacement = min(
-            maximumUsefulDisplacement,
-            max(40, Int(Double(baselineFrame.height) * 0.25))
-        )
-        let trialPixels = currentDirection * trialDisplacement
-
-        await sendProgress(
-            ProgressUpdate(
-                phase: .calibrating,
-                mode: .automatic,
-                frames: 1,
-                estimatedHeight: baselineFrame.height,
-                status: "Calibrating scroll direction",
-                allowManualSwitch: session.request.config.allowManualFallback
-            ),
-            session: session
-        )
-
-        scrollDriver.scroll(by: trialPixels)
-        let forwardProbe = try await settling.settle(
-            request: ScrollSettleRequest(
-                region: viewport.captureRect,
-                previousAcceptedFrame: baselineFrame,
-                expectedDisplacement: trialDisplacement,
-                stickyHeaderHeight: 0,
-                mode: .automatic
-            ),
-            captureFrame: session.captureFrame,
-            displacementEstimator: displacementEstimator
-        )
-
-        let forwardEstimate = forwardProbe.map {
-            displacementEstimator.estimate(
-                previous: baselineFrame,
-                current: $0.preparedFrame,
-                options: .calibration(expectedDisplacement: trialDisplacement)
-            )
-        }
-
-        scrollDriver.scroll(by: -trialPixels)
-        let returnedBaseline = try await settling.settle(
-            request: ScrollSettleRequest(
-                region: viewport.captureRect,
-                previousAcceptedFrame: forwardProbe?.preparedFrame ?? baselineFrame,
-                expectedDisplacement: trialDisplacement,
-                stickyHeaderHeight: 0,
-                mode: .automatic
-            ),
-            captureFrame: session.captureFrame,
-            displacementEstimator: displacementEstimator
-        )?.preparedFrame ?? baselineFrame
-
-        let finalDirection: Int
-        if let forwardEstimate,
-           forwardEstimate.confidence >= ScrollCaptureThresholds.minimumAlignmentConfidence,
-           forwardEstimate.displacement <= -ScrollCaptureThresholds.minimumMeaningfulDisplacement {
-            finalDirection = -currentDirection
-        } else {
-            finalDirection = currentDirection
-        }
-
-        diagnostics.stepCount += 1
-        return (returnedBaseline, finalDirection)
     }
 
     func sendProgress(

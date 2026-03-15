@@ -87,7 +87,7 @@ struct DefaultViewportDetector: ScrollViewportDetecting, Sendable {
         let ambiguous = candidates.count > 1
             && best.confidence >= 0.55
             && candidates[1].confidence >= 0.55
-            && abs(best.confidence - candidates[1].confidence) < 0.08
+            && abs(best.confidence - candidates[1].confidence) < 0.05
 
         guard best.confidence >= 0.55, !ambiguous else {
             return ScrollViewportDetection(
@@ -200,7 +200,10 @@ struct DefaultViewportDetector: ScrollViewportDetecting, Sendable {
         let coverageScore = min(0.25, Double(candidate.hitCount) / 9.0 * 0.25)
         let scrollScore = (candidate.verticalScrollBar != nil || candidate.supportsValue) ? 0.14 : 0
         let centerScore = candidate.frame.contains(CGPoint(x: region.midX, y: region.midY)) ? 0.05 : 0
-        let confidence = min(1.0, roleScore + intersectionRatio * 0.25 + coverageScore + scrollScore + centerScore)
+        let containmentBonus: Double = candidate.frame.contains(region) ? 0.05 : 0
+        let rawScore = roleScore + intersectionRatio * 0.25
+            + coverageScore + scrollScore + centerScore + containmentBonus
+        let confidence = min(1.0, rawScore)
 
         return Candidate(
             element: candidate.element,

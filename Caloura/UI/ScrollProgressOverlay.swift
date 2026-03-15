@@ -51,7 +51,8 @@ final class ScrollProgressOverlay {
         let screenFrame = screen.frame
         let aboveY = region.origin.y + region.height + 10
         let belowY = region.origin.y - panelSize.height - 10
-        let y = aboveY + panelSize.height <= screenFrame.maxY ? aboveY : belowY
+        let candidateY = aboveY + panelSize.height <= screenFrame.maxY ? aboveY : belowY
+        let y = max(screenFrame.minY + 8, candidateY)
         let x = max(
             screenFrame.minX + 12,
             min(region.midX - panelSize.width / 2, screenFrame.maxX - panelSize.width - 12)

@@ -54,9 +54,7 @@ final class AppSettings: ObservableObject {
         static let beautifyThemeName = "beautifyThemeName"
         static let smartMetadataEnabled = "smartMetadataEnabled"
         static let semanticSearchEnabled = "semanticSearchEnabled"
-        static let scrollSpeed = "scrollSpeed"
         static let scrollMaxHeight = "scrollMaxHeight"
-        static let scrollStickyHeaders = "scrollStickyHeaders"
         static let scrollToTop = "scrollToTop"
     }
 
@@ -138,15 +136,7 @@ final class AppSettings: ObservableObject {
         didSet { debouncedSave() }
     }
 
-    @Published var scrollSpeed: Int {
-        didSet { debouncedSave() }
-    }
-
     @Published var scrollMaxHeight: Int {
-        didSet { debouncedSave() }
-    }
-
-    @Published var scrollStickyHeaders: Bool {
         didSet { debouncedSave() }
     }
 
@@ -232,9 +222,7 @@ final class AppSettings: ObservableObject {
         defaults.set(beautifyThemeName, forKey: Keys.beautifyThemeName)
         defaults.set(smartMetadataEnabled, forKey: Keys.smartMetadataEnabled)
         defaults.set(semanticSearchEnabled, forKey: Keys.semanticSearchEnabled)
-        defaults.set(scrollSpeed, forKey: Keys.scrollSpeed)
         defaults.set(scrollMaxHeight, forKey: Keys.scrollMaxHeight)
-        defaults.set(scrollStickyHeaders, forKey: Keys.scrollStickyHeaders)
         defaults.set(scrollToTop, forKey: Keys.scrollToTop)
     }
 
@@ -462,9 +450,10 @@ final class AppSettings: ObservableObject {
         self.licenseEntitlement = Self.decryptLicenseEntitlement(
             defaults.object(forKey: Keys.licenseEntitlement)
         )
-        self.scrollSpeed = defaults.object(forKey: Keys.scrollSpeed) as? Int ?? 300
         self.scrollMaxHeight = defaults.object(forKey: Keys.scrollMaxHeight) as? Int ?? 20_000
-        self.scrollStickyHeaders = defaults.object(forKey: Keys.scrollStickyHeaders) as? Bool ?? true
+        // Clean up stale settings removed in the scroll capture refactor
+        defaults.removeObject(forKey: "scrollSpeed")
+        defaults.removeObject(forKey: "scrollStickyHeaders")
         // One-time migration: scrollToTop defaulted to true in earlier builds.
         // Reset to false so captures start from the current scroll position.
         if !defaults.bool(forKey: "scrollToTopMigratedV1") {

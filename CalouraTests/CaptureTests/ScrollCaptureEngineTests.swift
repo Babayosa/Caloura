@@ -280,4 +280,116 @@ struct ScrollCaptureEngineTests {
             return
         }
     }
+
+    @Test("No-scroll surface with minimal content terminates with noScrollTarget")
+    func noScrollTargetWithMinimalContent_terminatesCorrectly() async throws {
+        let surface = SyntheticScrollSurface(
+            width: 120,
+            viewportHeight: 180,
+            contentHeight: 160
+        )
+        let result = await makeEngine(surface: surface).capture(
+            .init(
+                region: surface.region,
+                geometry: surface.geometry,
+                config: .init(maxHeightPx: 2_000, scrollToTop: false)
+            ),
+            captureFrame: { _ in surface.capture() },
+            onProgress: { _ in }
+        )
+
+        guard case .failed(let error) = result else {
+            Issue.record("Expected failure, got \(result)")
+            return
+        }
+        #expect((error as? ScrollCaptureError) == .noScrollTarget)
+    }
+
+    @Test("Automatic capture with large content captures full content")
+    func automaticCaptureWithLargeContent_capturesFullContent() async throws {
+        let surface = SyntheticScrollSurface(
+            width: 120,
+            viewportHeight: 160,
+            contentHeight: 800
+        )
+        let result = await makeEngine(surface: surface).capture(
+            .init(
+                region: surface.region,
+                geometry: surface.geometry,
+                config: .init(maxHeightPx: 2_000, scrollToTop: false)
+            ),
+            captureFrame: { _ in surface.capture() },
+            onProgress: { _ in }
+        )
+
+        let output = try requireSuccess(result)
+        #expect(output.terminationReason == .reachedBottom)
+        #expect(abs(output.image.height - 800) <= 16)
+    }
+
+    @Test("Sticky header detection requires three frames")
+    func stickyHeaderDetection_requiresThreeFrames() throws {
+        let surface = SyntheticScrollSurface(
+            width: 130,
+            viewportHeight: 170,
+            contentHeight: 460,
+            stickyHeaderHeight: 24
+        )
+
+        surface.setOffset(0)
+        let frame1 = try #require(ScrollCaptureHelpers.prepareFrame(surface.capture()))
+
+        surface.setOffset(80)
+        let frame2 = try #require(ScrollCaptureHelpers.prepareFrame(surface.capture()))
+
+        surface.setOffset(160)
+        let frame3 = try #require(ScrollCaptureHelpers.prepareFrame(surface.capture()))
+
+        let height = ScrollCaptureHelpers.detectStickyHeaderHeight(frames: [frame1, frame2, frame3])
+        #expect(height == 24)
+    }
+
+    @Test("Sticky header detection returns zero for fewer than three frames")
+    func stickyHeaderDetection_returnsZeroForTwoFrames() throws {
+        let surface = SyntheticScrollSurface(
+            width: 130,
+            viewportHeight: 170,
+            contentHeight: 460,
+            stickyHeaderHeight: 24
+        )
+
+        surface.setOffset(0)
+        let frame1 = try #require(ScrollCaptureHelpers.prepareFrame(surface.capture()))
+
+        surface.setOffset(80)
+        let frame2 = try #require(ScrollCaptureHelpers.prepareFrame(surface.capture()))
+
+        let height = ScrollCaptureHelpers.detectStickyHeaderHeight(frames: [frame1, frame2])
+        #expect(height == 0)
+    }
+
+    @Test("Displacement estimate returns zero for mismatched frame sizes")
+    func displacementEstimate_returnsZeroForMismatchedFrameSizes() throws {
+        let surface1 = SyntheticScrollSurface(
+            width: 120,
+            viewportHeight: 160,
+            contentHeight: 300
+        )
+        let surface2 = SyntheticScrollSurface(
+            width: 100,
+            viewportHeight: 140,
+            contentHeight: 300
+        )
+
+        let frame1 = try #require(ScrollCaptureHelpers.prepareFrame(surface1.capture()))
+        let frame2 = try #require(ScrollCaptureHelpers.prepareFrame(surface2.capture()))
+
+        let estimate = ScrollCaptureHelpers.estimateDisplacement(
+            previous: frame1,
+            current: frame2,
+            options: .automatic(expectedDisplacement: nil, stickyHeaderHeight: 0, unstableBands: [])
+        )
+        #expect(estimate.displacement == 0)
+        #expect(estimate.confidence == 0)
+    }
 }

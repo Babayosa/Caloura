@@ -54,6 +54,8 @@ extension ScrollCaptureEngine {
     ) async throws -> AutomaticCaptureResult {
         let maxLoops = 300
         var state = AutomaticLoopState(firstFrame: frames[0])
+        var scrollDirection = scrollDirection
+        var directionConfirmed = false
 
         for _ in 0..<maxLoops {
             try Task.checkCancellation()
@@ -74,6 +76,20 @@ extension ScrollCaptureEngine {
 
             switch settlingResult {
             case .settled(let step):
+                if !directionConfirmed {
+                    directionConfirmed = true
+                    let probe = displacementEstimator.estimate(
+                        previous: step.previousFrame.preparedFrame,
+                        current: step.settled.preparedFrame,
+                        options: .calibration(expectedDisplacement: state.requestedDisplacement)
+                    )
+                    if probe.confidence >= ScrollCaptureThresholds.minimumAlignmentConfidence,
+                       probe.displacement < -ScrollCaptureThresholds.minimumMeaningfulDisplacement {
+                        scrollDirection = -scrollDirection
+                        continue
+                    }
+                }
+
                 let decision = try await handleAutomaticStep(
                     step,
                     frames: &frames,
@@ -102,7 +118,11 @@ extension ScrollCaptureEngine {
             }
         }
 
-        return .completed(.maxHeightReached)
+        let estimatedBottom = frames.last?.estimatedBottom ?? 0
+        if estimatedBottom >= session.request.config.maxHeightPx {
+            return .completed(.maxHeightReached)
+        }
+        return .completed(.reachedBottom)
     }
 
     private func settleAutomaticFrame(
@@ -300,33 +320,60 @@ extension ScrollCaptureEngine {
         framesCount: Int,
         state: inout AutomaticLoopState
     ) throws -> AutomaticStepDecision {
-        let barUnchanged = automaticBarValueUnchanged(
+        let barStatus = automaticBarStatus(
             previous: step.previousBarValue,
             current: step.currentBarValue
         )
 
-        if framesCount == 1 && barUnchanged {
+        if framesCount == 1 && barStatus != .changed {
             throw ScrollCaptureError.noScrollTarget
         }
 
         state.noProgressCount += 1
         state.requestedDisplacement = max(32, state.requestedDisplacement / 2)
 
-        if state.noProgressCount >= 2 && barUnchanged {
+        switch barStatus {
+        case .unchanged:
+            // Scroll bar present and confirms no movement — trust it
+            if state.noProgressCount >= 2 {
+                return .completed(.reachedBottom)
+            }
+        case .atBottom:
+            // Scroll bar confirms we're at the end
             return .completed(.reachedBottom)
+        case .noScrollBar:
+            // No scroll bar available — require more evidence before declaring bottom
+            if state.noProgressCount >= 4 {
+                return .completed(.reachedBottom)
+            }
+        case .changed:
+            break
         }
 
         return .continueLoop
     }
 
-    private func automaticBarValueUnchanged(
+    private enum BarStatus {
+        case unchanged
+        case atBottom
+        case changed
+        case noScrollBar
+    }
+
+    private func automaticBarStatus(
         previous: Double?,
         current: Double?
-    ) -> Bool {
-        if let previous, let current {
-            return abs(current - previous) < 0.001 || current >= 0.995
+    ) -> BarStatus {
+        guard let previous, let current else {
+            return .noScrollBar
         }
-        return true
+        if current >= 0.995 {
+            return .atBottom
+        }
+        if abs(current - previous) < 0.001 {
+            return .unchanged
+        }
+        return .changed
     }
 
     private func makeAutomaticAcceptedFrame(

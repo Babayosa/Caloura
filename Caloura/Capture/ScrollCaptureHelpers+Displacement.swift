@@ -162,21 +162,22 @@ extension ScrollCaptureHelpers {
         options: ScrollDisplacementOptions,
         meanError: Double
     ) -> ScrollDisplacementEstimate? {
-        guard let visionDisplacement = visionDisplacement(
+        guard let visionResult = visionDisplacement(
             previous: previous.image,
             current: current.image
         ),
-        options.allowNegativeDisplacement || visionDisplacement >= 0 else {
+        options.allowNegativeDisplacement || visionResult.displacement >= 0 else {
             return nil
         }
 
         let clampedDisplacement = min(
             candidateRange.upperBound,
-            max(candidateRange.lowerBound, visionDisplacement)
+            max(candidateRange.lowerBound, visionResult.displacement)
         )
+        let confidence = max(0.55, Double(visionResult.confidence))
         return ScrollDisplacementEstimate(
             displacement: clampedDisplacement,
-            confidence: ScrollCaptureThresholds.minimumAlignmentConfidence,
+            confidence: confidence,
             winnerMargin: 0,
             meanError: meanError,
             method: .vision

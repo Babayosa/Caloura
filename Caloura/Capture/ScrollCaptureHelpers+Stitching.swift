@@ -40,6 +40,7 @@ extension ScrollCaptureHelpers {
         for index in 1..<frames.count {
             let previous = frames[index - 1]
             let current = frames[index]
+            guard current.preparedFrame.bitmap.bytesPerRow == bytesPerRow else { continue }
             let seam = chooseSeam(previous: previous, current: current)
             if seam.expandedSearchUsed {
                 seamRepairCount += 1

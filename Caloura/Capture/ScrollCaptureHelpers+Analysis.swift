@@ -64,10 +64,15 @@ extension ScrollCaptureHelpers {
         return samples > 0 ? Double(total) / Double(samples) : .infinity
     }
 
+    struct VisionDisplacementResult {
+        let displacement: Int
+        let confidence: Float
+    }
+
     static func visionDisplacement(
         previous: CGImage,
         current: CGImage
-    ) -> Int? {
+    ) -> VisionDisplacementResult? {
         let request = VNTranslationalImageRegistrationRequest(targetedCGImage: previous)
         let handler = VNImageRequestHandler(cgImage: current)
 
@@ -86,6 +91,6 @@ extension ScrollCaptureHelpers {
         if displacement < -previous.height || displacement > previous.height {
             return nil
         }
-        return displacement
+        return VisionDisplacementResult(displacement: displacement, confidence: result.confidence)
     }
 }
