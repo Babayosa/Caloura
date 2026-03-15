@@ -17,14 +17,16 @@ final class CaptureCursorControllerTests: XCTestCase {
 
         XCTAssertEqual(driver.pushCalls, 1)
         XCTAssertEqual(driver.popCalls, 0)
+        XCTAssertEqual(driver.setCalls, 0)
         XCTAssertEqual(driver.activeSessions, 1)
         XCTAssertEqual(scheduler.scheduleCalls, 1)
         XCTAssertEqual(scheduler.pendingCount, 1)
 
         scheduler.runPendingActions()
 
-        XCTAssertEqual(driver.pushCalls, 2)
-        XCTAssertEqual(driver.popCalls, 1)
+        XCTAssertEqual(driver.pushCalls, 1)
+        XCTAssertEqual(driver.popCalls, 0)
+        XCTAssertEqual(driver.setCalls, 1)
         XCTAssertEqual(driver.activeSessions, 1)
         XCTAssertEqual(scheduler.pendingCount, 0)
 
@@ -45,14 +47,16 @@ final class CaptureCursorControllerTests: XCTestCase {
 
         XCTAssertEqual(driver.pushCalls, 1)
         XCTAssertEqual(driver.popCalls, 0)
+        XCTAssertEqual(driver.setCalls, 0)
         XCTAssertEqual(driver.activeSessions, 1)
         XCTAssertEqual(scheduler.scheduleCalls, 1)
         XCTAssertEqual(scheduler.pendingCount, 1)
 
         scheduler.runPendingActions()
 
-        XCTAssertEqual(driver.pushCalls, 2)
-        XCTAssertEqual(driver.popCalls, 1)
+        XCTAssertEqual(driver.pushCalls, 1)
+        XCTAssertEqual(driver.popCalls, 0)
+        XCTAssertEqual(driver.setCalls, 1)
         XCTAssertEqual(driver.activeSessions, 1)
 
         controller.endCrosshairSession()
@@ -78,8 +82,9 @@ final class CaptureCursorControllerTests: XCTestCase {
 
         scheduler.runPendingActions()
 
-        XCTAssertEqual(driver.pushCalls, 3)
-        XCTAssertEqual(driver.popCalls, 2)
+        XCTAssertEqual(driver.pushCalls, 1)
+        XCTAssertEqual(driver.popCalls, 0)
+        XCTAssertEqual(driver.setCalls, 2)
         XCTAssertEqual(driver.activeSessions, 1)
         XCTAssertEqual(scheduler.pendingCount, 0)
 
@@ -111,6 +116,7 @@ final class CaptureCursorControllerTests: XCTestCase {
 private final class CaptureCrosshairDriverSpy: CaptureCrosshairDriving {
     private(set) var pushCalls = 0
     private(set) var popCalls = 0
+    private(set) var setCalls = 0
     private(set) var activeSessions = 0
 
     func pushCrosshair() {
@@ -121,6 +127,10 @@ private final class CaptureCrosshairDriverSpy: CaptureCrosshairDriving {
     func popCursor() {
         popCalls += 1
         activeSessions = max(0, activeSessions - 1)
+    }
+
+    func setCrosshair() {
+        setCalls += 1
     }
 }
 

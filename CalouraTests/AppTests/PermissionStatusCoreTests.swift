@@ -20,7 +20,7 @@ final class PermissionStatusCoreTests: XCTestCase {
         XCTAssertEqual(status, .grantedNeedsValidation)
     }
 
-    func testExplicitFailureStatusNeedsRelaunchForSamePathMismatch() {
+    func testExplicitFailureStatusTriesValidationForSamePathMismatch() {
         let status: ScreenRecordingState = PermissionStatusCore.explicitFailureStatus(
             for: makeContext(
                 lastWorkingExecutablePathMatches: true,
@@ -28,7 +28,8 @@ final class PermissionStatusCoreTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(status, .needsRelaunch)
+        // Same path + fingerprint mismatch = in-place update. Try validation first.
+        XCTAssertEqual(status, .grantedNeedsValidation)
     }
 
     func testExplicitFailureStatusStaleRecordForDifferentPathMismatch() {

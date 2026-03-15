@@ -183,7 +183,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(passiveChecks, 1)
     }
 
-    func testExplicitFailureReturnsNeedsRelaunchForSamePathDifferentSigning() async {
+    func testExplicitFailureTriesValidationForSamePathDifferentSigning() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let path = "/Applications/Caloura.app/Contents/MacOS/Caloura"
 
@@ -226,8 +226,8 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         let status = await coordinator.runUserInitiatedValidation()
 
         XCTAssertEqual(
-            status, .needsRelaunch,
-            "Same path but different signing should be needsRelaunch, not staleRecord"
+            status, .grantedNeedsValidation,
+            "Same path but different signing should try validation before escalating"
         )
     }
 

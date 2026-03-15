@@ -40,7 +40,9 @@ enum PermissionStatusCore {
             return .needsRelaunch
         }
         if context.lastWorkingExecutablePathMatches {
-            return .needsRelaunch
+            // Same path but different fingerprint = in-place update.
+            // Try validation before escalating — the TCC grant may still be valid.
+            return .grantedNeedsValidation
         }
         return .staleRecord
     }

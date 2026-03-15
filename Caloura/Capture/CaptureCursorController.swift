@@ -11,6 +11,7 @@ protocol CaptureCursorControlling: AnyObject {
 protocol CaptureCrosshairDriving {
     func pushCrosshair()
     func popCursor()
+    func setCrosshair()
 }
 
 @MainActor
@@ -31,6 +32,10 @@ private struct SystemCaptureCrosshairDriver: CaptureCrosshairDriving {
 
     func popCursor() {
         NSCursor.pop()
+    }
+
+    func setCrosshair() {
+        NSCursor.crosshair.set()
     }
 }
 
@@ -100,8 +105,7 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
 
     func reassertCrosshair() {
         guard cursorPushed else { return }
-        crosshairDriver.popCursor()
-        crosshairDriver.pushCrosshair()
+        crosshairDriver.setCrosshair()
     }
 
     func endCrosshairSession() {
