@@ -119,7 +119,7 @@ extension ScrollCaptureEngine {
             ? .detectingViewport
             : .manualCapturing
 
-        var frames = [
+        let frames = [
             ScrollCaptureFrame(
                 preparedFrame: firstPrepared,
                 placement: ScrollFramePlacement(originY: 0, displacementFromPrevious: 0),
