@@ -55,6 +55,42 @@
 - **Context**: After `tccutil reset` or a removed Screen Recording record, relying on historical working metadata prevents Caloura from reappearing in System Settings because the app never re-requests permission.
 - **Example**: `PermissionCoordinator.shouldTrustLiveValidationWithoutCoreGraphics(...)` now trusts only fresh request-session state or current-process live validation, while `takePendingCaptureResumeIfFresh()` recreates the recent request session in memory after the one automatic relaunch.
 
+### replayd kickstart blocked by SIP on Tahoe (macOS 26)
+- **Mistake:** `launchctl kickstart -k gui/<uid>/com.apple.replayd` was the core "silent repair" mechanism in 3 code paths. On Tahoe with SIP enabled, it fails with `Operation not permitted`.
+- **Root cause:** macOS 26 tightened SIP restrictions on restarting system daemons. replayd restart is no longer reliable as a repair strategy.
+- **New rule:** Treat replayd restart as best-effort, not a gating step. All callers must proceed to the next recovery action (alert, relaunch, etc.) when repair fails. Log `best_effort=true` for diagnostics.
+- **Example:** `handleCapturePermissionFailure` now logs repair failure and proceeds directly to `publishExplicitFailure()` and alert presentation.
+
+### SCK error classification must distinguish systemStoppedStream and missingEntitlements
+- **Mistake:** Only `.userDeclined` was classified as permanent; `.systemStoppedStream` and `.missingEntitlements` fell through as generic transient errors. This caused incorrect behavior: system-stopped was incrementing the transient failure counter (wrong — it's recoverable without counting), and missing-entitlements was being retried (wrong — it's permanent).
+- **Root cause:** Coarse boolean `isSCKErrorPermanent` only checked one code.
+- **New rule:** Use an enum classifier (`ScreenCaptureFailureKind`) with 4 cases. `.systemStopped` = recoverable without incrementing failure counter. `.missingEntitlements` = permanent like `.userDeclined`. `.transient` = everything else, counts toward failure threshold.
+- **Example:** `classifySCKError(_:)` returns `.systemStopped` for `SCStreamError.Code.systemStoppedStream` — no failure counter increment, not treated as permission denied.
+
+### Concurrent permission validation must be serialized
+- **Mistake:** Overlapping calls to `handleCapturePermissionFailure` / `revalidateAfterSettingsReturn` / `runUserInitiatedValidation` could interleave repairs and alerts, causing duplicate alerts or conflicting state.
+- **Root cause:** No guard against concurrent validation flows. Rapid-fire capture failures or user-triggered validation during settings return polling could all run simultaneously.
+- **New rule:** Use a single `inFlightValidation: Task<ScreenRecordingState, Never>?` gate. Callers that arrive while another validation is in-flight await the same task's result. Gate clears after completion so sequential calls run independently.
+- **Example:** `async let first = coordinator.runUserInitiatedValidation(); async let second = coordinator.runUserInitiatedValidation()` — only one interactive check runs, both get the result.
+
+### Tahoe System Settings deep links changed scheme
+- **Mistake:** Used `com.apple.preference.security?Privacy_ScreenCapture` — the pre-Tahoe scheme. On macOS 26, this opens to the wrong pane or fails silently.
+- **Root cause:** macOS 26 renamed the privacy pane identifiers.
+- **New rule:** Use `com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture` (and `Privacy_Accessibility`) for Tahoe deep links.
+- **Example:** `"x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture"`
+
+### AXIsProcessTrustedWithOptions shows the system prompt; AXIsProcessTrusted does not
+- **Mistake:** Used `AXIsProcessTrusted()` which only checks — never prompts. Users had to manually navigate to System Settings when accessibility was denied.
+- **Root cause:** `AXIsProcessTrusted()` is a passive check. `AXIsProcessTrustedWithOptions` with `kAXTrustedCheckOptionPrompt: true` triggers the system prompt.
+- **New rule:** Use `AXIsProcessTrustedWithOptions` for first-denial accessibility prompts. Fall back to manual NSAlert + `openSystemSettings()` only if the user has already been prompted and still denied.
+- **Example:** `let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary; return AXIsProcessTrustedWithOptions(options)`
+
+### kAXTrustedCheckOptionPrompt is not concurrency-safe in Swift 6
+- **Mistake:** `kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String` fails to compile in Swift 6 strict concurrency — the global is shared mutable state.
+- **Root cause:** C globals imported into Swift aren't marked `Sendable`. Swift 6 flags them.
+- **New rule:** Use the string literal `"AXTrustedCheckOptionPrompt"` directly instead of the C constant.
+- **Example:** `["AXTrustedCheckOptionPrompt": true] as CFDictionary` (not `kAXTrustedCheckOptionPrompt.takeUnretainedValue()`)
+
 ## Swift Language
 
 ### Extension file splitting

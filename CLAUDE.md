@@ -29,6 +29,10 @@ Inherits global rules from `~/CLAUDE.md`.
 - NSApp.activate() cursor race: layered defense (push + cursorRects + cursorUpdate + didBecomeActive + mouseMoved)
 - Capture overlays use `NSPanel` with `.nonactivatingPanel` — never `NSApp.activate` before showing them (hides other apps' windows)
 - `OSLogMessage` does NOT support `+` concatenation — extract to local `let` variable first
+- replayd restart (`launchctl kickstart`) is best-effort on Tahoe — SIP blocks it. Callers must never gate on repair success.
+- System Settings deep links: `com.apple.settings.PrivacySecurity.extension?Privacy_*` (not `com.apple.preference.security`)
+- Use `AXIsProcessTrustedWithOptions` with `"AXTrustedCheckOptionPrompt": true` for accessibility prompts (not `AXIsProcessTrusted()`)
+- SCK errors: use `classifySCKError` enum — `.systemStoppedStream` is recoverable, `.missingEntitlements` is permanent
 
 ## Lessons
 
