@@ -250,6 +250,109 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
         XCTAssertEqual(box.openedURLs.count, 1)
     }
 
+    // MARK: - classifySCKError
+
+    func testClassifySCKError_userDeclinedReturnsPermissionDenied() {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies()
+        )
+        let error = NSError(
+            domain: SCStreamError.errorDomain,
+            code: SCStreamError.Code.userDeclined.rawValue
+        )
+        XCTAssertEqual(manager.classifySCKError(error), .permissionDenied)
+    }
+
+    func testClassifySCKError_systemStoppedStreamReturnsSystemStopped() {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies()
+        )
+        let error = NSError(
+            domain: SCStreamError.errorDomain,
+            code: SCStreamError.Code.systemStoppedStream.rawValue
+        )
+        XCTAssertEqual(manager.classifySCKError(error), .systemStopped)
+    }
+
+    func testClassifySCKError_missingEntitlementsReturnsMissingEntitlements() {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies()
+        )
+        let error = NSError(
+            domain: SCStreamError.errorDomain,
+            code: SCStreamError.Code.missingEntitlements.rawValue
+        )
+        XCTAssertEqual(manager.classifySCKError(error), .missingEntitlements)
+    }
+
+    func testClassifySCKError_unknownSCKCodeReturnsTransient() {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies()
+        )
+        let error = NSError(
+            domain: SCStreamError.errorDomain,
+            code: SCStreamError.Code.internalError.rawValue
+        )
+        XCTAssertEqual(manager.classifySCKError(error), .transient)
+    }
+
+    func testClassifySCKError_nonSCKDomainReturnsTransient() {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies()
+        )
+        let error = NSError(domain: "tests", code: 1)
+        XCTAssertEqual(manager.classifySCKError(error), .transient)
+    }
+
+    func testHandleSCKFailure_missingEntitlementsPermanentlyDisables() {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies()
+        )
+        let error = NSError(
+            domain: SCStreamError.errorDomain,
+            code: SCStreamError.Code.missingEntitlements.rawValue
+        )
+        manager.handleSCKFailure(error)
+        XCTAssertTrue(manager.sckFailed)
+    }
+
+    func testHandleSCKFailure_systemStoppedDoesNotDisable() {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies()
+        )
+        let error = NSError(
+            domain: SCStreamError.errorDomain,
+            code: SCStreamError.Code.systemStoppedStream.rawValue
+        )
+        manager.handleSCKFailure(error)
+        XCTAssertFalse(manager.sckFailed)
+        XCTAssertEqual(manager.sckFailureCount, 0)
+    }
+
+    func testShouldTreatCaptureError_systemStoppedIsNotPermissionDenied() {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(preflight: { false }),
+            cgPreflightAuthorityProvider: { true }
+        )
+        let error = NSError(
+            domain: SCStreamError.errorDomain,
+            code: SCStreamError.Code.systemStoppedStream.rawValue
+        )
+        XCTAssertFalse(manager.shouldTreatCaptureErrorAsPermissionDenied(error))
+    }
+
+    func testShouldTreatCaptureError_missingEntitlementsIsPermissionDenied() {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(preflight: { true }),
+            cgPreflightAuthorityProvider: { false }
+        )
+        let error = NSError(
+            domain: SCStreamError.errorDomain,
+            code: SCStreamError.Code.missingEntitlements.rawValue
+        )
+        XCTAssertTrue(manager.shouldTreatCaptureErrorAsPermissionDenied(error))
+    }
+
     func testRunRepairTool_successfulCommandReturns() async throws {
         try await ScreenCaptureManager.runRepairTool(
             URL(filePath: "/usr/bin/true"),

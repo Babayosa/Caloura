@@ -116,7 +116,7 @@ extension ScreenCaptureManager {
     ) {
 
         let settingsURLString = "x-apple.systempreferences:"
-            + "com.apple.preference.security?Privacy_ScreenCapture"
+            + "com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture"
         guard let settingsURL = URL(string: settingsURLString) else {
             return
         }
@@ -207,10 +207,15 @@ extension ScreenCaptureManager {
             return .authorized
         } catch {
             let nsError = error as NSError
-            if nsError.domain == SCStreamError.errorDomain,
-               let code = SCStreamError.Code(rawValue: nsError.code),
-               code == .userDeclined {
-                return .userDeclined
+            if nsError.domain == SCStreamError.errorDomain {
+                let rawCode = nsError.code
+                logger.info(
+                    "SCK probe error: domain=\(nsError.domain) code=\(rawCode)"
+                )
+                if let code = SCStreamError.Code(rawValue: rawCode),
+                   code == .userDeclined {
+                    return .userDeclined
+                }
             }
             return .transientFailure
         }

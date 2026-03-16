@@ -88,16 +88,20 @@ extension CapturePipeline {
         try? await Task.sleep(nanoseconds: 200_000_000)
 
         guard AccessibilityPermissionChecker.currentState() == .working else {
-            let alert = NSAlert()
-            alert.messageText = "Accessibility Permission Required"
-            alert.informativeText = "Scroll Capture needs Accessibility access to "
-                + "simulate scrolling. Please grant access in System Settings."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Open System Settings")
-            alert.addButton(withTitle: "Cancel")
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
-                AccessibilityPermissionChecker.openSystemSettings()
+            // Show system prompt on first denial; only fall back to manual
+            // alert if the user has already been prompted and still denied.
+            if !AccessibilityPermissionChecker.requestAccess() {
+                let alert = NSAlert()
+                alert.messageText = "Accessibility Permission Required"
+                alert.informativeText = "Scroll Capture needs Accessibility access to "
+                    + "simulate scrolling. Please grant access in System Settings."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "Open System Settings")
+                alert.addButton(withTitle: "Cancel")
+                let response = alert.runModal()
+                if response == .alertFirstButtonReturn {
+                    AccessibilityPermissionChecker.openSystemSettings()
+                }
             }
             appState.isCapturing = false
             return

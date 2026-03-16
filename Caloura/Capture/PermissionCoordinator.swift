@@ -194,6 +194,7 @@ final class PermissionCoordinator: ObservableObject {
     private let sckStateResetter: SCKStateResetter
     private let logger = Logger(subsystem: "com.caloura.app", category: "Permission")
 
+    private var inFlightValidation: Task<ScreenRecordingState, Never>?
     private var isShowingAlert = false
     private var lastBlockingAlertAt: Date?
     private let alertCooldownSeconds: TimeInterval = 45
@@ -358,6 +359,12 @@ final class PermissionCoordinator: ObservableObject {
     /// Automatically attempts replayd repair if SCK fails but CG is granted.
     @discardableResult
     func runUserInitiatedValidation() async -> ScreenRecordingState {
+        await serializedValidation { [self] in
+            await runUserInitiatedValidationCore()
+        }
+    }
+
+    private func runUserInitiatedValidationCore() async -> ScreenRecordingState {
         sckStateResetter()
         let identity = await identityProvider()
         let cgGranted = passiveCheck()
@@ -378,9 +385,9 @@ final class PermissionCoordinator: ObservableObject {
             return publishWorkingValidated(identity)
         }
 
-        // SCK failed — attempt auto-repair via replayd restart
+        // SCK failed — attempt auto-repair via replayd restart (best-effort on Tahoe)
         _ = publishStatus(.repairing, identity: identity)
-        logger.info("auto_repair_start")
+        logger.info("auto_repair_start best_effort=true")
         let repairResult = await repairSCKAccess()
         logger.info(
             "auto_repair_result result=\(String(describing: repairResult), privacy: .public)"
@@ -413,6 +420,22 @@ final class PermissionCoordinator: ObservableObject {
         pollIntervalNanoseconds: UInt64 = 350_000_000,
         sckRetryDelayNanoseconds: UInt64 = 1_000_000_000,
         maxSCKRetries: Int = 5
+    ) async -> ScreenRecordingState {
+        await serializedValidation { [self] in
+            await revalidateAfterSettingsReturnCore(
+                timeoutSeconds: timeoutSeconds,
+                pollIntervalNanoseconds: pollIntervalNanoseconds,
+                sckRetryDelayNanoseconds: sckRetryDelayNanoseconds,
+                maxSCKRetries: maxSCKRetries
+            )
+        }
+    }
+
+    private func revalidateAfterSettingsReturnCore(
+        timeoutSeconds: TimeInterval,
+        pollIntervalNanoseconds: UInt64,
+        sckRetryDelayNanoseconds: UInt64,
+        maxSCKRetries: Int
     ) async -> ScreenRecordingState {
         sckStateResetter()
         let identity = await identityProvider()
@@ -451,7 +474,7 @@ final class PermissionCoordinator: ObservableObject {
                     if cgGranted, !attemptedRepair {
                         attemptedRepair = true
                         _ = publishStatus(.repairing, identity: identity)
-                        logger.info("settings_return_auto_repair_start")
+                        logger.info("settings_return_auto_repair_start best_effort=true")
                         let repairResult = await repairSCKAccess()
                         logger.info(
                             "settings_return_auto_repair_result result=\(String(describing: repairResult), privacy: .public)"
@@ -491,20 +514,27 @@ final class PermissionCoordinator: ObservableObject {
     /// Handle a capture failure due to missing permission, showing an alert if not rate-limited.
     /// Silently attempts replayd repair first when CG is granted.
     func handleCapturePermissionFailure() async {
+        _ = await serializedValidation { [self] in
+            await handleCapturePermissionFailureCore()
+        }
+    }
+
+    private func handleCapturePermissionFailureCore() async -> ScreenRecordingState {
         sckStateResetter()
         let identity = await identityProvider()
         var status = await refreshPassiveStatus()
 
-        // If CG is granted, attempt silent repair before showing any alert
+        // If CG is granted, attempt silent repair before showing any alert.
+        // Repair is best-effort — on Tahoe, replayd restart may be blocked by SIP.
         if status != .denied {
-            logger.info("silent_repair_attempt before alert")
+            logger.info("silent_repair_attempt best_effort=true")
             let repairResult = await repairSCKAccess()
             if repairResult == .authorized {
                 logger.info("silent_repair_success — no alert needed")
                 _ = publishWorkingValidated(identity, clearPermissionRequest: false)
-                return
+                return .working
             }
-
+            logger.info("silent_repair_did_not_resolve — proceeding to alert")
             status = publishExplicitFailure(for: identity)
         }
 
@@ -515,14 +545,14 @@ final class PermissionCoordinator: ObservableObject {
             logger.info("permission_alert_suppressed reason=inflight status=\(String(describing: status), privacy: .public)")
             statusMessageSink(nonBlockingMessage(for: status))
             updateCooldownInModel(cooldownActive: true)
-            return
+            return status
         }
 
         if cooldownActive {
             logger.info("permission_alert_suppressed reason=cooldown status=\(String(describing: status), privacy: .public)")
             statusMessageSink(nonBlockingMessage(for: status))
             updateCooldownInModel(cooldownActive: true)
-            return
+            return status
         }
 
         let alertState = alertState(for: status)
@@ -536,6 +566,7 @@ final class PermissionCoordinator: ObservableObject {
         isShowingAlert = false
         lastBlockingAlertAt = now
         updateCooldownInModel(cooldownActive: true)
+        return status
     }
 
     /// Reset the TCC entry, restart replayd to clear its approval cache,
@@ -549,6 +580,19 @@ final class PermissionCoordinator: ObservableObject {
 }
 
 private extension PermissionCoordinator {
+    func serializedValidation(
+        _ operation: @escaping @MainActor () async -> ScreenRecordingState
+    ) async -> ScreenRecordingState {
+        if let inFlight = inFlightValidation {
+            return await inFlight.value
+        }
+        let task = Task { @MainActor in await operation() }
+        inFlightValidation = task
+        let result = await task.value
+        inFlightValidation = nil
+        return result
+    }
+
     @discardableResult
     func publishPassiveStatus(
         for identity: PermissionIdentity,

@@ -325,6 +325,66 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         XCTAssertTrue(coordinator.permissionUIModel.shouldShowStaleRecordBanner)
     }
 
+    // MARK: - Validation Serialization
+
+    func testConcurrentValidationsAreSerialized() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        var interactiveCallCount = 0
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: { true },
+            interactiveCheck: {
+                interactiveCallCount += 1
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                return .authorized
+            },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { PermissionTestHelpers.makeIdentity("serialize") },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 30_000) }
+        )
+
+        async let first = coordinator.runUserInitiatedValidation()
+        async let second = coordinator.runUserInitiatedValidation()
+        let results = await [first, second]
+
+        XCTAssertEqual(results[0], .working)
+        XCTAssertEqual(results[1], .working)
+        XCTAssertEqual(
+            interactiveCallCount, 1,
+            "Concurrent calls should share one in-flight validation"
+        )
+    }
+
+    func testSerializationGateResetsAfterCompletion() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        var interactiveCallCount = 0
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: { true },
+            interactiveCheck: {
+                interactiveCallCount += 1
+                return .authorized
+            },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { PermissionTestHelpers.makeIdentity("serialize-reset") },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 31_000) }
+        )
+
+        _ = await coordinator.runUserInitiatedValidation()
+        _ = await coordinator.runUserInitiatedValidation()
+
+        XCTAssertEqual(
+            interactiveCallCount, 2,
+            "Sequential calls should each run their own validation"
+        )
+    }
+
     func testReleaseScriptUsesNeutralDmgBackgroundAsset() throws {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

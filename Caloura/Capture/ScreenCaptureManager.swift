@@ -247,29 +247,45 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
 
     // MARK: - SCK Error Classification
 
-    /// Returns `true` for errors that indicate a permanent SCK failure
-    /// (e.g. user denied screen recording permission). Transient errors
-    /// (timeouts, resource contention, unknown) return `false`.
-    func isSCKErrorPermanent(_ error: Error) -> Bool {
+    enum ScreenCaptureFailureKind {
+        case permissionDenied      // .userDeclined
+        case systemStopped         // .systemStoppedStream — recoverable with retry
+        case missingEntitlements   // .missingEntitlements — permanent, not transient
+        case transient             // everything else
+    }
+
+    func classifySCKError(_ error: Error) -> ScreenCaptureFailureKind {
         let nsError = error as NSError
-        guard nsError.domain == SCStreamError.errorDomain else {
-            return false
+        guard nsError.domain == SCStreamError.errorDomain,
+              let code = SCStreamError.Code(rawValue: nsError.code) else {
+            return .transient
         }
-        if let code = SCStreamError.Code(rawValue: nsError.code) {
-            return code == .userDeclined
+        switch code {
+        case .userDeclined:
+            return .permissionDenied
+        case .systemStoppedStream:
+            return .systemStopped
+        case .missingEntitlements:
+            return .missingEntitlements
+        default:
+            return .transient
         }
-        return false
     }
 
     /// Record an SCK failure. Permanent errors disable SCK immediately.
     /// Transient errors increment a counter; after `maxTransientFailures`
     /// consecutive transient failures, SCK is disabled until reset.
     func handleSCKFailure(_ error: Error) {
-        if isSCKErrorPermanent(error) {
+        let kind = classifySCKError(error)
+        switch kind {
+        case .permissionDenied, .missingEntitlements:
             setSCKFailed(true)
             sckFailureCount = 0
-            logger.warning("SCK permanently disabled (user declined)")
-        } else {
+            let label = kind == .permissionDenied ? "user declined" : "missing entitlements"
+            logger.warning("SCK permanently disabled (\(label))")
+        case .systemStopped:
+            logger.info("SCK system stopped stream — will retry on next capture")
+        case .transient:
             sckFailureCount += 1
             let count = sckFailureCount
             logger.warning(
@@ -297,10 +313,15 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     /// (raw value `-3801`). Other SCK failures are treated as transient unless
     /// CoreGraphics is currently authoritative and still denied.
     func shouldTreatCaptureErrorAsPermissionDenied(_ error: Error) -> Bool {
-        if isSCKErrorPermanent(error) {
+        let kind = classifySCKError(error)
+        switch kind {
+        case .permissionDenied, .missingEntitlements:
             return true
+        case .systemStopped:
+            return false
+        case .transient:
+            return shouldTreatCoreGraphicsStateAsPermissionDenied()
         }
-        return shouldTreatCoreGraphicsStateAsPermissionDenied()
     }
 
     // MARK: - SCShareableContent Cache
