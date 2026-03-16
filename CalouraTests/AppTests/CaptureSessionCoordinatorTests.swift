@@ -26,7 +26,7 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
             recorder.summary(for: .area, event: .overlayVisible)?.sampleCount,
             1
         )
-        XCTAssertEqual(cursor.reassertCalls, 1)
+        XCTAssertEqual(cursor.scheduleReprimeCalls, 1)
         XCTAssertEqual(cursor.endCalls, 1)
         XCTAssertEqual(cursor.activeSessions, 0)
     }
@@ -36,7 +36,7 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
         let session = recorder.beginSession(mode: .fullscreen)
         let cursor = CoordinatorCursorSpy()
         var beginCallsAtPresentation = 0
-        var reassertCallsAtPresentation = 0
+        var reprimeCallsAtPresentation = 0
         var overlayVisibleCountAtPresentation: Int?
 
         let coordinator = FullscreenCaptureSessionCoordinator(
@@ -47,7 +47,7 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
             onCancel: { },
             overlayPresenter: { _, _, _ in
                 beginCallsAtPresentation = cursor.beginCalls
-                reassertCallsAtPresentation = cursor.reassertCalls
+                reprimeCallsAtPresentation = cursor.scheduleReprimeCalls
                 overlayVisibleCountAtPresentation = recorder.summary(
                     for: .fullscreen,
                     event: .overlayVisible
@@ -61,13 +61,13 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
         recorder.finishSession(session)
 
         XCTAssertEqual(beginCallsAtPresentation, 1)
-        XCTAssertEqual(reassertCallsAtPresentation, 0)
+        XCTAssertEqual(reprimeCallsAtPresentation, 0)
         XCTAssertNil(overlayVisibleCountAtPresentation)
         XCTAssertEqual(
             recorder.summary(for: .fullscreen, event: .overlayVisible)?.sampleCount,
             1
         )
-        XCTAssertEqual(cursor.reassertCalls, 1)
+        XCTAssertEqual(cursor.scheduleReprimeCalls, 1)
         XCTAssertEqual(cursor.endCalls, 1)
         XCTAssertEqual(cursor.activeSessions, 0)
     }
@@ -164,7 +164,8 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
 @MainActor
 private final class CoordinatorCursorSpy: CaptureCursorControlling {
     private(set) var beginCalls = 0
-    private(set) var reassertCalls = 0
+    private(set) var handleCursorUpdateCalls = 0
+    private(set) var scheduleReprimeCalls = 0
     private(set) var endCalls = 0
     private(set) var activeSessions = 0
     private(set) var maxActiveSessions = 0
@@ -175,8 +176,12 @@ private final class CoordinatorCursorSpy: CaptureCursorControlling {
         maxActiveSessions = max(maxActiveSessions, activeSessions)
     }
 
-    func reassertCrosshair() {
-        reassertCalls += 1
+    func handleCursorUpdate() {
+        handleCursorUpdateCalls += 1
+    }
+
+    func scheduleReprime() {
+        scheduleReprimeCalls += 1
     }
 
     func endCrosshairSession() {

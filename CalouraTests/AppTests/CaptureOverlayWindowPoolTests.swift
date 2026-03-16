@@ -87,6 +87,7 @@ final class CaptureOverlayWindowPoolTests: XCTestCase {
 @MainActor
 private final class PoolCursorSpy: CaptureCursorControlling {
     func beginCrosshairSession() {}
-    func reassertCrosshair() {}
+    func handleCursorUpdate() {}
+    func scheduleReprime() {}
     func endCrosshairSession() {}
 }

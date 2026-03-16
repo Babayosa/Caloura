@@ -321,7 +321,11 @@ private final class CursorSpy: CaptureCursorControlling {
         beginCalls += 1
     }
 
-    func reassertCrosshair() {
+    func handleCursorUpdate() {
+        reassertCalls += 1
+    }
+
+    func scheduleReprime() {
         reassertCalls += 1
     }
 

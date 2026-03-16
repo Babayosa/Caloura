@@ -10,17 +10,31 @@
 - **Context**: `viewDidMoveToWindow` fires on both add (`window != nil`) and remove (`window == nil`). Unguarded hide on removal creates a permanent imbalance.
 
 ### NSCursor.set() vs push/pop [Graduated]
-- **Rule**: Use `NSCursor.crosshair.push()` to enter custom cursor mode, `NSCursor.pop()` to leave. Never use `.set()` — the cursor rect system overrides it asynchronously.
+- **Rule**: Use `NSCursor.crosshair.push()` to enter custom cursor mode, `NSCursor.pop()` to leave. Never use `.set()` alone — it is unreliable when the app is inactive (another app may own the cursor). Use `.set()` only inside `cursorUpdate(with:)` handler where AppKit expects it.
+
+### macOS 26 tracking area: .activeAlways not supported for .cursorUpdate
+- **Rule**: NEVER combine `.cursorUpdate` with `.activeAlways` in a single `NSTrackingArea`. macOS 26 does not support this combination. Split into two tracking areas: (1) `.cursorUpdate` + `.activeInKeyWindow` for cursor updates, (2) `.mouseMoved` + `.mouseEnteredAndExited` + `.activeAlways` for mouse tracking.
+- **Mistake**: Single tracking area with `[.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeAlways]` caused `cursorUpdate(with:)` to never fire on macOS 26, so the crosshair cursor never appeared.
+- **Fix**: Two separate tracking areas. `cursorUpdate` handler calls `handleCursorUpdate()` (uses `.set()`). Mouse handlers call `scheduleReprime()` (deferred pop+push cycle). Also make hovered overlay key window on `mouseEntered`/`mouseMoved` for multi-screen cursor ownership.
 
 ### NSApp.activate() cursor race [Graduated]
-- **Rule**: Never use `disableCursorRects()` if you need `addCursorRect`. Use layered defense: (1) push in viewDidMoveToWindow, (2) addCursorRect, (3) cursorUpdate override, (4) didBecomeActiveNotification one-shot, (5) mouseMoved override.
-- **Context**: `disableCursorRects()` kills ALL cursor rect processing — the crosshair never appears. Each layer catches a different async timing edge case during `NSApp.activate()`.
+- **Rule**: Never use `disableCursorRects()` if you need `addCursorRect`. Use layered defense: (1) session-scoped push/pop, (2) addCursorRect in resetCursorRects, (3) cursorUpdate → .set(), (4) didBecomeActiveNotification + activeSpaceDidChangeNotification → scheduleReprime, (5) mouseMoved/mouseEntered → scheduleReprime.
+- **Context**: `disableCursorRects()` kills ALL cursor rect processing. Each layer catches a different async timing edge case.
 
 ### NSApp.activate hides windows for LSUIElement apps
 - **Rule**: Never use `NSApp.activate(ignoringOtherApps: true)` before showing capture overlays. Use `NSPanel` with `.nonactivatingPanel` style mask instead of `NSWindow`. The panel receives keyboard/mouse events without activating the app, so other apps' windows remain visible.
 - **Mistake**: `NSApp.activate` was called before `showOnAllScreens`, causing macOS to hide all other application windows. The idle-state dimming (0.16 alpha black) previously masked this — removing dimming revealed the bare desktop wallpaper.
 - **Fix**: `CaptureOverlayWindow: NSPanel` with `styleMask: .nonactivatingPanel`, `hidesOnDeactivate = false`, `canBecomeMain = false`. Remove `NSApp.activate` from area/fullscreen coordinators. Keep it only for window capture (SCK picker requires app activation).
 - **Key insight**: A non-activating panel at `.screenSaver` level can become key and receive keyboard events (ESC) without the owning app being active.
+
+### Bridge closures must survive window pool reuse
+- **Rule**: When pooling/reusing `NSWindow` instances, do NOT nil bridge closures on `tearDown`/`release`. Bridge closures (selectionView → window) delegate through the window's optional callbacks, which are nil-safe. Nilling bridge closures breaks the forwarding chain on reuse.
+- **Mistake**: `tearDownHandlers()` nilled both window-level callbacks AND selectionView bridge closures. On reuse, new window callbacks were set but the selectionView could no longer reach them.
+- **Fix**: Only nil window-level callbacks in `tearDownHandlers()`. Bridge closures are permanent — they use `[weak self]` + optional chaining, so they no-op when window callbacks are nil.
+
+### All capture modes must wire cursorController
+- **Rule**: Every capture mode that shows overlay windows (area, fullscreen, scroll) must pass `sessionState.cursorController` and call `beginCrosshairSession()`/`endCrosshairSession()`. Don't rely on cursor rects alone.
+- **Mistake**: Scroll capture called `CaptureOverlayWindow.showOnAllScreens()` without passing a `cursorController`, relying solely on cursor rects. After scroll capture failed, subsequent area captures lost their crosshair.
 
 ## Permissions / macOS
 

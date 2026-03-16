@@ -3,13 +3,16 @@ import AppKit
 @MainActor
 protocol CaptureCursorControlling: AnyObject {
     func beginCrosshairSession()
-    func reassertCrosshair()
+    func handleCursorUpdate()
+    func scheduleReprime()
     func endCrosshairSession()
 }
 
 @MainActor
 protocol CaptureCrosshairDriving {
     func setCrosshair()
+    func pushCrosshair()
+    func popCrosshair()
 }
 
 @MainActor
@@ -26,6 +29,14 @@ protocol CaptureCursorScheduling {
 private struct SystemCaptureCrosshairDriver: CaptureCrosshairDriving {
     func setCrosshair() {
         NSCursor.crosshair.set()
+    }
+
+    func pushCrosshair() {
+        NSCursor.crosshair.push()
+    }
+
+    func popCrosshair() {
+        NSCursor.pop()
     }
 }
 
@@ -65,7 +76,8 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
     private let notificationCenter: NotificationCenter
 
     private var cursorActive = false
-    private var pendingReassertion: CaptureCursorScheduledAction?
+    private var pushed = false
+    private var pendingReprime: CaptureCursorScheduledAction?
 
     init(
         crosshairDriver: CaptureCrosshairDriving = SystemCaptureCrosshairDriver(),
@@ -83,26 +95,52 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
             name: NSApplication.didBecomeActiveNotification,
             object: nil
         )
+        notificationCenter.addObserver(
+            self,
+            selector: #selector(handleSpaceDidChangeNotification(_:)),
+            name: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil
+        )
     }
 
     func beginCrosshairSession() {
+        guard !cursorActive else { return }
         cursorActive = true
-        ensureReassertionScheduled()
+        if !pushed {
+            crosshairDriver.pushCrosshair()
+            pushed = true
+        }
+        scheduleReprime()
     }
 
-    func reassertCrosshair() {
+    func handleCursorUpdate() {
         guard cursorActive else { return }
         crosshairDriver.setCrosshair()
     }
 
+    func scheduleReprime() {
+        guard cursorActive, pendingReprime == nil else { return }
+        pendingReprime = scheduler.schedule { [weak self] in
+            guard let self, self.cursorActive else { return }
+            self.pendingReprime = nil
+            if self.pushed { self.crosshairDriver.popCrosshair() }
+            self.crosshairDriver.pushCrosshair()
+            self.pushed = true
+        }
+    }
+
     func endCrosshairSession() {
-        pendingReassertion?.cancel()
-        pendingReassertion = nil
+        pendingReprime?.cancel()
+        pendingReprime = nil
         cursorActive = false
+        if pushed {
+            crosshairDriver.popCrosshair()
+            pushed = false
+        }
     }
 
     func handleApplicationDidBecomeActive() {
-        ensureReassertionScheduled()
+        scheduleReprime()
     }
 
     @objc
@@ -110,12 +148,8 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
         handleApplicationDidBecomeActive()
     }
 
-    private func ensureReassertionScheduled() {
-        guard cursorActive, pendingReassertion == nil else { return }
-        pendingReassertion = scheduler.schedule { [weak self] in
-            guard let self = self else { return }
-            self.pendingReassertion = nil
-            self.reassertCrosshair()
-        }
+    @objc
+    private func handleSpaceDidChangeNotification(_ notification: Notification) {
+        scheduleReprime()
     }
 }

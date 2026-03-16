@@ -88,16 +88,15 @@ final class CaptureOverlayWindow: NSPanel {
     private func primeCrosshair() {
         guard let contentView else { return }
         invalidateCursorRects(for: contentView)
-        cursorController?.reassertCrosshair()
+        cursorController?.scheduleReprime()
     }
 
     func tearDownHandlers() {
         onRegionSelected = nil
         onCancelled = nil
         onFirstMouseDown = nil
-        selectionView?.onRegionSelected = nil
-        selectionView?.onCancelled = nil
-        selectionView?.onFirstMouseDown = nil
+        // Bridge closures on selectionView are permanent — they delegate
+        // through the window's optional callbacks above, which are nil-safe.
     }
 
     func resetForReuse(cursorController: CaptureCursorControlling?) {

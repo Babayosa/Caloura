@@ -96,7 +96,7 @@ final class AreaCaptureSessionCoordinator {
             }
         }
 
-        cursorController.reassertCrosshair()
+        cursorController.scheduleReprime()
         performanceRecorder.mark(.overlayVisible, in: session)
     }
 
@@ -192,7 +192,7 @@ final class FullscreenCaptureSessionCoordinator {
                 }
             }
         )
-        cursorController.reassertCrosshair()
+        cursorController.scheduleReprime()
         performanceRecorder.mark(.overlayVisible, in: session)
     }
 

@@ -27,7 +27,7 @@ final class RegionSelectionView: NSView {
     private var selectionEnd: NSPoint?
     private var isSelecting = false
     private var hasSentFirstMouseDown = false
-    private var trackingArea: NSTrackingArea?
+
 
     // Layer tree (z-order: background → dimming → border → labels)
     private let backgroundLayer = CALayer()
@@ -176,7 +176,7 @@ final class RegionSelectionView: NSView {
         if let window = window {
             window.makeFirstResponder(self)
             window.acceptsMouseMovedEvents = true
-            cursorController?.reassertCrosshair()
+            cursorController?.scheduleReprime()
 
             // Set contentsScale for crisp Retina text
             let scale = window.backingScaleFactor
@@ -188,17 +188,20 @@ final class RegionSelectionView: NSView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        if let existing = trackingArea {
-            removeTrackingArea(existing)
-        }
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect],
+        trackingAreas.forEach(removeTrackingArea)
+
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.cursorUpdate, .activeInKeyWindow, .inVisibleRect, .enabledDuringMouseDrag],
             owner: self,
             userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
+        ))
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect, .enabledDuringMouseDrag],
+            owner: self,
+            userInfo: nil
+        ))
     }
 
     override func resetCursorRects() {
@@ -207,11 +210,17 @@ final class RegionSelectionView: NSView {
     }
 
     override func cursorUpdate(with event: NSEvent) {
-        cursorController?.reassertCrosshair()
+        cursorController?.handleCursorUpdate()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        if window?.isKeyWindow == false { window?.makeKey() }
+        cursorController?.scheduleReprime()
     }
 
     override func mouseMoved(with event: NSEvent) {
-        cursorController?.reassertCrosshair()
+        if window?.isKeyWindow == false { window?.makeKey() }
+        cursorController?.scheduleReprime()
     }
 
     // MARK: - Layer Updates

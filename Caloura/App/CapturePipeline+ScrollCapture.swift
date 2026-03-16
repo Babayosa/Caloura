@@ -37,9 +37,14 @@ extension CapturePipeline {
         frozenImages: [NSScreen: CGImage],
         entryStart: CFAbsoluteTime
     ) {
+        let cursorController = sessionState.cursorController
+        cursorController.beginCrosshairSession()
+
         replaceOverlayWindows(CaptureOverlayWindow.showOnAllScreens(
+            cursorController: cursorController,
             frozenImages: frozenImages,
             onRegionSelected: { [weak self] rect, screen in
+                cursorController.endCrosshairSession()
                 guard let self = self else { return }
                 Task { @MainActor in
                     guard self.isCurrentTrackedCaptureSession(sessionID) else { return }
@@ -53,6 +58,7 @@ extension CapturePipeline {
                 }
             },
             onCancelled: { [weak self] in
+                cursorController.endCrosshairSession()
                 guard let self = self else { return }
                 Task { @MainActor in
                     guard self.isCurrentTrackedCaptureSession(sessionID) else { return }
@@ -73,6 +79,8 @@ extension CapturePipeline {
                 )
             }
         ))
+
+        cursorController.scheduleReprime()
     }
 
     func performScrollCapture(rect: CGRect, screen: NSScreen) async {
@@ -148,6 +156,7 @@ extension CapturePipeline {
         sessionCoordinator.bind(task: task)
 
         let result = await task.value
+        scrollCaptureTask = nil
         sessionCoordinator.dismiss()
 
         switch result {
