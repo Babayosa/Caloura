@@ -11,7 +11,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/sindresorhus/KeyboardShortcuts", from: "2.4.0"),
-        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.8.1")
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1")
     ],
     targets: [
         .target(
