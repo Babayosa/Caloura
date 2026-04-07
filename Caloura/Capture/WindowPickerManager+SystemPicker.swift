@@ -20,6 +20,10 @@ final class SystemWindowSharingPicker: WindowSharingPicking {
         picker.add(observer)
     }
 
+    func remove(_ observer: any SCContentSharingPickerObserver) {
+        picker.remove(observer)
+    }
+
     func present(using style: SCShareableContentStyle) {
         picker.present(using: style)
     }

@@ -48,14 +48,6 @@ struct MenuBarView: View {
         .disabled(appState.isCapturing)
 
         Button {
-            AppCommandRouter.shared.dispatch(.captureScroll)
-        } label: {
-            Label("Scroll Capture", systemImage: "rectangle.bottomhalf.inset.filled")
-        }
-        .keyboardShortcut("6", modifiers: [.command, .shift])
-        .disabled(appState.isCapturing)
-
-        Button {
             AppCommandRouter.shared.dispatch(.copyLastOCRText)
         } label: {
             Label("Copy Text (OCR)", systemImage: "text.viewfinder")

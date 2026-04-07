@@ -11,32 +11,7 @@ final class CaptureEntrypointService {
     typealias MakeAreaCaptureSessionFn = CapturePipeline.MakeAreaCaptureSessionFn
     typealias MakeFullscreenCaptureSessionFn = CapturePipeline.MakeFullscreenCaptureSessionFn
     typealias MakeWindowCaptureSessionFn = CapturePipeline.MakeWindowCaptureSessionFn
-    typealias PerformAreaCaptureFn = @MainActor (
-        CGRect,
-        NSScreen?,
-        CapturePerformanceRecorder.Session
-    ) async -> Void
-    typealias PerformFrozenAreaCaptureFn = @MainActor (
-        CGRect,
-        NSScreen,
-        CGImage,
-        CapturePerformanceRecorder.Session
-    ) async -> Void
-    typealias PerformFullscreenCaptureFn = @MainActor (
-        NSScreen?,
-        Bool,
-        CapturePerformanceRecorder.Session?
-    ) async -> Void
-    typealias PerformWindowCaptureFn = @MainActor (
-        @escaping @MainActor () async throws -> CGImage,
-        CapturePerformanceRecorder.Session?
-    ) async -> Void
-    typealias FreezeScreensFn = @MainActor (CFAbsoluteTime) async -> [NSScreen: CGImage]
     typealias PrewarmWindowContentFn = @MainActor () async -> Void
-    typealias CaptureScrollFn = @MainActor () -> Void
-    typealias ElapsedMillisecondsFn = (CFAbsoluteTime) -> Double
-    typealias RecordMetricFn = (PerformanceMetricStage, Double) -> Void
-    typealias IsSameObjectFn = (AnyObject?, AnyObject?) -> Bool
     typealias ScreensProviderFn = () -> [NSScreen]
     typealias MainScreenProviderFn = () -> NSScreen?
 
@@ -48,20 +23,16 @@ final class CaptureEntrypointService {
     let makeAreaCaptureSession: MakeAreaCaptureSessionFn
     let makeFullscreenCaptureSession: MakeFullscreenCaptureSessionFn
     let makeWindowCaptureSession: MakeWindowCaptureSessionFn
-    let performAreaCapture: PerformAreaCaptureFn
-    let performFrozenAreaCapture: PerformFrozenAreaCaptureFn
-    let performFullscreenCapture: PerformFullscreenCaptureFn
-    let performWindowCapture: PerformWindowCaptureFn
-    let freezeScreens: FreezeScreensFn
+    let executionService: CaptureExecutionService
+    let captureManager: ScreenCaptureManaging
+    let freezeService: CaptureFreezeService
     let prewarmWindowContent: PrewarmWindowContentFn
-    let captureScroll: CaptureScrollFn
-    let elapsedMilliseconds: ElapsedMillisecondsFn
-    let recordMetric: RecordMetricFn
-    let isSameObject: IsSameObjectFn
+    let metricsRecorder: CaptureMetricsRecorder
     let screenCountProvider: () -> Int
     let screensProvider: ScreensProviderFn
     let mainScreenProvider: MainScreenProviderFn
     let freezeScreensEnabled: Bool
+    let settings: AppSettings
 
     init(
         appState: AppState,
@@ -72,20 +43,16 @@ final class CaptureEntrypointService {
         makeAreaCaptureSession: @escaping MakeAreaCaptureSessionFn,
         makeFullscreenCaptureSession: @escaping MakeFullscreenCaptureSessionFn,
         makeWindowCaptureSession: @escaping MakeWindowCaptureSessionFn,
-        performAreaCapture: @escaping PerformAreaCaptureFn,
-        performFrozenAreaCapture: @escaping PerformFrozenAreaCaptureFn,
-        performFullscreenCapture: @escaping PerformFullscreenCaptureFn,
-        performWindowCapture: @escaping PerformWindowCaptureFn,
-        freezeScreens: @escaping FreezeScreensFn,
+        executionService: CaptureExecutionService,
+        captureManager: ScreenCaptureManaging,
+        freezeService: CaptureFreezeService,
         prewarmWindowContent: @escaping PrewarmWindowContentFn,
-        captureScroll: @escaping CaptureScrollFn,
-        elapsedMilliseconds: @escaping ElapsedMillisecondsFn,
-        recordMetric: @escaping RecordMetricFn,
-        isSameObject: @escaping IsSameObjectFn,
+        metricsRecorder: CaptureMetricsRecorder,
         screenCountProvider: @escaping () -> Int,
         screensProvider: @escaping ScreensProviderFn,
         mainScreenProvider: @escaping MainScreenProviderFn,
-        freezeScreensEnabled: Bool
+        freezeScreensEnabled: Bool,
+        settings: AppSettings
     ) {
         self.appState = appState
         self.capturePerformanceRecorder = capturePerformanceRecorder
@@ -95,20 +62,16 @@ final class CaptureEntrypointService {
         self.makeAreaCaptureSession = makeAreaCaptureSession
         self.makeFullscreenCaptureSession = makeFullscreenCaptureSession
         self.makeWindowCaptureSession = makeWindowCaptureSession
-        self.performAreaCapture = performAreaCapture
-        self.performFrozenAreaCapture = performFrozenAreaCapture
-        self.performFullscreenCapture = performFullscreenCapture
-        self.performWindowCapture = performWindowCapture
-        self.freezeScreens = freezeScreens
+        self.executionService = executionService
+        self.captureManager = captureManager
+        self.freezeService = freezeService
         self.prewarmWindowContent = prewarmWindowContent
-        self.captureScroll = captureScroll
-        self.elapsedMilliseconds = elapsedMilliseconds
-        self.recordMetric = recordMetric
-        self.isSameObject = isSameObject
+        self.metricsRecorder = metricsRecorder
         self.screenCountProvider = screenCountProvider
         self.screensProvider = screensProvider
         self.mainScreenProvider = mainScreenProvider
         self.freezeScreensEnabled = freezeScreensEnabled
+        self.settings = settings
     }
 
     func captureArea() {
@@ -128,7 +91,7 @@ final class CaptureEntrypointService {
 
         presentAreaCaptureCoordinator(coordinator, entryStart: entryStart)
 
-        guard freezeScreensEnabled else { return }
+        guard freezeScreensEnabled, !settings.lowProfileCaptureEnabled else { return }
         loadAreaCaptureFrozenImages(
             for: coordinator,
             sessionID: sessionID,
@@ -154,14 +117,19 @@ final class CaptureEntrypointService {
         capturePerformanceRecorder.mark(.appActivated, in: performanceSession)
         Task { @MainActor [weak self] in
             await self?.performFullscreenCapture(
-                nil,
-                false,
-                performanceSession
+                screen: nil,
+                dismissDelay: false,
+                performanceSession: performanceSession
             )
         }
     }
 
     func captureWindow() {
+        guard !settings.lowProfileCaptureEnabled else {
+            appState.statusMessage = "Window capture unavailable in low-profile mode"
+            appState.isCapturing = false
+            return
+        }
         guard beginCaptureIfIdle() else { return }
         let performanceSession = capturePerformanceRecorder.beginSession(mode: .window)
 
@@ -174,12 +142,12 @@ final class CaptureEntrypointService {
             )
             switch await coordinator.pick() {
             case .selected(let captureOperation):
-                await self.performWindowCapture(captureOperation, performanceSession)
+                await self.performWindowCapture(capture: captureOperation, performanceSession: performanceSession)
             case .cancelled:
                 self.finishInterruptedCapture(performanceSession)
             case .failedToStart:
                 self.finishInterruptedCapture(performanceSession)
-                await self.handlePermissionFailure()
+                await self.handlePermissionFailure(.window)
             }
         }
     }
@@ -199,7 +167,7 @@ final class CaptureEntrypointService {
         let performanceSession = capturePerformanceRecorder.beginSession(mode: .area)
 
         Task { @MainActor [weak self] in
-            await self?.performAreaCapture(rect, screen, performanceSession)
+            await self?.performAreaCapture(rect: rect, screen: screen, performanceSession: performanceSession)
         }
     }
 
@@ -239,13 +207,10 @@ final class CaptureEntrypointService {
                 self.appState.isCapturing = false
                 self.captureArea()
             case .fullscreen:
-                await self.performFullscreenCapture(nil, true, nil)
+                await self.performFullscreenCapture(screen: nil, dismissDelay: true, performanceSession: nil)
             case .window:
                 self.appState.isCapturing = false
                 self.captureWindow()
-            case .scroll:
-                self.appState.isCapturing = false
-                self.captureScroll()
             }
         })
     }
@@ -270,5 +235,88 @@ final class CaptureEntrypointService {
     ) {
         appState.isCapturing = false
         capturePerformanceRecorder.finishSession(performanceSession)
+    }
+
+    // MARK: - Perform Captures
+
+    func performAreaCapture(
+        rect: CGRect,
+        screen: NSScreen?,
+        performanceSession: CapturePerformanceRecorder.Session? = nil
+    ) async {
+        await executionService.performCapture(mode: .area, performanceSession: performanceSession) {
+            try await self.captureManager.captureArea(
+                rect: rect, screen: screen
+            )
+        }
+    }
+
+    /// Compute the crop rect in image-pixel coordinates from a screen-local
+    /// selection rect and the actual frozen image width.
+    static func frozenImageCropRect(
+        selectionRect: CGRect,
+        screenHeight: CGFloat,
+        imageWidth: Int,
+        screenWidth: CGFloat
+    ) -> CGRect {
+        let imageScale = CGFloat(imageWidth) / screenWidth
+        let flippedY = screenHeight - selectionRect.origin.y - selectionRect.height
+        return CGRect(
+            x: selectionRect.origin.x * imageScale,
+            y: flippedY * imageScale,
+            width: selectionRect.width * imageScale,
+            height: selectionRect.height * imageScale
+        ).integral
+    }
+
+    /// Crop from an already-captured frozen image (for freeze capture mode)
+    func performFrozenAreaCapture(
+        rect: CGRect,
+        screen: NSScreen,
+        frozenImage: CGImage,
+        performanceSession: CapturePerformanceRecorder.Session? = nil
+    ) async {
+        await executionService.performCapture(mode: .area, performanceSession: performanceSession) {
+            let imageRect = Self.frozenImageCropRect(
+                selectionRect: rect,
+                screenHeight: screen.frame.height,
+                imageWidth: frozenImage.width,
+                screenWidth: screen.frame.width
+            )
+
+            guard let croppedImage = frozenImage.cropping(to: imageRect) else {
+                // Frozen image dimensions don't match — fall back to live capture
+                return try await self.captureManager.captureArea(
+                    rect: rect, screen: screen
+                )
+            }
+            return croppedImage
+        }
+    }
+
+    func performFullscreenCapture(
+        screen: NSScreen? = nil,
+        dismissDelay: Bool = false,
+        performanceSession: CapturePerformanceRecorder.Session? = nil
+    ) async {
+        if dismissDelay {
+            // Brief delay to let menu bar close / overlays dismiss
+            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+        }
+        await executionService.performCapture(
+            mode: .fullscreen,
+            performanceSession: performanceSession
+        ) {
+            try await self.captureManager.captureFullScreen(screen: screen)
+        }
+    }
+
+    func performWindowCapture(
+        capture: @escaping @MainActor () async throws -> CGImage,
+        performanceSession: CapturePerformanceRecorder.Session? = nil
+    ) async {
+        await executionService.performCapture(mode: .window, performanceSession: performanceSession) {
+            try await capture()
+        }
     }
 }

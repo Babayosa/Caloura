@@ -247,12 +247,12 @@ final class CaptureEnrichmentService {
 
         await dependencies.applyMetadata(metadata, screenshotID)
     }
-}
 
-private func stableHash(_ text: String) -> String {
-    let data = Data(text.utf8)
-    return SHA256.hash(data: data)
-        .prefix(16)
-        .map { String(format: "%02x", $0) }
-        .joined()
+    private static func stableHash(_ text: String) -> String {
+        let data = Data(text.utf8)
+        return SHA256.hash(data: data)
+            .prefix(16)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
 }

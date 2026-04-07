@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Observation
 import os.log
 import Security
 
@@ -160,14 +161,15 @@ struct PermissionIdentity: Equatable {
     }
 }
 
-@MainActor
-final class PermissionCoordinator: ObservableObject {
+@Observable @MainActor
+final class PermissionCoordinator {
     static let shared = PermissionCoordinator()
 
     typealias PassiveCheck = () -> Bool
     typealias PrimeCheck = () async -> ScreenCaptureAccessProbeResult
     typealias InteractiveCheck = () async -> ScreenCaptureAccessProbeResult
-    typealias AlertPresenter = (ScreenCaptureManager.PermissionState) async -> Void
+    typealias AlertPresenter = @MainActor @Sendable (ScreenCaptureManager.PermissionState) async -> Void
+    typealias AlertRelaunchRequested = @MainActor @Sendable () -> Bool
     typealias PermissionRequester = () -> Bool
     typealias IdentityProvider = () async -> PermissionIdentity
     typealias StatusMessageSink = (String) -> Void
@@ -177,13 +179,14 @@ final class PermissionCoordinator: ObservableObject {
     typealias Relauncher = () -> Void
     typealias SCKStateResetter = () -> Void
 
-    @Published private(set) var permissionUIModel = PermissionUIModel()
+    private(set) var permissionUIModel = PermissionUIModel()
 
     private let defaults: UserDefaults
     private let passiveCheck: PassiveCheck
     private let primeCheck: PrimeCheck
     private let interactiveCheck: InteractiveCheck
     private let alertPresenter: AlertPresenter
+    private let alertRequestedRelaunch: AlertRelaunchRequested
     private let permissionRequester: PermissionRequester
     private let identityProvider: IdentityProvider
     private let statusMessageSink: StatusMessageSink
@@ -198,17 +201,21 @@ final class PermissionCoordinator: ObservableObject {
     private var isShowingAlert = false
     private var lastBlockingAlertAt: Date?
     private let alertCooldownSeconds: TimeInterval = 45
+    private let autoRepairRelaunchCooldownSeconds: TimeInterval = 60
     private let permissionRequestLifetimeSeconds: TimeInterval = 180
     private let pendingCaptureResumeTTLSeconds: TimeInterval = 120
     private var cooldownResetTask: Task<Void, Never>?
     private var liveValidatedIdentityFingerprint: String?
     private var recentPermissionRequestSession: PermissionRequestSession?
     private var diagnosedFailure: DiagnosedFailure?
+    private var pendingCaptureResumeRequiresRelaunch = false
 
     private enum Keys {
         static let lastWorkingIdentityFingerprint = "permissionLastWorkingIdentityFingerprint"
         static let lastWorkingExecutablePath = "permissionLastWorkingExecutablePath"
         static let pendingCaptureResumeRequestedAt = "permissionPendingCaptureResumeRequestedAt"
+        static let pendingCaptureResumeMode = "permissionPendingCaptureResumeMode"
+        static let lastAutoRepairRelaunchAt = "permissionLastAutoRepairRelaunchAt"
     }
 
     private struct PermissionRequestSession {
@@ -221,12 +228,23 @@ final class PermissionCoordinator: ObservableObject {
         let status: ScreenRecordingState
     }
 
+    @MainActor
+    private final class AlertDecisionBox {
+        var lastAction: ScreenCapturePermissionAlertAction = .cancel
+    }
+
     init(defaults: UserDefaults = .standard) {
+        let alertDecision = AlertDecisionBox()
         self.defaults = defaults
         self.passiveCheck = { ScreenCaptureManager.shared.passivePermissionGranted() }
         self.primeCheck = { await ScreenCaptureManager.shared.primeSCKAccessIfPossible() }
         self.interactiveCheck = { await ScreenCaptureManager.shared.validateSCKAccessUserInitiated() }
-        self.alertPresenter = { state in ScreenCaptureManager.shared.showPermissionAlert(for: state) }
+        self.alertPresenter = { state in
+            alertDecision.lastAction = ScreenCaptureManager.shared.showPermissionAlert(for: state)
+        }
+        self.alertRequestedRelaunch = {
+            alertDecision.lastAction == .restartApp
+        }
         self.permissionRequester = { ScreenCaptureManager.shared.requestPermission() }
         self.identityProvider = { await PermissionIdentityProvider.shared.currentIdentity() }
         self.statusMessageSink = { AppState.shared.statusMessage = $0 }
@@ -243,6 +261,7 @@ final class PermissionCoordinator: ObservableObject {
         primeCheck: @escaping PrimeCheck = { .transientFailure },
         interactiveCheck: @escaping InteractiveCheck,
         alertPresenter: @escaping AlertPresenter,
+        alertRequestedRelaunch: @escaping AlertRelaunchRequested = { false },
         permissionRequester: @escaping PermissionRequester,
         identityProvider: @escaping IdentityProvider,
         statusMessageSink: @escaping StatusMessageSink,
@@ -257,6 +276,7 @@ final class PermissionCoordinator: ObservableObject {
         self.primeCheck = primeCheck
         self.interactiveCheck = interactiveCheck
         self.alertPresenter = alertPresenter
+        self.alertRequestedRelaunch = alertRequestedRelaunch
         self.permissionRequester = permissionRequester
         self.identityProvider = identityProvider
         self.statusMessageSink = statusMessageSink
@@ -295,27 +315,43 @@ final class PermissionCoordinator: ObservableObject {
         )
     }
 
-    func armPendingCaptureResume() {
+    func armPendingCaptureResume(mode: CaptureMode) {
+        pendingCaptureResumeRequiresRelaunch = false
         defaults.set(now(), forKey: Keys.pendingCaptureResumeRequestedAt)
+        defaults.set(mode.rawValue, forKey: Keys.pendingCaptureResumeMode)
     }
 
     func clearPendingCaptureResume() {
+        pendingCaptureResumeRequiresRelaunch = false
         defaults.removeObject(forKey: Keys.pendingCaptureResumeRequestedAt)
+        defaults.removeObject(forKey: Keys.pendingCaptureResumeMode)
     }
 
-    func takePendingCaptureResumeIfFresh() -> Bool {
+    func clearPendingCaptureResumeIfNoRelaunchPending() {
+        guard !pendingCaptureResumeRequiresRelaunch else {
+            return
+        }
+        clearPendingCaptureResume()
+    }
+
+    func takePendingCaptureResumeIfFresh() -> CaptureMode? {
         defer { clearPendingCaptureResume() }
         guard let requestedAt = defaults.object(forKey: Keys.pendingCaptureResumeRequestedAt) as? Date else {
-            return false
+            return nil
         }
         guard now().timeIntervalSince(requestedAt) <= pendingCaptureResumeTTLSeconds else {
-            return false
+            return nil
+        }
+        guard let rawMode = defaults.string(forKey: Keys.pendingCaptureResumeMode),
+              let mode = CaptureMode(rawValue: rawMode) else {
+            return nil
         }
         recentPermissionRequestSession = PermissionRequestSession(
             startedAt: requestedAt,
             didAutoRelaunch: true
         )
-        return true
+        pendingCaptureResumeRequiresRelaunch = false
+        return mode
     }
 
     func coreGraphicsPreflightIsAuthoritative() -> Bool {
@@ -500,10 +536,11 @@ final class PermissionCoordinator: ObservableObject {
         }
 
         if canAutoRelaunchAfterSettingsReturn(at: now()) {
-            armPendingCaptureResume()
+            armPendingCaptureResume(mode: pendingCaptureResumeMode() ?? .area)
             markAutoRelaunchIssued()
             _ = publishStatus(.repairing, identity: identity)
-            logger.info("settings_return_auto_relaunch")
+            logger.info("settings_return_auto_relaunch with TCC reset")
+            await resetTCCEntry()
             relaunchApp()
             return .repairing
         }
@@ -531,10 +568,18 @@ final class PermissionCoordinator: ObservableObject {
             let repairResult = await repairSCKAccess()
             if repairResult == .authorized {
                 logger.info("silent_repair_success — no alert needed")
+                clearPendingCaptureResume()
                 _ = publishWorkingValidated(identity, clearPermissionRequest: false)
                 return .working
             }
-            logger.info("silent_repair_did_not_resolve — proceeding to alert")
+            logger.info("silent_repair_did_not_resolve — proceeding to auto-fix")
+            if canAttemptAutoRepairRelaunch() {
+                markAutoRepairRelaunchAttempted()
+                logger.info("auto_repair_relaunch — TCC reset + relaunch")
+                await performTCCResetAndRelaunch()
+                return .repairing
+            }
+            logger.info("auto_repair_relaunch on cooldown — falling through to alert")
             status = publishExplicitFailure(for: identity)
         }
 
@@ -543,6 +588,7 @@ final class PermissionCoordinator: ObservableObject {
 
         if isShowingAlert {
             logger.info("permission_alert_suppressed reason=inflight status=\(String(describing: status), privacy: .public)")
+            clearPendingCaptureResume()
             statusMessageSink(nonBlockingMessage(for: status))
             updateCooldownInModel(cooldownActive: true)
             return status
@@ -550,6 +596,7 @@ final class PermissionCoordinator: ObservableObject {
 
         if cooldownActive {
             logger.info("permission_alert_suppressed reason=cooldown status=\(String(describing: status), privacy: .public)")
+            clearPendingCaptureResume()
             statusMessageSink(nonBlockingMessage(for: status))
             updateCooldownInModel(cooldownActive: true)
             return status
@@ -564,6 +611,11 @@ final class PermissionCoordinator: ObservableObject {
         isShowingAlert = true
         await alertPresenter(alertState)
         isShowingAlert = false
+        if alertRequestedRelaunch() {
+            pendingCaptureResumeRequiresRelaunch = true
+        } else {
+            clearPendingCaptureResume()
+        }
         lastBlockingAlertAt = now
         updateCooldownInModel(cooldownActive: true)
         return status
@@ -574,6 +626,7 @@ final class PermissionCoordinator: ObservableObject {
     func performTCCResetAndRelaunch() async {
         await resetTCCEntry()
         _ = await repairSCKAccess()
+        pendingCaptureResumeRequiresRelaunch = true
         relaunchApp()
     }
 
@@ -761,6 +814,24 @@ private extension PermissionCoordinator {
         recentPermissionRequestSession = nil
     }
 
+    func pendingCaptureResumeMode() -> CaptureMode? {
+        guard let rawMode = defaults.string(forKey: Keys.pendingCaptureResumeMode) else {
+            return nil
+        }
+        return CaptureMode(rawValue: rawMode)
+    }
+
+    func canAttemptAutoRepairRelaunch() -> Bool {
+        guard let lastAt = defaults.object(forKey: Keys.lastAutoRepairRelaunchAt) as? Date else {
+            return true
+        }
+        return now().timeIntervalSince(lastAt) > autoRepairRelaunchCooldownSeconds
+    }
+
+    func markAutoRepairRelaunchAttempted() {
+        defaults.set(now(), forKey: Keys.lastAutoRepairRelaunchAt)
+    }
+
     func canAutoRelaunchAfterSettingsReturn(at timestamp: Date) -> Bool {
         guard hasFreshPermissionRequestSession(at: timestamp),
               let session = recentPermissionRequestSession else {
@@ -775,6 +846,7 @@ private extension PermissionCoordinator {
         }
         session.didAutoRelaunch = true
         recentPermissionRequestSession = session
+        pendingCaptureResumeRequiresRelaunch = true
     }
 
     func hasKnownWorkingMismatch(for identity: PermissionIdentity) -> Bool {

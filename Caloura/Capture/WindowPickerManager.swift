@@ -12,6 +12,7 @@ protocol WindowSharingPicking: AnyObject {
     var defaultConfiguration: SCContentSharingPickerConfiguration { get set }
 
     func add(_ observer: any SCContentSharingPickerObserver)
+    func remove(_ observer: any SCContentSharingPickerObserver)
     func present(using style: SCShareableContentStyle)
 }
 
@@ -20,8 +21,8 @@ protocol WindowSharingPicking: AnyObject {
 /// custom overlays or z-order manipulation.
 @MainActor
 final class WindowPickerManager: NSObject {
-    enum Result: @unchecked Sendable {
-        case selected(SCContentFilter)
+    enum Result: Sendable {
+        case selected
         case cancelled
         case failedToStart
     }
@@ -33,6 +34,8 @@ final class WindowPickerManager: NSObject {
     private var continuation: CheckedContinuation<Result, Never>?
     private var timeoutTask: Task<Void, Never>?
     private var presentationTask: Task<Void, Never>?
+    private var pendingFilter: SCContentFilter?
+    private var sessionObserver: SessionObserver?
     private var pickSessionID: UInt = 0
     private let picker: any WindowSharingPicking
     private let timeout: Duration
@@ -49,7 +52,6 @@ final class WindowPickerManager: NSObject {
         self.timeout = timeout
         self.schedulePresentation = schedulePresentation
         super.init()
-        picker.add(self)
         // Configure picker once at init for single window selection
         var config = SCContentSharingPickerConfiguration()
         config.allowedPickerModes = .singleWindow
@@ -65,16 +67,20 @@ final class WindowPickerManager: NSObject {
         onPresented: (() -> Void)? = nil
     ) async -> Result {
         if continuation != nil {
-            logger.warning("pickWindow called while previous pick is pending — cancelling previous")
-            resumeAndClear(returning: .cancelled)
+            logger.warning("pickWindow called while previous pick is pending — rejecting new request")
+            return .failedToStart
         }
 
         pickSessionID &+= 1
         let sessionID = pickSessionID
+        pendingFilter = nil
         picker.isActive = true
 
         return await withCheckedContinuation { newContinuation in
             self.continuation = newContinuation
+            let observer = SessionObserver(sessionID: sessionID, manager: self)
+            self.sessionObserver = observer
+            self.picker.add(observer)
             self.presentationTask?.cancel()
             let schedulePresentation = self.schedulePresentation
             self.presentationTask = Task { @MainActor [weak self] in
@@ -93,48 +99,138 @@ final class WindowPickerManager: NSObject {
                 guard let self else { return }
                 if self.continuation != nil {
                     logger.warning("Window picker timed out — cancelling pending picker session")
-                    self.resumeAndClear(returning: .cancelled)
+                    self.resumeAndClear(returning: .cancelled, sessionID: sessionID)
                 }
             }
         }
     }
 
+    func captureSelectedWindow(
+        using captureManager: any ScreenCaptureManaging
+    ) async throws -> CGImage {
+        guard let filter = pendingFilter else {
+            throw CaptureError.windowUnavailable(
+                reason: "Window selection expired before capture started"
+            )
+        }
+        pendingFilter = nil
+        return try await captureManager.captureWindow(filter: filter)
+    }
+
     // MARK: - Private
 
-    /// Safely resume the stored continuation exactly once, cancel the timeout, and nil both out.
-    private func resumeAndClear(returning result: Result) {
+    /// Safely resume the stored continuation exactly once for the expected session.
+    private func resumeAndClear(returning result: Result, sessionID: UInt) {
+        guard pickSessionID == sessionID else {
+            logger.debug(
+                "Ignoring stale picker completion for session \(sessionID, privacy: .public)"
+            )
+            return
+        }
         presentationTask?.cancel()
         presentationTask = nil
         timeoutTask?.cancel()
         timeoutTask = nil
+        if let sessionObserver {
+            picker.remove(sessionObserver)
+            self.sessionObserver = nil
+        }
         if let cont = continuation {
             continuation = nil
             cont.resume(returning: result)
         }
+        if result != .selected {
+            pendingFilter = nil
+        }
         picker.isActive = false
     }
 
+    fileprivate func handleSelection(
+        filter: SCContentFilter,
+        sessionID: UInt
+    ) {
+        guard continuation != nil else {
+            logger.debug("Ignoring picker selection with no active continuation")
+            return
+        }
+        guard pickSessionID == sessionID else {
+            logger.debug(
+                "Ignoring stale picker selection for session \(sessionID, privacy: .public)"
+            )
+            return
+        }
+        pendingFilter = filter
+        resumeAndClear(returning: .selected, sessionID: sessionID)
+    }
+
+    fileprivate func handleCancellation(sessionID: UInt) {
+        guard pickSessionID == sessionID else {
+            logger.debug(
+                "Ignoring stale picker cancellation for session \(sessionID, privacy: .public)"
+            )
+            return
+        }
+        resumeAndClear(returning: .cancelled, sessionID: sessionID)
+    }
+
+    fileprivate func handleStartFailure(
+        sessionID: UInt,
+        error: Error
+    ) {
+        guard pickSessionID == sessionID else {
+            logger.debug(
+                "Ignoring stale picker start failure for session \(sessionID, privacy: .public)"
+            )
+            return
+        }
+        let desc = String(describing: error)
+        logger.error("Window picker failed to start: \(desc, privacy: .public)")
+        resumeAndClear(returning: .failedToStart, sessionID: sessionID)
+    }
 }
 
-extension WindowPickerManager: @preconcurrency SCContentSharingPickerObserver {
-    func contentSharingPicker(
+private struct SelectedFilterBox: @unchecked Sendable {
+    let filter: SCContentFilter
+}
+
+private final class SessionObserver: NSObject, SCContentSharingPickerObserver {
+    let sessionID: UInt
+    weak var manager: WindowPickerManager?
+
+    init(sessionID: UInt, manager: WindowPickerManager) {
+        self.sessionID = sessionID
+        self.manager = manager
+    }
+
+    nonisolated func contentSharingPicker(
         _ picker: SCContentSharingPicker,
         didUpdateWith filter: SCContentFilter,
         for stream: SCStream?
     ) {
-        resumeAndClear(returning: .selected(filter))
+        let filterBox = SelectedFilterBox(filter: filter)
+        let manager = manager
+        let sessionID = sessionID
+        Task { @MainActor in
+            manager?.handleSelection(filter: filterBox.filter, sessionID: sessionID)
+        }
     }
 
-    func contentSharingPicker(
+    nonisolated func contentSharingPicker(
         _ picker: SCContentSharingPicker,
         didCancelFor stream: SCStream?
     ) {
-        resumeAndClear(returning: .cancelled)
+        let manager = manager
+        let sessionID = sessionID
+        Task { @MainActor in
+            manager?.handleCancellation(sessionID: sessionID)
+        }
     }
 
-    func contentSharingPickerStartDidFailWithError(_ error: any Error) {
-        let desc = String(describing: error)
-        logger.error("Window picker failed to start: \(desc, privacy: .public)")
-        resumeAndClear(returning: .failedToStart)
+    nonisolated func contentSharingPickerStartDidFailWithError(_ error: any Error) {
+        let manager = manager
+        let sessionID = sessionID
+        Task { @MainActor in
+            manager?.handleStartFailure(sessionID: sessionID, error: error)
+        }
     }
 }

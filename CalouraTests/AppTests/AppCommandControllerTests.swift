@@ -12,7 +12,6 @@ final class AppCommandControllerTests: XCTestCase {
         controller.handle(.captureWindow)
         controller.handle(.captureFullscreen)
         controller.handle(.captureRepeat)
-        controller.handle(.captureDelayed(mode: .scroll, seconds: 3))
         controller.handle(.cancelDelayedCapture)
 
         XCTAssertEqual(
@@ -22,21 +21,8 @@ final class AppCommandControllerTests: XCTestCase {
                 .captureWindow,
                 .captureFullscreen,
                 .captureRepeat,
-                .captureDelayed(mode: .scroll, seconds: 3),
                 .cancelDelayedCapture
             ]
-        )
-    }
-
-    func testHandle_captureScrollShowsTipBeforeRouting() {
-        var recorded: [RecordedRoute] = []
-        let controller = makeController { recorded.append($0) }
-
-        controller.handle(.captureScroll)
-
-        XCTAssertEqual(
-            recorded,
-            [.tip("scroll"), .captureScroll]
         )
     }
 
@@ -78,7 +64,6 @@ final class AppCommandControllerTests: XCTestCase {
                     record(.captureDelayed(mode: mode, seconds: seconds))
                 },
                 cancelDelayedCapture: { record(.cancelDelayedCapture) },
-                captureScroll: { record(.captureScroll) },
                 copyLastImage: { record(.copyLastImage) },
                 copyLastAsMarkdown: { record(.copyLastAsMarkdown) },
                 copyLastWithCitation: { record(.copyLastWithCitation) },
@@ -97,7 +82,6 @@ private enum RecordedRoute: Equatable {
     case captureRepeat
     case captureDelayed(mode: CaptureMode, seconds: Int)
     case cancelDelayedCapture
-    case captureScroll
     case copyLastImage
     case copyLastAsMarkdown
     case copyLastWithCitation

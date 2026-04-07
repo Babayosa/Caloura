@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import re
+import subprocess
 import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 SPARKLE_NAMESPACE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+RELEASE_BASE_URL = "https://caloura.app/releases/"
 
 
 def load_manifest(path: Path) -> dict:
@@ -20,6 +23,32 @@ def load_appcast(url: str | None, file_path: Path | None) -> bytes:
     if file_path:
         return file_path.read_bytes()
     raise ValueError("Either --url or --file is required")
+
+
+def find_sign_update() -> str:
+    project_root = Path(__file__).resolve().parent.parent
+    candidates = [
+        project_root / ".build/xcode/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update",
+        Path.home() / "Applications" / "Sparkle" / "bin" / "sign_update",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    from shutil import which
+
+    resolved = which("sign_update")
+    if resolved:
+        return resolved
+    raise SystemExit("sign_update not found; build the project or install Sparkle.")
+
+
+def sparkle_signature(artifact_path: Path) -> str:
+    sign_update = find_sign_update()
+    output = subprocess.check_output([sign_update, str(artifact_path)], text=True)
+    match = re.search(r'sparkle:edSignature="([^"]+)"', output)
+    if not match:
+        raise SystemExit("Could not extract Sparkle edSignature from sign_update output")
+    return match.group(1)
 
 
 def first_item(root: ET.Element) -> ET.Element:
@@ -51,6 +80,13 @@ def main() -> int:
     if enclosure is None:
         raise SystemExit("Appcast item missing <enclosure>")
 
+    artifact_path_value = manifest.get("sparkle_artifact_path", "")
+    if not artifact_path_value:
+        raise SystemExit("Manifest missing sparkle_artifact_path")
+    artifact_path = Path(artifact_path_value)
+    if not artifact_path.is_file():
+        raise SystemExit(f"Sparkle artifact not found at {artifact_path}")
+
     short_version = enclosure.attrib.get(
         f"{{{SPARKLE_NAMESPACE}}}shortVersionString", ""
     )
@@ -60,12 +96,22 @@ def main() -> int:
     minimum_system_version = enclosure.attrib.get(
         f"{{{SPARKLE_NAMESPACE}}}minimumSystemVersion", ""
     )
+    enclosure_url = enclosure.attrib.get("url", "")
+    enclosure_length = enclosure.attrib.get("length", "")
+    enclosure_signature = enclosure.attrib.get(f"{{{SPARKLE_NAMESPACE}}}edSignature", "")
 
     expected_short_version = manifest.get("marketing_version", "")
     expected_build_number = str(manifest.get("build_number", ""))
     expected_minimum_system_version = manifest.get("minimum_system_version", "")
+    expected_url = f"{RELEASE_BASE_URL}{artifact_path.name}"
+    expected_length = str(artifact_path.stat().st_size)
+    expected_signature = sparkle_signature(artifact_path)
 
     mismatches = []
+    if enclosure_url != expected_url:
+        mismatches.append(
+            f"enclosure url mismatch (manifest={expected_url} appcast={enclosure_url})"
+        )
     if short_version != expected_short_version:
         mismatches.append(
             f"shortVersionString mismatch (manifest={expected_short_version} appcast={short_version})"
@@ -78,6 +124,15 @@ def main() -> int:
         mismatches.append(
             "minimumSystemVersion mismatch "
             f"(manifest={expected_minimum_system_version} appcast={minimum_system_version})"
+        )
+    if enclosure_length != expected_length:
+        mismatches.append(
+            f"length mismatch (manifest={expected_length} appcast={enclosure_length})"
+        )
+    if enclosure_signature != expected_signature:
+        mismatches.append(
+            "edSignature mismatch "
+            f"(manifest={expected_signature} appcast={enclosure_signature})"
         )
 
     if mismatches:

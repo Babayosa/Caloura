@@ -114,7 +114,6 @@ final class QuickAccessOverlay {
 struct QuickAccessPresentationModel {
     let primaryActions: [CaptureQuickAction]
     let overflowActions: [CaptureQuickAction]
-    let width: CGFloat
     let showsPendingBadge: Bool
     let showsPIIBadge: Bool
 
@@ -124,19 +123,15 @@ struct QuickAccessPresentationModel {
         piiResult: PIIDetectionResult?
     ) {
         let saveOrPin: CaptureQuickAction = screenshot.filePath == nil ? .save : .pin
+        let alternateSaveOrPin: CaptureQuickAction = saveOrPin == .save ? .pin : .save
         let hasPII = piiResult?.screenshotID == screenshot.id
             && !(piiResult?.detections.isEmpty ?? true)
-        let redactOrBeautify: CaptureQuickAction = hasPII ? .redact : .beautify
-
-        primaryActions = [.copy, saveOrPin, .annotate, redactOrBeautify]
-        overflowActions = [
-            saveOrPin == .save ? .pin : .save,
-            redactOrBeautify == .redact ? .beautify : .redact,
-            .markdown,
-            .citation,
-            .dismiss
-        ]
-        width = 304
+        primaryActions = hasPII
+            ? [.copy, saveOrPin, .annotate, .redact]
+            : [.copy, saveOrPin, .annotate]
+        overflowActions = hasPII
+            ? [alternateSaveOrPin, .beautify, .markdown, .citation, .dismiss]
+            : [alternateSaveOrPin, .beautify, .redact, .markdown, .citation, .dismiss]
         showsPendingBadge = previewPhase == .enrichmentPending
         showsPIIBadge = hasPII
     }
@@ -198,7 +193,7 @@ struct QuickAccessOverlayView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .frame(width: presentation.width, height: 52)
+        .frame(height: 52)
         .accessibilityIdentifier("quick-access-overlay")
         .onHover { hovering in
             onHoverChanged?(hovering)

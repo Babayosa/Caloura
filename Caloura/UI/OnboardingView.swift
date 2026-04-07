@@ -5,7 +5,7 @@ let onboardingLogger = Logger(subsystem: "com.caloura.app", category: "Onboardin
 
 struct OnboardingView: View {
     @ObservedObject var settings: AppSettings
-    @ObservedObject var permissionCoordinator = PermissionCoordinator.shared
+    var permissionCoordinator = PermissionCoordinator.shared
     @State var flow: OnboardingFlowModel
     @State var installState: AppInstallState
     @State var isCheckingPermission = false
@@ -183,9 +183,10 @@ struct OnboardingView: View {
     func startFirstCapture() {
         onboardingLogger.info("funnel_event=first_capture_requested")
         shouldResumePendingCapture = true
-        permissionCoordinator.armPendingCaptureResume()
+        permissionCoordinator.armPendingCaptureResume(mode: .area)
         Task { @MainActor in
             let passiveStatus = await permissionCoordinator.refreshPassiveStatus()
+            syncPendingCaptureResume(for: passiveStatus)
             switch passiveStatus {
             case .denied:
                 requestScreenRecording()
@@ -203,7 +204,7 @@ struct OnboardingView: View {
         guard !isCheckingPermission else { return }
         onboardingLogger.info("funnel_event=screen_recording_prompt_requested")
         if shouldResumePendingCapture {
-            permissionCoordinator.armPendingCaptureResume()
+            permissionCoordinator.armPendingCaptureResume(mode: .area)
         }
         _ = permissionCoordinator.requestPermissionFromSystem()
         transition(to: .waitingForSettingsReturn)
@@ -215,6 +216,7 @@ struct OnboardingView: View {
         Task { @MainActor in
             defer { isCheckingPermission = false }
             let status = await permissionCoordinator.runUserInitiatedValidation()
+            syncPendingCaptureResume(for: status)
             handlePermissionStatus(status, launchCaptureOnSuccess: launchCaptureOnSuccess)
         }
     }
@@ -226,8 +228,14 @@ struct OnboardingView: View {
         Task { @MainActor in
             defer { isCheckingPermission = false }
             let status = await permissionCoordinator.revalidateAfterSettingsReturn()
+            syncPendingCaptureResume(for: status)
             handlePermissionStatus(status, launchCaptureOnSuccess: shouldResumePendingCapture)
         }
+    }
+
+    private func syncPendingCaptureResume(for status: ScreenRecordingState) {
+        guard shouldResumePendingCapture, status != .working else { return }
+        permissionCoordinator.clearPendingCaptureResumeIfNoRelaunchPending()
     }
 
     func handlePermissionStatus(
@@ -386,13 +394,8 @@ private struct ContextualTipContent {
             return ContextualTipContent(
                 symbol: "pencil.tip.crop.circle",
                 title: "Edit the capture you already have",
-                body: "Annotate, Beautify, and Redact are all available from Quick Access and the More menu after every shot."
-            )
-        case .scroll:
-            return ContextualTipContent(
-                symbol: "rectangle.and.hand.point.up.left.fill",
-                title: "Scroll Capture asks for Accessibility only now",
-                body: "Grant Accessibility when you need scrolling, not during first launch, so the rest of Caloura stays fast and simple."
+                body: "Annotate stays one click away, while Beautify and other "
+                    + "follow-up actions live in the More menu after every shot."
             )
         case .share:
             return ContextualTipContent(

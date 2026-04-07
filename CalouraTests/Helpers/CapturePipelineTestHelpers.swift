@@ -57,6 +57,7 @@ enum CapturePipelineTestHelpers {
         makeWindowCaptureSession: CapturePipeline.MakeWindowCaptureSessionFn? = nil,
         screenCountProvider: @escaping () -> Int = { NSScreen.screens.count },
         freezeScreensEnabled: Bool = true,
+        freezeSnapshotTimeoutSeconds: Double = 2.0,
         enrichmentCoordinator: CaptureEnrichmentCoordinator = CaptureEnrichmentCoordinator()
     ) -> CapturePipeline {
         let defaults = makeDefaults(testName)
@@ -94,7 +95,7 @@ enum CapturePipelineTestHelpers {
             copyToClipboard: copyToClipboard ?? { _, _ in },
             saveCaptureAction: saveCaptureAction,
             recognizeText: recognizeText ?? { _ in "" },
-            handlePermissionFailure: handlePermissionFailure ?? { @MainActor in },
+            handlePermissionFailure: handlePermissionFailure ?? { @MainActor _ in },
             showQuickAccess: showQuickAccess ?? { _ in },
             playSoundAction: playSoundAction ?? { },
             postNotification: postNotification ?? { _ in },
@@ -106,6 +107,7 @@ enum CapturePipelineTestHelpers {
             makeWindowCaptureSession: makeWindowCaptureSession,
             screenCountProvider: screenCountProvider,
             freezeScreensEnabled: freezeScreensEnabled,
+            freezeSnapshotTimeoutSeconds: freezeSnapshotTimeoutSeconds,
             enrichmentCoordinator: enrichmentCoordinator
         )
     }

@@ -1,4 +1,7 @@
 import AppKit
+import CoreImage
+import CoreMedia
+import CoreVideo
 import os.log
 import ScreenCaptureKit
 
@@ -100,17 +103,18 @@ extension ScreenCaptureManager {
         )
     }
 
-    private func makeFreezeSnapshotConfiguration(
+    func makeFreezeSnapshotConfiguration(
         for screen: NSScreen
     ) -> SCStreamConfiguration {
         let configuration = SCStreamConfiguration()
+        let scale = screen.backingScaleFactor
         configuration.width = max(
             1,
-            Int(screen.frame.width * screen.backingScaleFactor)
+            Int(ceil(screen.frame.width * scale))
         )
         configuration.height = max(
             1,
-            Int(screen.frame.height * screen.backingScaleFactor)
+            Int(ceil(screen.frame.height * scale))
         )
         configuration.showsCursor = false
         configuration.captureResolution = .best
@@ -138,9 +142,9 @@ extension ScreenCaptureManager {
         do {
             shareableContent = try await self.shareableContent()
         } catch {
-            handleSCKFailure(error)
-            if shouldTreatCaptureErrorAsPermissionDenied(error) {
-                throw CaptureError.noPermission
+            handleSCKFailure(error, context: .shareableContentLookup)
+            if let captureError = captureErrorForSCKFailure(error) {
+                throw captureError
             }
             throw error
         }
@@ -156,9 +160,9 @@ extension ScreenCaptureManager {
             do {
                 refreshedContent = try await self.shareableContent(forceRefresh: true)
             } catch {
-                handleSCKFailure(error)
-                if shouldTreatCaptureErrorAsPermissionDenied(error) {
-                    throw CaptureError.noPermission
+                handleSCKFailure(error, context: .shareableContentLookup)
+                if let captureError = captureErrorForSCKFailure(error) {
+                    throw captureError
                 }
                 throw error
             }
@@ -178,17 +182,20 @@ extension ScreenCaptureManager {
         )
 
         do {
-            return try await captureFilteredScreenshot(
+            return try await captureFrozenDisplaySnapshot(
                 contentFilter: filter,
                 configuration: configuration
             )
+        } catch is CancellationError {
+            logger.debug("Freeze snapshot cancelled before completion")
+            throw CaptureError.cancelled
         } catch {
             logger.warning(
                 "SCK captureFrozenDisplaySnapshot failed: \(error.localizedDescription)"
             )
-            handleSCKFailure(error)
-            if shouldTreatCaptureErrorAsPermissionDenied(error) {
-                throw CaptureError.noPermission
+            handleSCKFailure(error, context: .freezeSnapshot)
+            if let captureError = captureErrorForSCKFailure(error) {
+                throw captureError
             }
             throw error
         }
@@ -211,4 +218,257 @@ extension ScreenCaptureManager {
         try await sckCaptureImage(in: rect.integral)
     }
 
+}
+
+final class OneShotFrozenDisplayStreamCapture: NSObject,
+    FrozenDisplaySnapshotOperation,
+    SCStreamDelegate,
+    SCStreamOutput,
+    @unchecked Sendable {
+    private let contentFilter: SCContentFilter
+    private let configuration: SCStreamConfiguration
+    private let imageContext = CIContext()
+    private let sampleQueue = DispatchQueue(
+        label: "com.caloura.app.freeze-stream-capture"
+    )
+    private let stateLock = NSLock()
+
+    private var stream: SCStream?
+    private var continuation: CheckedContinuation<CGImage, Error>?
+    private var finished = false
+
+    init(
+        contentFilter: SCContentFilter,
+        configuration: SCStreamConfiguration
+    ) {
+        self.contentFilter = contentFilter
+        self.configuration = configuration
+    }
+
+    func captureImage() async throws -> CGImage {
+        try Task.checkCancellation()
+
+        return try await withCheckedThrowingContinuation { continuation in
+            stateLock.lock()
+            guard self.continuation == nil else {
+                stateLock.unlock()
+                continuation.resume(
+                    throwing: CaptureError.captureFailed(
+                        "Freeze snapshot operation was reused unexpectedly"
+                    )
+                )
+                return
+            }
+
+            self.continuation = continuation
+            stateLock.unlock()
+            self.startStream()
+        }
+    }
+
+    func cancel() async {
+        guard !isFinished else { return }
+        complete(with: .failure(CancellationError()))
+    }
+
+    nonisolated func stream(
+        _ stream: SCStream,
+        didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
+        of type: SCStreamOutputType
+    ) {
+        guard type == .screen else { return }
+        handleSampleBuffer(sampleBuffer)
+    }
+
+    nonisolated func stream(
+        _ stream: SCStream,
+        didStopWithError error: any Error
+    ) {
+        if isFinished {
+            logger.debug(
+                "Ignoring late freeze-stream stop callback: \(error.localizedDescription)"
+            )
+            return
+        }
+        complete(with: .failure(error))
+    }
+
+    private func startStream() {
+        do {
+            let stream = SCStream(
+                filter: contentFilter,
+                configuration: configuration,
+                delegate: self
+            )
+            try stream.addStreamOutput(
+                self,
+                type: .screen,
+                sampleHandlerQueue: sampleQueue
+            )
+            stateLock.lock()
+            guard !finished else {
+                stateLock.unlock()
+                tearDownUnstartedStream(stream)
+                return
+            }
+            self.stream = stream
+            let callbackQueue = sampleQueue
+            stream.startCapture { [weak self] error in
+                guard let operation = self else { return }
+                callbackQueue.async {
+                    if let error {
+                        operation.complete(with: .failure(error))
+                    } else if operation.isFinished {
+                        logger.debug(
+                            "Freeze-stream start completed after operation already finished"
+                        )
+                    }
+                }
+            }
+            stateLock.unlock()
+        } catch {
+            complete(with: .failure(error))
+        }
+    }
+
+    private func handleSampleBuffer(
+        _ sampleBuffer: CMSampleBuffer
+    ) {
+        guard !isFinished else {
+            logger.debug("Ignoring late freeze-stream sample after completion")
+            return
+        }
+
+        do {
+            guard isUsableFrame(sampleBuffer) else { return }
+            let image = try makeImage(from: sampleBuffer)
+            complete(with: .success(image))
+        } catch {
+            complete(with: .failure(error))
+        }
+    }
+
+    private func isUsableFrame(
+        _ sampleBuffer: CMSampleBuffer
+    ) -> Bool {
+        guard let attachments = (
+            CMSampleBufferGetSampleAttachmentsArray(
+                sampleBuffer,
+                createIfNecessary: false
+            ) as? [[SCStreamFrameInfo: Any]]
+        )?.first,
+        let statusRaw = attachments[SCStreamFrameInfo.status] as? Int,
+        let status = SCFrameStatus(rawValue: statusRaw) else {
+            return true
+        }
+
+        switch status {
+        case .blank, .stopped, .suspended:
+            return false
+        case .complete, .idle, .started:
+            return true
+        @unknown default:
+            return true
+        }
+    }
+
+    private func makeImage(
+        from sampleBuffer: CMSampleBuffer
+    ) throws -> CGImage {
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            throw CaptureError.noContent(
+                source: "Freeze snapshot stream sample"
+            )
+        }
+
+        let image = CIImage(cvPixelBuffer: pixelBuffer)
+        let extent = CGRect(
+            x: 0,
+            y: 0,
+            width: CVPixelBufferGetWidth(pixelBuffer),
+            height: CVPixelBufferGetHeight(pixelBuffer)
+        )
+
+        guard let cgImage = imageContext.createCGImage(image, from: extent) else {
+            throw CaptureError.noContent(
+                source: "Freeze snapshot stream image conversion"
+            )
+        }
+
+        return cgImage
+    }
+
+    private func complete(
+        with result: Result<CGImage, Error>
+    ) {
+        stateLock.lock()
+        guard !finished else {
+            stateLock.unlock()
+            return
+        }
+        finished = true
+        let continuation = self.continuation
+        self.continuation = nil
+        let stream = self.stream
+        self.stream = nil
+        stateLock.unlock()
+
+        let completion = FrozenDisplaySnapshotCompletion(
+            continuation: continuation,
+            result: result
+        )
+
+        guard let stream else {
+            completion.resume()
+            return
+        }
+
+        do {
+            try stream.removeStreamOutput(self, type: .screen)
+        } catch {
+            logger.debug(
+                "Freeze-stream output removal failed during teardown: \(error.localizedDescription)"
+            )
+        }
+
+        stream.stopCapture { error in
+            if let error {
+                logger.debug(
+                    "Freeze-stream stop failed during teardown: \(error.localizedDescription)"
+                )
+            }
+            completion.resume()
+        }
+    }
+
+    private func tearDownUnstartedStream(_ stream: SCStream) {
+        do {
+            try stream.removeStreamOutput(self, type: .screen)
+        } catch {
+            logger.debug(
+                "Freeze-stream output removal failed before start: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    private var isFinished: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return finished
+    }
+}
+
+private struct FrozenDisplaySnapshotCompletion: @unchecked Sendable {
+    let continuation: CheckedContinuation<CGImage, Error>?
+    let result: Result<CGImage, Error>
+
+    func resume() {
+        guard let continuation else { return }
+        switch result {
+        case .success(let image):
+            continuation.resume(returning: image)
+        case .failure(let error):
+            continuation.resume(throwing: error)
+        }
+    }
 }

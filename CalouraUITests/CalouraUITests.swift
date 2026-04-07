@@ -79,4 +79,14 @@ final class CalouraUITests: XCTestCase {
             app.debugDescription
         )
     }
+
+    @MainActor
+    func testPerformanceSeedButtonGeneratesStrictAuditSamples() {
+        app.buttons["Seed Perf Audit"].click()
+
+        XCTAssertTrue(
+            app.staticTexts["performance-seeded"].waitForExistence(timeout: 20),
+            app.debugDescription
+        )
+    }
 }

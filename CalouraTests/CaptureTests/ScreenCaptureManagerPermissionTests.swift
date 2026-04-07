@@ -5,23 +5,6 @@ import XCTest
 
 @MainActor
 final class ScreenCaptureManagerPermissionTests: XCTestCase {
-    nonisolated(unsafe) private var originalStatusMessage = ""
-
-    override nonisolated func setUp() {
-        super.setUp()
-        originalStatusMessage = MainActor.assumeIsolated {
-            AppState.shared.statusMessage
-        }
-    }
-
-    override nonisolated func tearDown() {
-        let restoredStatusMessage = originalStatusMessage
-        MainActor.assumeIsolated {
-            AppState.shared.statusMessage = restoredStatusMessage
-        }
-        super.tearDown()
-    }
-
     func testCheckPermission_usesInjectedPreflightResult() {
         let manager = ScreenCaptureManager(
             permissionDependencies: makeDependencies(preflight: { true })
@@ -36,6 +19,14 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
         )
 
         XCTAssertTrue(manager.requestPermission())
+    }
+
+    func testPassivePermissionGranted_delegatesToCheckPermission() {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(preflight: { false })
+        )
+
+        XCTAssertFalse(manager.passivePermissionGranted())
     }
 
     func testCheckSCKAccess_successClearsFailureState() async {
@@ -63,6 +54,51 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
 
         XCTAssertEqual(result, .userDeclined)
         XCTAssertTrue(manager.sckFailed)
+    }
+
+    func testCheckSCKAccess_transientFailureIncrementsCounterWithoutDisabling() async {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(
+                sckProbe: { .transientFailure }
+            )
+        )
+
+        let result = await manager.checkSCKAccess()
+
+        XCTAssertEqual(result, .transientFailure)
+        XCTAssertEqual(manager.sckFailureCount, 1)
+        XCTAssertFalse(manager.sckFailed)
+    }
+
+    func testCheckSCKAccess_transientFailureAtThresholdDisablesSCK() async {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(
+                sckProbe: { .transientFailure }
+            )
+        )
+        manager.sckFailureCount = manager.maxTransientFailures - 1
+
+        let result = await manager.checkSCKAccess()
+
+        XCTAssertEqual(result, .transientFailure)
+        XCTAssertEqual(manager.sckFailureCount, manager.maxTransientFailures)
+        XCTAssertTrue(manager.sckFailed)
+    }
+
+    func testCheckSCKAccess_authorizedResetsTransientFailureCount() async {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(
+                sckProbe: { .authorized }
+            )
+        )
+        manager.sckFailureCount = 2
+        manager.setSCKFailedForTesting(true)
+
+        let result = await manager.checkSCKAccess()
+
+        XCTAssertEqual(result, .authorized)
+        XCTAssertEqual(manager.sckFailureCount, 0)
+        XCTAssertFalse(manager.sckFailed)
     }
 
     func testPrimeSCKAccessIfPossible_failureDoesNotSetFailureState() async {
@@ -153,6 +189,24 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
         XCTAssertEqual(box.runRepairToolCalls.first?.0.lastPathComponent, "launchctl")
     }
 
+    func testRepairSCKAccess_repairToolFailureReturnsTransientFailure() async {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(
+                runRepairTool: { _, _ in
+                    throw NSError(
+                        domain: "tests",
+                        code: 99,
+                        userInfo: [NSLocalizedDescriptionKey: "repair failed"]
+                    )
+                }
+            )
+        )
+
+        let result = await manager.repairSCKAccess()
+
+        XCTAssertEqual(result, .transientFailure)
+    }
+
     func testResetTCCEntry_runsTCCUtility() async {
         let box = DependencyBox()
         let manager = ScreenCaptureManager(
@@ -163,6 +217,26 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
 
         XCTAssertEqual(box.runRepairToolCalls.count, 1)
         XCTAssertEqual(box.runRepairToolCalls.first?.0.lastPathComponent, "tccutil")
+    }
+
+    func testResetTCCEntry_failureDoesNotThrow() async {
+        let box = DependencyBox()
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(
+                box: box,
+                runRepairTool: { _, _ in
+                    throw NSError(
+                        domain: "tests",
+                        code: 12,
+                        userInfo: [NSLocalizedDescriptionKey: "tcc reset failed"]
+                    )
+                }
+            )
+        )
+
+        await manager.resetTCCEntry()
+
+        XCTAssertEqual(box.runRepairToolCalls.count, 0)
     }
 
     func testRelaunchApp_successTerminatesApplication() async {
@@ -182,6 +256,7 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
 
     func testRelaunchApp_failureUpdatesStatusMessage() async {
         let box = DependencyBox()
+        var capturedMessage = ""
         let manager = ScreenCaptureManager(
             permissionDependencies: makeDependencies(
                 box: box,
@@ -189,17 +264,17 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
                     domain: "tests",
                     code: 77,
                     userInfo: [NSLocalizedDescriptionKey: "boom"]
-                ))
+                )),
+                statusMessageSink: { capturedMessage = $0 }
             )
         )
-        AppState.shared.statusMessage = ""
 
         manager.relaunchApp()
         await pollUntil(timeout: 5.0) {
-            AppState.shared.statusMessage == "Restart failed: boom"
+            capturedMessage == "Restart failed: boom"
         }
 
-        XCTAssertEqual(AppState.shared.statusMessage, "Restart failed: boom")
+        XCTAssertEqual(capturedMessage, "Restart failed: boom")
     }
 
     func testShowPermissionAlert_neverGrantedOpensSettings() {
@@ -211,10 +286,40 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
             )
         )
 
-        manager.showPermissionAlert(for: .neverGranted)
+        _ = manager.showPermissionAlert(for: .neverGranted)
 
         XCTAssertEqual(box.openedURLs.count, 1)
         XCTAssertTrue(box.openedURLs[0].absoluteString.contains("Privacy_ScreenCapture"))
+    }
+
+    func testShowPermissionAlert_neverGrantedCancelDoesNothing() {
+        let box = DependencyBox()
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(
+                box: box,
+                alertAction: .cancel
+            )
+        )
+
+        _ = manager.showPermissionAlert(for: .neverGranted)
+
+        XCTAssertTrue(box.openedURLs.isEmpty)
+        XCTAssertEqual(box.terminateCount, 0)
+    }
+
+    func testShowPermissionAlert_neverGrantedRestartDoesNothing() {
+        let box = DependencyBox()
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(
+                box: box,
+                alertAction: .restartApp
+            )
+        )
+
+        _ = manager.showPermissionAlert(for: .neverGranted)
+
+        XCTAssertTrue(box.openedURLs.isEmpty)
+        XCTAssertEqual(box.terminateCount, 0)
     }
 
     func testShowPermissionAlert_grantedButFailingRestartRelaunchesAndTerminates() async {
@@ -230,7 +335,7 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
             expectation.fulfill()
         }
 
-        manager.showPermissionAlert(for: .grantedButFailing)
+        _ = manager.showPermissionAlert(for: .grantedButFailing)
 
         await fulfillment(of: [expectation], timeout: 1.0)
         XCTAssertTrue(box.runRepairToolCalls.isEmpty)
@@ -245,9 +350,24 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
             )
         )
 
-        manager.showPermissionAlert(for: .grantedButFailing)
+        _ = manager.showPermissionAlert(for: .grantedButFailing)
 
         XCTAssertEqual(box.openedURLs.count, 1)
+    }
+
+    func testShowPermissionAlert_grantedButFailingCancelDoesNothing() {
+        let box = DependencyBox()
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(
+                box: box,
+                alertAction: .cancel
+            )
+        )
+
+        _ = manager.showPermissionAlert(for: .grantedButFailing)
+
+        XCTAssertTrue(box.openedURLs.isEmpty)
+        XCTAssertEqual(box.terminateCount, 0)
     }
 
     // MARK: - classifySCKError
@@ -341,7 +461,7 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
         XCTAssertFalse(manager.shouldTreatCaptureErrorAsPermissionDenied(error))
     }
 
-    func testShouldTreatCaptureError_missingEntitlementsIsPermissionDenied() {
+    func testShouldTreatCaptureError_missingEntitlementsIsNotPermissionDenied() {
         let manager = ScreenCaptureManager(
             permissionDependencies: makeDependencies(preflight: { true }),
             cgPreflightAuthorityProvider: { false }
@@ -350,7 +470,24 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
             domain: SCStreamError.errorDomain,
             code: SCStreamError.Code.missingEntitlements.rawValue
         )
-        XCTAssertTrue(manager.shouldTreatCaptureErrorAsPermissionDenied(error))
+        XCTAssertFalse(manager.shouldTreatCaptureErrorAsPermissionDenied(error))
+    }
+
+    func testCaptureErrorForSCKFailure_missingEntitlementsReturnsConfigurationFailure() {
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makeDependencies(preflight: { true }),
+            cgPreflightAuthorityProvider: { false }
+        )
+        let error = NSError(
+            domain: SCStreamError.errorDomain,
+            code: SCStreamError.Code.missingEntitlements.rawValue
+        )
+
+        let captureError = manager.captureErrorForSCKFailure(error)
+
+        guard case .configurationFailed = captureError else {
+            return XCTFail("Expected configurationFailed, got \(String(describing: captureError))")
+        }
     }
 
     func testRunRepairTool_successfulCommandReturns() async throws {
@@ -384,13 +521,16 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
             .authorized
         },
         alertAction: ScreenCapturePermissionAlertAction = .cancel,
-        relaunchResult: Result<Void, Error> = .success(())
+        relaunchResult: Result<Void, Error> = .success(()),
+        runRepairTool: @escaping @Sendable (URL, [String]) async throws -> Void = { _, _ in },
+        statusMessageSink: (@MainActor @Sendable (String) -> Void)? = nil
     ) -> ScreenCapturePermissionDependencies {
         ScreenCapturePermissionDependencies(
             cgPreflight: preflight,
             cgRequest: request,
             sckAccessProbe: sckProbe,
             runRepairTool: { url, arguments in
+                try await runRepairTool(url, arguments)
                 box.runRepairToolCalls.append((url, arguments))
             },
             presentAlert: { _ in
@@ -405,7 +545,8 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
             terminateApplication: {
                 box.terminateCount += 1
                 box.onTerminate?()
-            }
+            },
+            statusMessageSink: statusMessageSink
         )
     }
 }

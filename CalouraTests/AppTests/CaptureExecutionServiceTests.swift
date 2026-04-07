@@ -5,6 +5,18 @@ import XCTest
 
 @MainActor
 final class CaptureExecutionServiceTests: XCTestCase {
+    private actor FlagBox {
+        private var value = false
+
+        func mark() {
+            value = true
+        }
+
+        func read() -> Bool {
+            value
+        }
+    }
+
     private struct Harness {
         let service: CaptureExecutionService
         let settings: AppSettings
@@ -41,18 +53,20 @@ final class CaptureExecutionServiceTests: XCTestCase {
     }
 
     func testPerformCapturePermissionErrorRoutesPermissionFailure() async {
-        var permissionFailureCalled = false
+        var resumedMode: CaptureMode?
 
         let harness = makeService(
             testName: #function,
-            handlePermissionFailure: { permissionFailureCalled = true }
+            handlePermissionFailure: { mode in
+                resumedMode = mode
+            }
         )
 
         await harness.service.performCapture(mode: CaptureMode.area) {
             throw CaptureError.noPermission
         }
 
-        XCTAssertTrue(permissionFailureCalled)
+        XCTAssertEqual(resumedMode, .area)
         XCTAssertFalse(harness.appState.isCapturing)
     }
 
@@ -105,6 +119,53 @@ final class CaptureExecutionServiceTests: XCTestCase {
         XCTAssertEqual(harness.appState.recentScreenshots.first?.ocrText, "recognized text")
     }
 
+    func testPerformCaptureDeferredSaveFailureDoesNotEnqueueEnrichmentOrHistory() async {
+        let defaults = CapturePipelineTestHelpers.makeDefaults(#function)
+        let settings = AppSettings(defaults: defaults)
+        let historyStoreURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("execution-test-\(#function)-\(UUID().uuidString).json")
+        let appState = AppState(defaults: defaults, historyStoreURL: historyStoreURL)
+        let recognizeTextCalled = FlagBox()
+
+        let harness = makeService(
+            testName: #function,
+            settings: settings,
+            appState: appState,
+            persistArtifact: { _, _ in
+                throw NSError(
+                    domain: "tests",
+                    code: 9,
+                    userInfo: [NSLocalizedDescriptionKey: "disk full"]
+                )
+            },
+            recognizeText: { _ in
+                await recognizeTextCalled.mark()
+                return "recognized text"
+            }
+        )
+        harness.settings.autoSaveToDisk = true
+
+        await harness.service.performCapture(mode: CaptureMode.area) {
+            TestImageFactory.makeTestImage(width: 101, height: 90)
+        }
+
+        await pollUntil(timeout: 2.0) {
+            harness.appState.statusMessage == "Save failed: disk full"
+                && !harness.appState.isCapturing
+        }
+
+        guard let screenshotID = harness.appState.lastScreenshot?.id else {
+            return XCTFail("Expected raw preview screenshot")
+        }
+        let didRecognizeText = await recognizeTextCalled.read()
+        XCTAssertFalse(didRecognizeText)
+        XCTAssertEqual(harness.appState.recentScreenshots.count, 0)
+        XCTAssertEqual(
+            harness.appState.previewPhase(for: screenshotID),
+            .rawPreviewReady
+        )
+    }
+
     private func makeService(
         testName: String,
         settings: AppSettings? = nil,
@@ -150,13 +211,10 @@ final class CaptureExecutionServiceTests: XCTestCase {
                 resolvedAppState.lastScreenshot = processed
                 resolvedAppState.syncProcessedScreenshot(processed)
             },
-            handlePermissionFailure: handlePermissionFailure ?? { },
+            handlePermissionFailure: handlePermissionFailure ?? { _ in },
             showQuickAccess: showQuickAccess ?? { _ in },
             postNotification: postNotification ?? { _ in },
-            elapsedMilliseconds: { start in
-                (CFAbsoluteTimeGetCurrent() - start) * 1000.0
-            },
-            recordMetric: { _, _ in }
+            metricsRecorder: CaptureMetricsRecorder()
         )
         return Harness(
             service: service,

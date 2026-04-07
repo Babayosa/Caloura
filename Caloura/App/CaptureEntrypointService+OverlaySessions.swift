@@ -47,15 +47,15 @@ extension CaptureEntrypointService {
 
         if let frozenImage {
             await performFrozenAreaCapture(
-                rect,
-                screen,
-                frozenImage,
-                performanceSession
+                rect: rect,
+                screen: screen,
+                frozenImage: frozenImage,
+                performanceSession: performanceSession
             )
             return
         }
 
-        await performAreaCapture(rect, screen, performanceSession)
+        await performAreaCapture(rect: rect, screen: screen, performanceSession: performanceSession)
     }
 
     func handleAreaCaptureCancellation(
@@ -71,11 +71,11 @@ extension CaptureEntrypointService {
 
     func recordAreaCaptureFirstMouseDown(entryStart: CFAbsoluteTime) {
         guard sessionState.recordFirstMouseDownIfNeeded() else { return }
-        let duration = elapsedMilliseconds(entryStart)
+        let duration = metricsRecorder.elapsedMilliseconds(since: entryStart)
         captureEntryLogger.info(
             "Capture entry: first mouseDown at \(duration, privacy: .public) ms"
         )
-        recordMetric(PerformanceMetricStage.firstMouseDown, duration)
+        metricsRecorder.recordMetric(stage: .firstMouseDown, milliseconds: duration)
     }
 
     func presentAreaCaptureCoordinator(
@@ -85,14 +85,15 @@ extension CaptureEntrypointService {
         let windows = sessionState.overlayWindowPool.acquire(
             cursorController: sessionState.cursorController
         )
-        coordinator.present(windows: windows, suppressDimming: freezeScreensEnabled)
+        let shouldSuppressDimming = freezeScreensEnabled && !settings.lowProfileCaptureEnabled
+        coordinator.present(windows: windows, suppressDimming: shouldSuppressDimming)
         sessionState.overlayWindows = coordinator.overlayWindows
 
-        let overlayVisibleDuration = elapsedMilliseconds(entryStart)
+        let overlayVisibleDuration = metricsRecorder.elapsedMilliseconds(since: entryStart)
         captureEntryLogger.info(
             "Capture entry: overlay visible at \(overlayVisibleDuration, privacy: .public) ms"
         )
-        recordMetric(PerformanceMetricStage.overlayVisible, overlayVisibleDuration)
+        metricsRecorder.recordMetric(stage: .overlayVisible, milliseconds: overlayVisibleDuration)
     }
 
     func loadAreaCaptureFrozenImages(
@@ -102,13 +103,10 @@ extension CaptureEntrypointService {
     ) {
         Task { @MainActor [weak self, weak coordinator] in
             guard let self else { return }
-            let frozenImages = await self.freezeScreens(entryStart)
+            let frozenImages = await self.freezeService.freezeScreens(entryStart: entryStart)
 
             guard self.sessionState.isCurrentTrackedSession(sessionID),
-                  self.isSameObject(
-                    self.sessionState.areaCaptureSession as AnyObject?,
-                    coordinator as AnyObject?
-                  ) else {
+                  self.sessionState.areaCaptureSession as AnyObject? === coordinator as AnyObject? else {
                 return
             }
 
@@ -126,9 +124,9 @@ extension CaptureEntrypointService {
                 self.sessionState.screenOverlays = []
                 self.sessionState.fullscreenCaptureSession = nil
                 await self.performFullscreenCapture(
-                    selectedScreen,
-                    true,
-                    performanceSession
+                    screen: selectedScreen,
+                    dismissDelay: true,
+                    performanceSession: performanceSession
                 )
             },
             { [weak self] in

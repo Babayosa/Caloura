@@ -62,6 +62,16 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: Local validations can all pass while the real release still fails on export, signing identity drift, missing notarization credentials, or packaging-only warnings.
 - **Example**: `scripts/release_ready.sh` now defaults to the full `scripts/release.sh` path, with `--guard-only` as an explicit escape hatch for local guard runs.
 
+### Release build numbers should come from release metadata, not timestamps
+- **Rule**: Release archive overrides should use deterministic release metadata for the build number so equivalent release inputs produce equivalent artifacts.
+- **Context**: Timestamped build numbers make manifests, appcast validation, and post-release comparisons drift for reasons that have nothing to do with the release contents.
+- **Example**: `scripts/release.sh` now uses the requested release version for `CURRENT_PROJECT_VERSION` instead of `date +%Y%m%d%H%M%S`.
+
+### Live appcast validation belongs in publish, not pre-release gating
+- **Rule**: Keep local appcast/manifest validation in pre-release checks, but validate the live feed only after the publish step updates the site repo.
+- **Context**: Pre-release gates should not depend on GitHub Pages propagation or a feed that has not been published yet; those checks belong to the publish path where the live artifact actually exists.
+- **Example**: `scripts/release_ready.sh` now stops after local packaging checks, while `scripts/publish.sh` retries live `appcast.xml` validation after pushing the site repo.
+
 ### XCTest lifecycle overrides should stay nonisolated
 - **Rule**: Keep `XCTestCase` lifecycle overrides nonisolated and isolate only the work inside them.
 - **Context**: Annotating `setUp` / `tearDown` overrides with `@MainActor` triggers Swift 6 override-isolation warnings even when the tested objects are main-actor bound.
@@ -86,6 +96,16 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Rule**: Before lowering a SwiftLint error threshold, identify the existing code that would newly cross the hard-fail line and fix or rule it out first.
 - **Context**: Task 13 lowered `line_length.error` from 300 to 200. The repo only had one source line above 200, so the safe change was to rewrite that call site instead of discovering the breakage through a failed validation loop.
 - **Example**: `CapturePerformanceRecorder.swift` now builds its summary log through a prebuilt string, which kept both `swiftlint` and the Swift 6 builds green after the stricter cap was enabled.
+
+### Coverage gates close fastest through named seams, not anonymous defaults
+- **Rule**: If a release coverage gate misses a callback-heavy private path, extract named injectable seams instead of relying on anonymous default-argument closures or deeply private helpers.
+- **Context**: The permission coverage gate kept missing `captureMinimalScreenshot(...)` and the default minimal-probe closures because the only live path was buried behind private callback glue and anonymous defaults that were hard to target directly in tests.
+- **Example**: `ScreenCaptureManager+Permission.swift` now exposes `mainDisplayBounds`, `systemMinimalScreenshotCapture`, `defaultMinimalScreenshotProbe`, and `captureMinimalScreenshot(...)` as named static seams, and the release guard’s coverage gate now passes.
+
+### Pending capture replay must survive only real relaunch paths
+- **Rule**: Keep pending capture replay armed only when the permission flow actually requests a relaunch; clear it on silent repair, cooldown suppression, or non-relaunch alert actions.
+- **Context**: Arming replay too early made the exact capture mode leak into later unrelated launches, which could auto-dispatch a stale capture long after the original permission failure was resolved or abandoned.
+- **Example**: `PermissionCoordinator.handleCapturePermissionFailure()` now clears pending resume unless the alert path actually requested restart, while onboarding and auto-relaunch flows still preserve the intended mode when a real relaunch occurs.
 
 ## Capture / Scroll
 
@@ -112,6 +132,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Rule**: If a serial-queue helper can be called both inside and outside the owning queue, guard it with queue-specific re-entry detection instead of blindly calling `dispatch_sync`.
 - **Context**: Moving unsafe globals behind a serial queue fixes races, but nested helper access from within that queue can crash the process with a libdispatch self-deadlock trap.
 - **Example**: `HistoryCrypto` now uses `keyQueueSync(...)` with a `DispatchSpecificKey` so `getOrCreateKey()` can call override helpers while already executing on `keyQueue` without triggering the SwiftPM `signal code 5` crash.
+
+### One-shot stream startup has to be ordered with cancellation
+- **Rule**: For a one-shot `SCStream` capture, store the stream and invoke `startCapture` under the same synchronization boundary that cancellation uses, or a timeout can still start a live stream after the operation is already finished.
+- **Context**: A continuation-only timeout is not enough if cancellation can win between “continuation stored” and “stream started,” because the underlying stream may still come alive and burn resources after the caller already failed.
+- **Example**: `OneShotFrozenDisplayStreamCapture.startStream()` now tears down pre-start cancellations before launch, registers the stream, and calls `startCapture` before releasing its lock so timeout/cancel cannot sneak in a live stream afterward.
 
 ## Access Control
 
@@ -211,6 +236,16 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: DMG install surfaces are Finder UI, not in-app onboarding. Reusing product artwork there reads as improvised and undermines the install presentation.
 - **Example**: `scripts/release.sh` now requires `scripts/assets/dmg-neutral-background.png` and fails fast if the neutral DMG background asset is missing.
 
+### Public download QA should preserve quarantine by default
+- **Rule**: Public-download validation should keep quarantine intact unless the operator explicitly opts into stripping it for a local-only install.
+- **Context**: Gatekeeper behavior is part of the packaged-app contract. Removing quarantine implicitly makes a successful launch tell you less about the real download path.
+- **Example**: `scripts/public_download_qa.sh` now keeps quarantine by default and only removes it when `STRIP_QUARANTINE=1` is set.
+
+### Public download QA must verify a fresh app launch
+- **Rule**: Release QA for a downloaded app must fail if it only observes an already-running process; kill or reject pre-existing app instances before launch and assert that a fresh process stays alive afterward.
+- **Context**: A simple `pgrep` check can falsely pass when a developer copy of the app was already running before QA started, which makes the launch validation meaningless for production downloads.
+- **Example**: `scripts/public_download_qa.sh` now stops any existing `Caloura` process before `open -a`, captures the newly launched PIDs, and fails if no fresh app process remains running.
+
 ### Permission diagnostics should separate installed-app logs from XCTest hosts
 - **Rule**: Operational Screen Recording diagnostics must report installed-app logs separately from `xctest` logs so failure-path tests do not look like live permission regressions.
 - **Context**: `scripts/permission_diagnose.sh` originally tailed all matching subsystem logs together, which made a healthy installed app appear denied immediately after permission tests ran.
@@ -225,6 +260,26 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Rule**: Present the system window picker only after yielding one main-actor turn, and generation-guard the scheduled presentation so a cancelled pick session cannot still surface stale UI.
 - **Context**: Immediate same-turn presentation left a small race where back-to-back `pickWindow()` requests could cancel the older session but still allow its picker presentation to reach AppKit, which is exactly the kind of edge case that shows up as transaction noise under severe audit conditions.
 - **Example**: `WindowPickerManager` now schedules presentation through an injected `schedulePresentation` closure, cancels any pending presentation task in `resumeAndClear(...)`, and ignores scheduled presents whose `pickSessionID` is no longer current.
+
+### Window picker selections should stay inside one main-actor owner
+- **Rule**: Do not pass `SCContentFilter` back out through picker results. Keep the selected filter inside the main-actor picker owner and generation-guard every observer callback before resuming.
+- **Context**: Guarding presentation alone is not enough. A stale observer can still deliver an old selected window into a newer request if selection, cancel, and failure callbacks are not all session-checked at the same ownership boundary.
+- **Example**: `WindowPickerManager` now resumes `pickWindow()` with `.selected` only, stores the filter in `pendingFilter`, and ignores late `didUpdateWith`, cancel, and failure callbacks whose `sessionID` no longer matches `pickSessionID`.
+
+### Window capture geometry must be validated before pixel conversion
+- **Rule**: Validate window `contentRect` and `pointPixelScale` for finite, positive, in-range values before any `Int(...)` conversion or `SCStreamConfiguration` build.
+- **Context**: Stale ScreenCaptureKit window selections can surface zero, non-finite, or otherwise invalid geometry. Treating that as ordinary capture input turns a recoverable unavailable-window state into a crash surface.
+- **Example**: `ScreenCaptureManager.makeWindowCaptureConfiguration(...)` now rejects invalid dimensions with `CaptureError.windowUnavailable(...)` and only then routes the request through `captureFilteredScreenshot(...)`.
+
+### Deferred save failure must stop enrichment side effects
+- **Rule**: Treat deferred save as a transactional gate. If persistence fails, keep the raw preview visible but do not enqueue enrichment, history sync, or other durability-side effects.
+- **Context**: Running enrichment after a failed save makes the UI behave as if the capture was durable even though the artifact never reached disk, which creates inconsistent post-capture state across modes.
+- **Example**: `CaptureExecutionService.scheduleDeferredSaveAndEnrichment(...)` now only starts enrichment on `.saved` and restores the preview phase to `.rawPreviewReady` on `.failed`.
+
+### Missing entitlements are configuration failures, not permission denials
+- **Rule**: Surface ScreenCaptureKit missing-entitlement failures as configuration/build errors and keep them out of TCC repair and Settings guidance.
+- **Context**: A binary without the right entitlement cannot be fixed by the user in System Settings. Misclassifying that state as permission denial sends the app into a fake repair loop and hides the real release/build defect.
+- **Example**: `ScreenCaptureManager.captureErrorForSCKFailure(...)` now maps `.missingEntitlements` to `CaptureError.configurationFailed(...)`, while only actual denial cases flow into permission-repair handling.
 
 ## Persistence / Data Integrity
 
@@ -254,6 +309,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Rule**: When a perf gate reads unified logs, run it only after the capture workload exits and the expected events are visible in `log show`.
 - **Context**: A strict perf audit can transiently report missing samples if it races the logger and runs before the latest Xcode-host capture metrics have landed in the unified log store.
 - **Example**: Task 20's first strict perf pass reported missing window-picker data, but rerunning after the `CaptureSystemTests` slice finished and the `picker_visible_*` events appeared in `log show` produced a clean pass.
+
+### Strict perf audits need samples from the real app process
+- **Rule**: If release perf gates read unified logs, seed the required samples from the actual app or UI-test host process, not only from in-memory test recorders.
+- **Context**: The strict audit only sees what the unified logging subsystem received from the launched app. Synthetic recorder state inside a test harness can look correct locally while still leaving the release perf gate with missing data.
+- **Example**: `UITestHostWindowController.seedPerformanceAudit()` now emits the required preview and picker samples through the real app process, and `CalouraUITests.testPerformanceSeedButtonGeneratesStrictAuditSamples()` drives that path before the strict audit runs.
 
 ### Debounced UI search still blocks if the actual work never leaves the main actor
 - **Rule**: If a UI path uses a debounce task, move the expensive search or scoring work onto a utility task instead of assuming the delay alone protects responsiveness.
@@ -318,3 +378,8 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Rule**: When splitting a large subsystem, move its shared model types, errors, and protocols into one declarations-only file before touching behavior extensions.
 - **Context**: Keeping AX handles, protocols, and frame/viewport models in separate tiny files left `ScrollCaptureEngine.swift` looking smaller, but the subsystem contract was still fragmented across multiple entry points.
 - **Example**: `ScrollCaptureTypes.swift` now owns the shared scroll-capture enums, frames, viewport types, AX wrappers, error type, and protocols, while `ScrollCaptureEngine.swift` is reduced to engine-specific orchestration.
+
+### Audit-driven test growth still has to respect hard fixture limits
+- **Rule**: When adding targeted regression coverage to an already-large XCTest fixture, split the new tests into companion fixtures before you trip the repo’s hard `type_body_length` limit.
+- **Context**: The permission coverage fix was logically correct, but piling the new probe tests into `ScreenCaptureManagerPermissionTests` caused `swiftlint lint --quiet` to fail on the hard fixture-size threshold.
+- **Example**: The probe-specific tests moved into `ScreenCaptureManagerPermissionProbeTests.swift`, which kept the extra coverage while restoring the lint pass.

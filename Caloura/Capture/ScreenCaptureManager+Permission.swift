@@ -8,6 +8,12 @@ private let logger = Logger(
 )
 
 extension ScreenCaptureManager {
+    typealias MinimalScreenshotProbe = @Sendable (CGRect) async throws -> Void
+    typealias DisplayBoundsProvider = @Sendable () -> CGRect
+    typealias MinimalScreenshotCapture = @Sendable (
+        CGRect,
+        @escaping @Sendable (CGImage?, Error?) -> Void
+    ) -> Void
 
     // MARK: - Permission
 
@@ -105,7 +111,7 @@ extension ScreenCaptureManager {
             } catch {
                 let description = error.localizedDescription
                 logger.warning("Relaunch failed: \(description, privacy: .public)")
-                AppState.shared.statusMessage = "Restart failed: \(description)"
+                permissionDependencies.statusMessageSink("Restart failed: \(description)")
             }
         }
     }
@@ -113,24 +119,27 @@ extension ScreenCaptureManager {
     /// Show a permission guidance alert for a specific diagnosed state.
     func showPermissionAlert(
         for state: PermissionState
-    ) {
+    ) -> ScreenCapturePermissionAlertAction {
 
         let settingsURLString = "x-apple.systempreferences:"
             + "com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture"
         guard let settingsURL = URL(string: settingsURLString) else {
-            return
+            return .cancel
         }
 
         switch state {
         case .neverGranted:
-            switch permissionDependencies.presentAlert(state) {
+            let action = permissionDependencies.presentAlert(state)
+            switch action {
             case .openSystemSettings:
                 permissionDependencies.openURL(settingsURL)
             case .cancel, .restartApp:
                 break
             }
+            return action
         case .grantedButFailing:
-            switch permissionDependencies.presentAlert(state) {
+            let action = permissionDependencies.presentAlert(state)
+            switch action {
             case .restartApp:
                 relaunchApp()
             case .openSystemSettings:
@@ -138,6 +147,7 @@ extension ScreenCaptureManager {
             case .cancel:
                 break
             }
+            return action
         }
     }
 
@@ -173,8 +183,28 @@ extension ScreenCaptureManager {
         return result
     }
 
-    nonisolated static func probeSCKAccessViaMinimalScreenshot() async -> ScreenCaptureAccessProbeResult {
-        let bounds = CGDisplayBounds(CGMainDisplayID())
+    nonisolated static func mainDisplayBounds() -> CGRect {
+        CGDisplayBounds(CGMainDisplayID())
+    }
+
+    nonisolated static func systemMinimalScreenshotCapture(
+        in rect: CGRect,
+        completion: @escaping @Sendable (CGImage?, Error?) -> Void
+    ) {
+        SCScreenshotManager.captureImage(in: rect, completionHandler: completion)
+    }
+
+    nonisolated static func defaultMinimalScreenshotProbe(
+        _ rect: CGRect
+    ) async throws {
+        try await captureMinimalScreenshot(in: rect)
+    }
+
+    nonisolated static func probeSCKAccessViaMinimalScreenshot(
+        displayBoundsProvider: DisplayBoundsProvider = mainDisplayBounds,
+        screenshotProbe: @escaping MinimalScreenshotProbe = defaultMinimalScreenshotProbe
+    ) async -> ScreenCaptureAccessProbeResult {
+        let bounds = displayBoundsProvider()
         guard !bounds.isEmpty else {
             return .transientFailure
         }
@@ -187,23 +217,7 @@ extension ScreenCaptureManager {
         ).integral
 
         do {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                SCScreenshotManager.captureImage(in: probeRect) { image, error in
-                    if let error {
-                        continuation.resume(throwing: error)
-                        return
-                    }
-                    guard image != nil else {
-                        continuation.resume(
-                            throwing: CaptureError.noContent(
-                                source: "ScreenCaptureKit permission probe"
-                            )
-                        )
-                        return
-                    }
-                    continuation.resume()
-                }
-            }
+            try await screenshotProbe(probeRect)
             return .authorized
         } catch {
             let nsError = error as NSError
@@ -218,6 +232,31 @@ extension ScreenCaptureManager {
                 }
             }
             return .transientFailure
+        }
+    }
+
+    nonisolated static func captureMinimalScreenshot(
+        in rect: CGRect,
+        screenshotCapture: @escaping MinimalScreenshotCapture = systemMinimalScreenshotCapture(
+            in:completion:
+        )
+    ) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            screenshotCapture(rect) { image, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard image != nil else {
+                    continuation.resume(
+                        throwing: CaptureError.noContent(
+                            source: "ScreenCaptureKit permission probe"
+                        )
+                    )
+                    return
+                }
+                continuation.resume()
+            }
         }
     }
 }

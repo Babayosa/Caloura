@@ -166,6 +166,12 @@ struct GeneralPreferencesView: View {
                 Toggle("Smart crop (trim whitespace)", isOn: $settings.smartCropEnabled)
                 Toggle("Play capture sound", isOn: $settings.playCaptureSound)
                 Toggle("Auto-detect context", isOn: $settings.autoContextDetection)
+                Toggle("Low-profile capture", isOn: $settings.lowProfileCaptureEnabled)
+                Text("Reduces system-level side effects that may trigger browser "
+                    + "event handlers (exam platforms, auto-save). "
+                    + "Disables freeze snapshot. Window capture unavailable.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section {
@@ -203,15 +209,6 @@ struct GeneralPreferencesView: View {
                     }
                     .pickerStyle(.segmented)
                 }
-            }
-
-            Section("Scroll Capture") {
-                Toggle("Scroll to top before capture", isOn: $settings.scrollToTop)
-                Stepper("Max height: \(settings.scrollMaxHeight / 1000)k px",
-                        value: $settings.scrollMaxHeight, in: 5000...200_000, step: 5000)
-                Text("Viewport detection, sticky-header handling, and manual fallback are automatic.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             Section("Appearance") {
@@ -259,14 +256,13 @@ struct GeneralPreferencesView: View {
 // MARK: - Shortcuts Preferences
 
 extension KeyboardShortcuts.Name {
-    static let captureArea = Self("captureArea", default: .init(.four, modifiers: [.command, .shift]))
-    static let captureWindow = Self("captureWindow", default: .init(.five, modifiers: [.command, .shift]))
-    static let captureFullscreen = Self("captureFullscreen", default: .init(.three, modifiers: [.command, .shift]))
+    static let captureArea = Self("captureArea", default: .init(.four, modifiers: [.control, .option]))
+    static let captureWindow = Self("captureWindow", default: .init(.five, modifiers: [.control, .option]))
+    static let captureFullscreen = Self("captureFullscreen", default: .init(.three, modifiers: [.control, .option]))
     static let captureRepeat = Self("captureRepeat", default: .init(.r, modifiers: [.command, .shift]))
     static let copyAsMarkdown = Self("copyAsMarkdown")
     static let copyWithCitation = Self("copyWithCitation")
     static let copyOCRText = Self("copyOCRText")
-    static let captureScroll = Self("captureScroll", default: .init(.six, modifiers: [.command, .shift]))
 }
 
 struct ShortcutsPreferencesView: View {
@@ -277,7 +273,6 @@ struct ShortcutsPreferencesView: View {
                 KeyboardShortcuts.Recorder("Capture Window", name: .captureWindow)
                 KeyboardShortcuts.Recorder("Capture Full Screen", name: .captureFullscreen)
                 KeyboardShortcuts.Recorder("Repeat Last Area", name: .captureRepeat)
-                KeyboardShortcuts.Recorder("Scroll Capture", name: .captureScroll)
             }
 
             Section("Clipboard") {

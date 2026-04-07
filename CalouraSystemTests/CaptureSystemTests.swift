@@ -30,10 +30,12 @@ final class CaptureSystemTests: XCTestCase {
             onSelection: { _, _, _ in },
             onCancel: { }
         )
+        let windows = makeAreaOverlayWindows(cursorController: cursor)
 
-        coordinator.present()
+        coordinator.present(windows: windows)
         defer {
             coordinator.dismiss()
+            windows.forEach { $0.close() }
             recorder.finishSession(session)
         }
 
@@ -56,17 +58,20 @@ final class CaptureSystemTests: XCTestCase {
     func testAreaCaptureUsesNonactivatingOverlayPanelLevel() {
         let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 10, reportInterval: 50)
         let session = recorder.beginSession(mode: .area)
+        let cursor = CursorSpy()
         let coordinator = AreaCaptureSessionCoordinator(
             session: session,
             performanceRecorder: recorder,
-            cursorController: CursorSpy(),
+            cursorController: cursor,
             onSelection: { _, _, _ in },
             onCancel: { }
         )
+        let windows = makeAreaOverlayWindows(cursorController: cursor)
 
-        coordinator.present()
+        coordinator.present(windows: windows)
         defer {
             coordinator.dismiss()
+            windows.forEach { $0.close() }
             recorder.finishSession(session)
         }
 
@@ -83,17 +88,20 @@ final class CaptureSystemTests: XCTestCase {
     func testAreaCaptureKeepsMouseScreenOverlayKey() {
         let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 10, reportInterval: 50)
         let session = recorder.beginSession(mode: .area)
+        let cursor = CursorSpy()
         let coordinator = AreaCaptureSessionCoordinator(
             session: session,
             performanceRecorder: recorder,
-            cursorController: CursorSpy(),
+            cursorController: cursor,
             onSelection: { _, _, _ in },
             onCancel: { }
         )
+        let windows = makeAreaOverlayWindows(cursorController: cursor)
 
-        coordinator.present()
+        coordinator.present(windows: windows)
         defer {
             coordinator.dismiss()
+            windows.forEach { $0.close() }
             recorder.finishSession(session)
         }
 
@@ -185,15 +193,18 @@ final class CaptureSystemTests: XCTestCase {
 
         for _ in 0..<5 {
             let areaSession = recorder.beginSession(mode: .area)
+            let areaCursor = CursorSpy()
             let areaCoordinator = AreaCaptureSessionCoordinator(
                 session: areaSession,
                 performanceRecorder: recorder,
-                cursorController: CursorSpy(),
+                cursorController: areaCursor,
                 onSelection: { _, _, _ in },
                 onCancel: { }
             )
-            areaCoordinator.present()
+            let areaWindows = makeAreaOverlayWindows(cursorController: areaCursor)
+            areaCoordinator.present(windows: areaWindows)
             areaCoordinator.dismiss()
+            areaWindows.forEach { $0.close() }
             recorder.finishSession(areaSession)
 
             let fullscreenSession = recorder.beginSession(mode: .fullscreen)
@@ -225,16 +236,16 @@ final class CaptureSystemTests: XCTestCase {
 
         for _ in 0..<5 {
             let areaSession = recorder.beginSession(mode: .area)
-            await pipeline.performCapture(mode: .area, performanceSession: areaSession) { image }
+            await pipeline.executionService.performCapture(mode: .area, performanceSession: areaSession) { image }
 
             let fullscreenSession = recorder.beginSession(mode: .fullscreen)
-            await pipeline.performCapture(
+            await pipeline.executionService.performCapture(
                 mode: .fullscreen,
                 performanceSession: fullscreenSession
             ) { image }
 
             let windowSession = recorder.beginSession(mode: .window)
-            await pipeline.performCapture(mode: .window, performanceSession: windowSession) { image }
+            await pipeline.executionService.performCapture(mode: .window, performanceSession: windowSession) { image }
         }
 
         for isWarm in [false, true] {
@@ -331,5 +342,14 @@ private final class CursorSpy: CaptureCursorControlling {
 
     func endCrosshairSession() {
         endCalls += 1
+    }
+}
+
+@MainActor
+private func makeAreaOverlayWindows(
+    cursorController: CaptureCursorControlling?
+) -> [CaptureOverlayWindow] {
+    CaptureOverlayWindow.orderedPresentationScreens().map {
+        CaptureOverlayWindow(for: $0, cursorController: cursorController)
     }
 }

@@ -8,8 +8,11 @@ final class CaptureExecutionService {
     typealias HandlePermissionFailureFn = CapturePipeline.HandlePermissionFailureFn
     typealias ShowQuickAccessFn = CapturePipeline.ShowQuickAccessFn
     typealias PostNotificationFn = CapturePipeline.PostNotificationFn
-    typealias ElapsedMillisecondsFn = (CFAbsoluteTime) -> Double
-    typealias RecordMetricFn = (PerformanceMetricStage, Double) -> Void
+
+    private enum SaveOutcome {
+        case saved
+        case failed
+    }
 
     private let settings: AppSettings
     private let appState: AppState
@@ -22,8 +25,7 @@ final class CaptureExecutionService {
     private let handlePermissionFailure: HandlePermissionFailureFn
     private let showQuickAccess: ShowQuickAccessFn
     private let postNotification: PostNotificationFn
-    private let elapsedMilliseconds: ElapsedMillisecondsFn
-    private let recordMetric: RecordMetricFn
+    private let metricsRecorder: CaptureMetricsRecorder
     private let logger = Logger(subsystem: "com.caloura.app", category: "CapturePipeline")
 
     init(
@@ -38,8 +40,7 @@ final class CaptureExecutionService {
         handlePermissionFailure: @escaping HandlePermissionFailureFn,
         showQuickAccess: @escaping ShowQuickAccessFn,
         postNotification: @escaping PostNotificationFn,
-        elapsedMilliseconds: @escaping ElapsedMillisecondsFn,
-        recordMetric: @escaping RecordMetricFn
+        metricsRecorder: CaptureMetricsRecorder
     ) {
         self.settings = settings
         self.appState = appState
@@ -52,8 +53,7 @@ final class CaptureExecutionService {
         self.handlePermissionFailure = handlePermissionFailure
         self.showQuickAccess = showQuickAccess
         self.postNotification = postNotification
-        self.elapsedMilliseconds = elapsedMilliseconds
-        self.recordMetric = recordMetric
+        self.metricsRecorder = metricsRecorder
     }
 
     func performCapture(
@@ -79,11 +79,11 @@ final class CaptureExecutionService {
                 performanceSession: performanceSession
             )
 
-            let totalDuration = elapsedMilliseconds(pipelineStart)
+            let totalDuration = metricsRecorder.elapsedMilliseconds(since: pipelineStart)
             logger.info(
                 "Capture pipeline finished in \(totalDuration, privacy: .public) ms"
             )
-            recordMetric(.total, totalDuration)
+            metricsRecorder.recordMetric(stage: .total, milliseconds: totalDuration)
 
             await distributeCapture(
                 processed,
@@ -104,7 +104,10 @@ final class CaptureExecutionService {
 
             appState.isCapturing = false
         } catch CaptureError.noPermission {
-            await handlePermissionDenied(performanceSession: performanceSession)
+            await handlePermissionDenied(
+                mode: mode,
+                performanceSession: performanceSession
+            )
         } catch {
             handleCaptureFailure(error, performanceSession: performanceSession)
         }
@@ -160,12 +163,12 @@ final class CaptureExecutionService {
     ) async throws -> CGImage {
         let captureStart = CFAbsoluteTimeGetCurrent()
         let cgImage = try await capture()
-        let captureDuration = elapsedMilliseconds(captureStart)
+        let captureDuration = metricsRecorder.elapsedMilliseconds(since: captureStart)
         logger.info("Capture succeeded: \(cgImage.width)x\(cgImage.height)")
         logger.debug(
             "Capture stage completed in \(captureDuration, privacy: .public) ms"
         )
-        recordMetric(.capture, captureDuration)
+        metricsRecorder.recordMetric(stage: .capture, milliseconds: captureDuration)
         if let performanceSession {
             capturePerformanceRecorder.recordDuration(
                 .screenshotDuration,
@@ -186,11 +189,11 @@ final class CaptureExecutionService {
             request.captureContext,
             request.smartCropEnabled
         )
-        let processDuration = elapsedMilliseconds(processStart)
+        let processDuration = metricsRecorder.elapsedMilliseconds(since: processStart)
         logger.debug(
             "Image processing completed in \(processDuration, privacy: .public) ms"
         )
-        recordMetric(.process, processDuration)
+        metricsRecorder.recordMetric(stage: .process, milliseconds: processDuration)
         processed.presetName = request.preset.name
 
         return (processed, request.preset)
@@ -210,7 +213,7 @@ final class CaptureExecutionService {
         appState.lastScreenshot = processed
         appState.statusMessage = "Captured!"
         showQuickAccess(processed)
-        let previewDuration = elapsedMilliseconds(previewStart)
+        let previewDuration = metricsRecorder.elapsedMilliseconds(since: previewStart)
         if let performanceSession {
             capturePerformanceRecorder.recordDuration(
                 .previewPresentationDuration,
@@ -229,12 +232,16 @@ final class CaptureExecutionService {
     ) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.saveToDisk(
+            let saveOutcome = await self.saveToDisk(
                 processed,
                 preset: preset,
                 performanceSession: performanceSession
             )
-            self.enqueueEnrichment(for: processed)
+            if saveOutcome == .saved {
+                self.enqueueEnrichment(for: processed)
+            } else {
+                self.appState.setCapturePreviewPhase(.rawPreviewReady, for: processed.id)
+            }
             self.finishPerformanceSession(performanceSession)
         }
     }
@@ -243,15 +250,15 @@ final class CaptureExecutionService {
         _ processed: ProcessedScreenshot,
         preset: CapturePreset,
         performanceSession: CapturePerformanceRecorder.Session?
-    ) async {
+    ) async -> SaveOutcome {
         let saveStart = CFAbsoluteTimeGetCurrent()
         do {
             try await persistArtifact(processed, preset)
-            let saveDuration = elapsedMilliseconds(saveStart)
+            let saveDuration = metricsRecorder.elapsedMilliseconds(since: saveStart)
             logger.debug(
                 "Disk save completed in \(saveDuration, privacy: .public) ms"
             )
-            recordMetric(.save, saveDuration)
+            metricsRecorder.recordMetric(stage: .save, milliseconds: saveDuration)
             if let performanceSession {
                 capturePerformanceRecorder.recordDuration(
                     .saveComplete,
@@ -259,10 +266,12 @@ final class CaptureExecutionService {
                     in: performanceSession
                 )
             }
+            return .saved
         } catch {
             let description = error.localizedDescription
             logger.error("File save failed: \(description, privacy: .public)")
             appState.statusMessage = "Save failed: \(description)"
+            return .failed
         }
     }
 
@@ -275,11 +284,11 @@ final class CaptureExecutionService {
             let clipboardStart = CFAbsoluteTimeGetCurrent()
             do {
                 try await distributionService.copy(processed, using: preset.copyMode)
-                let clipboardDuration = elapsedMilliseconds(clipboardStart)
+                let clipboardDuration = metricsRecorder.elapsedMilliseconds(since: clipboardStart)
                 logger.debug(
                     "Clipboard stage completed in \(clipboardDuration, privacy: .public) ms"
                 )
-                recordMetric(.clipboard, clipboardDuration)
+                metricsRecorder.recordMetric(stage: .clipboard, milliseconds: clipboardDuration)
                 if let performanceSession {
                     capturePerformanceRecorder.recordDuration(
                         .clipboardComplete,
@@ -300,11 +309,12 @@ final class CaptureExecutionService {
     }
 
     private func handlePermissionDenied(
+        mode: CaptureMode,
         performanceSession: CapturePerformanceRecorder.Session?
     ) async {
         logger.warning("Capture failed: no permission")
         appState.isCapturing = false
-        await handlePermissionFailure()
+        await handlePermissionFailure(mode)
         finishPerformanceSession(performanceSession)
     }
 

@@ -1,10 +1,10 @@
+import KeyboardShortcuts
 import SwiftUI
 import os.log
 
 enum ContextualOnboardingTip: String, CaseIterable {
     case history
     case edit
-    case scroll
     case share
 
     fileprivate var defaultsKey: String {
@@ -54,8 +54,7 @@ final class AppSettings: ObservableObject {
         static let beautifyThemeName = "beautifyThemeName"
         static let smartMetadataEnabled = "smartMetadataEnabled"
         static let semanticSearchEnabled = "semanticSearchEnabled"
-        static let scrollMaxHeight = "scrollMaxHeight"
-        static let scrollToTop = "scrollToTop"
+        static let lowProfileCaptureEnabled = "lowProfileCaptureEnabled"
     }
 
     @Published var saveDirectory: String {
@@ -136,11 +135,7 @@ final class AppSettings: ObservableObject {
         didSet { debouncedSave() }
     }
 
-    @Published var scrollMaxHeight: Int {
-        didSet { debouncedSave() }
-    }
-
-    @Published var scrollToTop: Bool {
+    @Published var lowProfileCaptureEnabled: Bool {
         didSet { debouncedSave() }
     }
 
@@ -222,8 +217,7 @@ final class AppSettings: ObservableObject {
         defaults.set(beautifyThemeName, forKey: Keys.beautifyThemeName)
         defaults.set(smartMetadataEnabled, forKey: Keys.smartMetadataEnabled)
         defaults.set(semanticSearchEnabled, forKey: Keys.semanticSearchEnabled)
-        defaults.set(scrollMaxHeight, forKey: Keys.scrollMaxHeight)
-        defaults.set(scrollToTop, forKey: Keys.scrollToTop)
+        defaults.set(lowProfileCaptureEnabled, forKey: Keys.lowProfileCaptureEnabled)
     }
 
     func persistLicenseState() {
@@ -303,6 +297,33 @@ final class AppSettings: ObservableObject {
     func updateLicenseEntitlement(_ entitlement: LicenseEntitlement?) {
         licenseEntitlement = entitlement
         lastLicenseValidationDate = entitlement?.validatedAt
+    }
+
+    private func migrateHotKeyDefaultsIfNeeded() {
+        guard !defaults.bool(forKey: "hotKeyDefaultsMigratedV2") else { return }
+        defaults.set(true, forKey: "hotKeyDefaultsMigratedV2")
+        // Only reset shortcuts that still match the old Cmd+Shift defaults.
+        // User-customized shortcuts are left untouched.
+        resetShortcutIfMatchesOldDefault(.captureArea, oldModifiers: 768, oldKeyCode: 21)
+        resetShortcutIfMatchesOldDefault(.captureWindow, oldModifiers: 768, oldKeyCode: 23)
+        resetShortcutIfMatchesOldDefault(.captureFullscreen, oldModifiers: 768, oldKeyCode: 20)
+    }
+
+    private func resetShortcutIfMatchesOldDefault(
+        _ name: KeyboardShortcuts.Name,
+        oldModifiers: Int,
+        oldKeyCode: Int
+    ) {
+        let key = "KeyboardShortcuts_\(name.rawValue)"
+        guard let jsonString = defaults.string(forKey: key),
+              let data = jsonString.data(using: .utf8),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let storedModifiers = dict["carbonModifiers"] as? Int,
+              let storedKeyCode = dict["carbonKeyCode"] as? Int,
+              storedModifiers == oldModifiers,
+              storedKeyCode == oldKeyCode
+        else { return }
+        KeyboardShortcuts.reset(name)
     }
 
     private func migrateLegacyActivationStateIfNeeded() {
@@ -447,21 +468,12 @@ final class AppSettings: ObservableObject {
         self.beautifyThemeName = defaults.string(forKey: Keys.beautifyThemeName) ?? "Clean"
         self.smartMetadataEnabled = defaults.object(forKey: Keys.smartMetadataEnabled) as? Bool ?? true
         self.semanticSearchEnabled = defaults.object(forKey: Keys.semanticSearchEnabled) as? Bool ?? true
+        self.lowProfileCaptureEnabled = defaults.object(forKey: Keys.lowProfileCaptureEnabled) as? Bool ?? false
         self.licenseEntitlement = Self.decryptLicenseEntitlement(
             defaults.object(forKey: Keys.licenseEntitlement)
         )
-        self.scrollMaxHeight = defaults.object(forKey: Keys.scrollMaxHeight) as? Int ?? 20_000
-        // Clean up stale settings removed in the scroll capture refactor
-        defaults.removeObject(forKey: "scrollSpeed")
-        defaults.removeObject(forKey: "scrollStickyHeaders")
-        // One-time migration: scrollToTop defaulted to true in earlier builds.
-        // Reset to false so captures start from the current scroll position.
-        if !defaults.bool(forKey: "scrollToTopMigratedV1") {
-            defaults.removeObject(forKey: Keys.scrollToTop)
-            defaults.set(true, forKey: "scrollToTopMigratedV1")
-        }
-        self.scrollToTop = defaults.object(forKey: Keys.scrollToTop) as? Bool ?? false
 
+        migrateHotKeyDefaultsIfNeeded()
         migrateLegacyLicenseSilentlyIfAvailable()
         migrateLegacyActivationStateIfNeeded()
         syncDerivedLicenseState()

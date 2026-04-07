@@ -10,7 +10,6 @@ final class AppCommandController {
         let captureRepeat: @MainActor () -> Void
         let captureDelayed: @MainActor (CaptureMode, Int) -> Void
         let cancelDelayedCapture: @MainActor () -> Void
-        let captureScroll: @MainActor () -> Void
         let copyLastImage: @MainActor () -> Void
         let copyLastAsMarkdown: @MainActor () -> Void
         let copyLastWithCitation: @MainActor () -> Void
@@ -27,7 +26,6 @@ final class AppCommandController {
                 CapturePipeline.shared.captureDelayed(seconds: seconds, mode: mode)
             },
             cancelDelayedCapture: { CapturePipeline.shared.cancelDelayedCapture() },
-            captureScroll: { CapturePipeline.shared.captureScroll() },
             copyLastImage: { CapturePipeline.shared.copyLastImage() },
             copyLastAsMarkdown: { CapturePipeline.shared.copyLastAsMarkdown() },
             copyLastWithCitation: { CapturePipeline.shared.copyLastWithCitation() },
@@ -83,9 +81,6 @@ final class AppCommandController {
             routing.captureDelayed(mode, seconds)
         case .cancelDelayedCapture:
             routing.cancelDelayedCapture()
-        case .captureScroll:
-            routing.showTip(.scroll)
-            routing.captureScroll()
         default:
             return false
         }

@@ -10,9 +10,15 @@ protocol ScreenCaptureManaging: AnyObject {
     func prewarmWindowShareableContent() async
     func captureFullScreen(screen: NSScreen?) async throws -> CGImage
     func captureArea(rect: CGRect, screen: NSScreen?) async throws -> CGImage
+    func captureRectInDisplaySpace(rect: CGRect, screen: NSScreen?) throws -> CGRect
     func captureFrozenDisplaySnapshot(screen: NSScreen?) async throws -> CGImage
     func captureWindow(filter: SCContentFilter) async throws -> CGImage
     func captureAreaInDisplaySpace(_ rect: CGRect) async throws -> CGImage
+}
+
+protocol FrozenDisplaySnapshotOperation: AnyObject, Sendable {
+    func captureImage() async throws -> CGImage
+    func cancel() async
 }
 
 enum ScreenCapturePermissionAlertAction: Sendable {
@@ -38,6 +44,31 @@ struct ScreenCapturePermissionDependencies: Sendable {
     let openURL: @MainActor @Sendable (URL) -> Void
     let relaunchApplication: @MainActor @Sendable (URL) async throws -> Void
     let terminateApplication: @MainActor @Sendable () -> Void
+    let statusMessageSink: @MainActor @Sendable (String) -> Void
+
+    init(
+        cgPreflight: @escaping @Sendable () -> Bool,
+        cgRequest: @escaping @Sendable () -> Bool,
+        sckAccessProbe: @escaping @Sendable () async -> ScreenCaptureAccessProbeResult,
+        runRepairTool: @escaping @Sendable (URL, [String]) async throws -> Void,
+        presentAlert: @escaping @MainActor @Sendable (ScreenCaptureManager.PermissionState) -> ScreenCapturePermissionAlertAction,
+        openURL: @escaping @MainActor @Sendable (URL) -> Void,
+        relaunchApplication: @escaping @MainActor @Sendable (URL) async throws -> Void,
+        terminateApplication: @escaping @MainActor @Sendable () -> Void,
+        statusMessageSink: (@MainActor @Sendable (String) -> Void)? = nil
+    ) {
+        self.cgPreflight = cgPreflight
+        self.cgRequest = cgRequest
+        self.sckAccessProbe = sckAccessProbe
+        self.runRepairTool = runRepairTool
+        self.presentAlert = presentAlert
+        self.openURL = openURL
+        self.relaunchApplication = relaunchApplication
+        self.terminateApplication = terminateApplication
+        self.statusMessageSink = statusMessageSink ?? { message in
+            AppState.shared.statusMessage = message
+        }
+    }
 
     @MainActor
     static let live = ScreenCapturePermissionDependencies(
@@ -106,9 +137,7 @@ struct ScreenCapturePermissionDependencies: Sendable {
         relaunchApplication: { bundleURL in
             let config = NSWorkspace.OpenConfiguration()
             config.createsNewApplicationInstance = true
-            try await withCheckedThrowingContinuation { (
-                continuation: CheckedContinuation<Void, Error>
-            ) in
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 NSWorkspace.shared.openApplication(
                     at: bundleURL,
                     configuration: config
@@ -158,6 +187,10 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         SCContentFilter,
         SCStreamConfiguration
     ) async throws -> CGImage
+    private let makeFrozenDisplaySnapshotOperation: (
+        SCContentFilter,
+        SCStreamConfiguration
+    ) -> any FrozenDisplaySnapshotOperation
 
     /// Reset the SCK failure flag so that the next capture retries SCK.
     /// Called when permission is freshly granted or on app reactivation.
@@ -177,7 +210,11 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                 SCContentFilter,
                 SCStreamConfiguration
             ) async throws -> CGImage
-        )? = nil
+        )? = nil,
+        makeFrozenDisplaySnapshotOperation: ((
+            SCContentFilter,
+            SCStreamConfiguration
+        ) -> any FrozenDisplaySnapshotOperation)? = nil
     ) {
         self.permissionDependencies = permissionDependencies ?? .live
         self.shareableContentProvider = shareableContentProvider ?? {
@@ -186,9 +223,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         self.cgPreflightAuthorityProvider = cgPreflightAuthorityProvider ?? {
             PermissionCoordinator.shared.coreGraphicsPreflightIsAuthoritative()
         }
-        self.filteredScreenshotProvider = filteredScreenshotProvider ?? {
-            contentFilter,
-            configuration in
+        self.filteredScreenshotProvider = filteredScreenshotProvider ?? { contentFilter, configuration in
             try await withCheckedThrowingContinuation { continuation in
                 SCScreenshotManager.captureImage(
                     contentFilter: contentFilter,
@@ -210,6 +245,14 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                 }
             }
         }
+        self.makeFrozenDisplaySnapshotOperation = (
+            makeFrozenDisplaySnapshotOperation ?? { contentFilter, configuration in
+                OneShotFrozenDisplayStreamCapture(
+                    contentFilter: contentFilter,
+                    configuration: configuration
+                )
+            }
+        )
         didBecomeActiveObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
@@ -254,6 +297,12 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         case transient             // everything else
     }
 
+    enum ScreenCaptureFailureContext {
+        case captureOperation
+        case freezeSnapshot
+        case shareableContentLookup
+    }
+
     func classifySCKError(_ error: Error) -> ScreenCaptureFailureKind {
         let nsError = error as NSError
         guard nsError.domain == SCStreamError.errorDomain,
@@ -275,7 +324,10 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     /// Record an SCK failure. Permanent errors disable SCK immediately.
     /// Transient errors increment a counter; after `maxTransientFailures`
     /// consecutive transient failures, SCK is disabled until reset.
-    func handleSCKFailure(_ error: Error) {
+    func handleSCKFailure(
+        _ error: Error,
+        context: ScreenCaptureFailureContext = .captureOperation
+    ) {
         let kind = classifySCKError(error)
         switch kind {
         case .permissionDenied, .missingEntitlements:
@@ -286,6 +338,15 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         case .systemStopped:
             logger.info("SCK system stopped stream — will retry on next capture")
         case .transient:
+            guard context == .captureOperation else {
+                let desc = error.localizedDescription
+                let contextLabel = String(describing: context)
+                let logMessagePrefix = "SCK transient \(contextLabel) failure ignored for disable budget"
+                logger.warning(
+                    "\(logMessagePrefix, privacy: .public): \(desc, privacy: .public)"
+                )
+                return
+            }
             sckFailureCount += 1
             let count = sckFailureCount
             logger.warning(
@@ -315,12 +376,33 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     func shouldTreatCaptureErrorAsPermissionDenied(_ error: Error) -> Bool {
         let kind = classifySCKError(error)
         switch kind {
-        case .permissionDenied, .missingEntitlements:
+        case .permissionDenied:
             return true
+        case .missingEntitlements:
+            return false
         case .systemStopped:
             return false
         case .transient:
             return shouldTreatCoreGraphicsStateAsPermissionDenied()
+        }
+    }
+
+    func captureErrorForSCKFailure(_ error: Error) -> CaptureError? {
+        let kind = classifySCKError(error)
+        switch kind {
+        case .permissionDenied:
+            return .noPermission
+        case .missingEntitlements:
+            return .configurationFailed(
+                "ScreenCaptureKit is unavailable for this build"
+            )
+        case .systemStopped:
+            return nil
+        case .transient:
+            if shouldTreatCoreGraphicsStateAsPermissionDenied() {
+                return .noPermission
+            }
+            return nil
         }
     }
 
@@ -346,6 +428,25 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         configuration: SCStreamConfiguration
     ) async throws -> CGImage {
         try await filteredScreenshotProvider(contentFilter, configuration)
+    }
+
+    func captureFrozenDisplaySnapshot(
+        contentFilter: SCContentFilter,
+        configuration: SCStreamConfiguration
+    ) async throws -> CGImage {
+        let operation = makeFrozenDisplaySnapshotOperation(
+            contentFilter,
+            configuration
+        )
+
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await operation.captureImage()
+        } onCancel: {
+            Task { @MainActor in
+                await operation.cancel()
+            }
+        }
     }
 
     var hasWarmWindowShareableContent: Bool {
@@ -386,8 +487,8 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                     "SCK captureFullScreen failed: \(error.localizedDescription)"
                 )
                 handleSCKFailure(error)
-                if shouldTreatCaptureErrorAsPermissionDenied(error) {
-                    throw CaptureError.noPermission
+                if let captureError = captureErrorForSCKFailure(error) {
+                    throw captureError
                 }
             }
         }
@@ -395,7 +496,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
             logger.info("Trying screencapture CLI for fullscreen")
             return try await screencaptureFullScreen(screen: screen)
         } catch {
-            if shouldTreatCoreGraphicsStateAsPermissionDenied() {
+            if sckFailed || shouldTreatCoreGraphicsStateAsPermissionDenied() {
                 throw CaptureError.noPermission
             }
             throw error
@@ -423,8 +524,8 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                     "SCK captureArea failed: \(error.localizedDescription)"
                 )
                 handleSCKFailure(error)
-                if shouldTreatCaptureErrorAsPermissionDenied(error) {
-                    throw CaptureError.noPermission
+                if let captureError = captureErrorForSCKFailure(error) {
+                    throw captureError
                 }
             }
         }
@@ -433,7 +534,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
             logger.info("Trying screencapture CLI for area")
             return try await screencaptureArea(rect: rect, screen: screen)
         } catch {
-            if shouldTreatCoreGraphicsStateAsPermissionDenied() {
+            if sckFailed || shouldTreatCoreGraphicsStateAsPermissionDenied() {
                 throw CaptureError.noPermission
             }
             throw error
@@ -457,8 +558,8 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                     "SCK captureAreaInDisplaySpace failed: \(error.localizedDescription)"
                 )
                 handleSCKFailure(error)
-                if shouldTreatCaptureErrorAsPermissionDenied(error) {
-                    throw CaptureError.noPermission
+                if let captureError = captureErrorForSCKFailure(error) {
+                    throw captureError
                 }
             }
         }
@@ -467,7 +568,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
             logger.info("Trying screencapture CLI for display-space area")
             return try await screencaptureAreaInDisplaySpace(rect: rect)
         } catch {
-            if shouldTreatCoreGraphicsStateAsPermissionDenied() {
+            if sckFailed || shouldTreatCoreGraphicsStateAsPermissionDenied() {
                 throw CaptureError.noPermission
             }
             throw error
@@ -479,44 +580,113 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     /// Capture directly from an SCContentFilter (used by WindowPickerManager).
     /// This is the fastest path — no window lookup needed.
     func captureWindow(filter: SCContentFilter) async throws -> CGImage {
-        let config = SCStreamConfiguration()
-        config.width = Int(
-            filter.contentRect.width * CGFloat(filter.pointPixelScale)
-        )
-        config.height = Int(
-            filter.contentRect.height * CGFloat(filter.pointPixelScale)
-        )
-        config.showsCursor = false
-        config.captureResolution = .best
-        config.shouldBeOpaque = true
-
         do {
-            return try await SCScreenshotManager.captureImage(
-                contentFilter: filter,
-                configuration: config
+            return try await captureWindow(
+                filter: filter,
+                contentRect: filter.contentRect,
+                pointPixelScale: CGFloat(filter.pointPixelScale)
             )
+        } catch let error as CaptureError {
+            if case .noContent = error {
+                throw CaptureError.windowUnavailable(
+                    reason: "Selected window capture produced no image content"
+                )
+            }
+            throw error
         } catch {
             logger.warning(
                 "SCK captureWindow failed: \(error.localizedDescription)"
             )
             handleSCKFailure(error)
-            if shouldTreatCaptureErrorAsPermissionDenied(error) {
-                throw CaptureError.noPermission
+            if let captureError = captureErrorForSCKFailure(error) {
+                throw captureError
             }
             throw error
         }
+    }
+
+    func captureWindow(
+        filter: SCContentFilter,
+        contentRect: CGRect,
+        pointPixelScale: CGFloat
+    ) async throws -> CGImage {
+        let config = try makeWindowCaptureConfiguration(
+            contentRect: contentRect,
+            pointPixelScale: pointPixelScale
+        )
+        return try await captureFilteredScreenshot(
+            contentFilter: filter,
+            configuration: config
+        )
+    }
+
+    func makeWindowCaptureConfiguration(
+        contentRect: CGRect,
+        pointPixelScale: CGFloat
+    ) throws -> SCStreamConfiguration {
+        let reasonPrefix = "Selected window geometry became invalid: rect="
+            + "\(contentRect.debugDescription) scale=\(pointPixelScale)"
+        guard contentRect.origin.x.isFinite,
+              contentRect.origin.y.isFinite,
+              contentRect.width.isFinite,
+              contentRect.height.isFinite,
+              pointPixelScale.isFinite,
+              pointPixelScale > 0,
+              contentRect.width > 0,
+              contentRect.height > 0 else {
+            throw CaptureError.windowUnavailable(reason: reasonPrefix)
+        }
+
+        let config = SCStreamConfiguration()
+        config.width = try safeWindowPixelDimension(
+            contentRect.width * pointPixelScale,
+            component: "width",
+            reasonPrefix: reasonPrefix
+        )
+        config.height = try safeWindowPixelDimension(
+            contentRect.height * pointPixelScale,
+            component: "height",
+            reasonPrefix: reasonPrefix
+        )
+        config.showsCursor = false
+        config.captureResolution = .best
+        config.shouldBeOpaque = true
+        return config
+    }
+
+    private func safeWindowPixelDimension(
+        _ value: CGFloat,
+        component: String,
+        reasonPrefix: String
+    ) throws -> Int {
+        guard value.isFinite, value > 0 else {
+            throw CaptureError.windowUnavailable(
+                reason: "\(reasonPrefix) invalid \(component)=\(value)"
+            )
+        }
+
+        let rounded = ceil(value)
+        guard rounded.isFinite, rounded > 0, rounded <= CGFloat(Int.max) else {
+            throw CaptureError.windowUnavailable(
+                reason: "\(reasonPrefix) out-of-range \(component)=\(rounded)"
+            )
+        }
+
+        return Int(rounded)
     }
 
 }
 
 // MARK: - Errors
 
-enum CaptureError: LocalizedError {
+enum CaptureError: LocalizedError, Sendable {
     case noDisplay
     case noPermission
     case invalidRegion(reason: String)
     case timeout(operation: String)
     case noContent(source: String)
+    case windowUnavailable(reason: String)
+    case configurationFailed(String)
     case captureFailed(String)
     case cancelled
 
@@ -537,6 +707,12 @@ enum CaptureError: LocalizedError {
                 + "If it keeps happening, restart Caloura."
         case .noContent(let source):
             return "\(source) did not produce an image. Try again."
+        case .windowUnavailable:
+            return "The selected window is no longer available. "
+                + "Pick the window again and retry."
+        case .configurationFailed:
+            return "Screen capture is unavailable for this build. "
+                + "Launch the signed Caloura app or reinstall it, then try again."
         case .captureFailed:
             return "Capture failed before an image was produced. Try again. "
                 + "If it keeps happening, restart Caloura."
@@ -557,6 +733,10 @@ enum CaptureError: LocalizedError {
             return "\(operation) timed out"
         case .noContent(let source):
             return "\(source) returned no image content"
+        case .windowUnavailable(let reason):
+            return reason
+        case .configurationFailed(let reason):
+            return reason
         case .captureFailed(let reason):
             return reason
         case .cancelled:

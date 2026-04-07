@@ -62,7 +62,8 @@ final class CaptureCursorControllerTests: XCTestCase {
         controller.handleApplicationDidBecomeActive()
         controller.handleApplicationDidBecomeActive()
 
-        XCTAssertEqual(scheduler.scheduleCalls, 2)
+        // Each call cancels+reschedules (3 total: begin + 2× didBecomeActive)
+        XCTAssertEqual(scheduler.scheduleCalls, 3)
         XCTAssertEqual(scheduler.pendingCount, 1)
 
         scheduler.runPendingActions()

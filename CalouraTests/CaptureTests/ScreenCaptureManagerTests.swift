@@ -1,3 +1,4 @@
+@preconcurrency import ScreenCaptureKit
 import XCTest
 @testable import Caloura
 
@@ -148,6 +149,20 @@ final class ScreenCaptureManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testCaptureError_windowUnavailable_hasDescription() {
+        let error = CaptureError.windowUnavailable(reason: "window vanished")
+        XCTAssertNotNil(error.errorDescription)
+        XCTAssertTrue(error.errorDescription!.contains("Pick the window again"))
+    }
+
+    @MainActor
+    func testCaptureError_configurationFailed_hasDescription() {
+        let error = CaptureError.configurationFailed("missing entitlements")
+        XCTAssertNotNil(error.errorDescription)
+        XCTAssertTrue(error.errorDescription!.contains("signed Caloura app"))
+    }
+
+    @MainActor
     func testCaptureError_timeout_hasDescription() {
         let error = CaptureError.timeout(operation: "Capture")
         XCTAssertNotNil(error.errorDescription)
@@ -204,5 +219,131 @@ final class ScreenCaptureManagerTests: XCTestCase {
         let fullscreenRect = try sut.fullscreenRectInDisplaySpace(screen: screen)
 
         XCTAssertEqual(fullscreenRect, CGDisplayBounds(resolved.displayID).integral)
+    }
+
+    @MainActor
+    func testMakeFreezeSnapshotConfiguration_usesNativePixelDimensions() throws {
+        let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
+        let scale = screen.backingScaleFactor
+
+        let configuration = sut.makeFreezeSnapshotConfiguration(for: screen)
+
+        XCTAssertEqual(configuration.width, max(1, Int(ceil(screen.frame.width * scale))))
+        XCTAssertEqual(configuration.height, max(1, Int(ceil(screen.frame.height * scale))))
+    }
+
+    @MainActor
+    func testMakeWindowCaptureConfiguration_zeroWidthThrowsWindowUnavailable() {
+        do {
+            _ = try sut.makeWindowCaptureConfiguration(
+                contentRect: CGRect(x: 0, y: 0, width: 0, height: 120),
+                pointPixelScale: 2
+            )
+            XCTFail("Expected zero-width window contentRect to fail")
+        } catch let error as CaptureError {
+            guard case .windowUnavailable = error else {
+                return XCTFail("Expected windowUnavailable, got \(error)")
+            }
+        } catch {
+            XCTFail("Expected CaptureError.windowUnavailable, got \(error)")
+        }
+    }
+
+    @MainActor
+    func testMakeWindowCaptureConfiguration_nonFiniteScaleThrowsWindowUnavailable() {
+        do {
+            _ = try sut.makeWindowCaptureConfiguration(
+                contentRect: CGRect(x: 0, y: 0, width: 80, height: 60),
+                pointPixelScale: .infinity
+            )
+            XCTFail("Expected non-finite pointPixelScale to fail")
+        } catch let error as CaptureError {
+            guard case .windowUnavailable = error else {
+                return XCTFail("Expected windowUnavailable, got \(error)")
+            }
+        } catch {
+            XCTFail("Expected CaptureError.windowUnavailable, got \(error)")
+        }
+    }
+
+    @MainActor
+    func testCaptureWindow_usesInjectedFilteredScreenshotProvider() async throws {
+        let expectedImage = TestImageFactory.makeTestImage(width: 160, height: 90)
+        var capturedConfig: (width: Int, height: Int)?
+        let manager = ScreenCaptureManager(
+            filteredScreenshotProvider: { _, configuration in
+                capturedConfig = (configuration.width, configuration.height)
+                return expectedImage
+            }
+        )
+
+        let image = try await manager.captureWindow(
+            filter: SCContentFilter(),
+            contentRect: CGRect(x: 20, y: 10, width: 80, height: 45),
+            pointPixelScale: 2
+        )
+
+        XCTAssertEqual(image.width, expectedImage.width)
+        XCTAssertEqual(capturedConfig?.width, 160)
+        XCTAssertEqual(capturedConfig?.height, 90)
+    }
+
+    @MainActor
+    func testCaptureFrozenDisplaySnapshotOperationCancelsUnderlyingCaptureOnTimeout() async {
+        let captureStarted = expectation(description: "capture started")
+        let captureCancelled = expectation(description: "capture cancelled")
+        let operation = HangingFrozenDisplaySnapshotOperation(
+            startedExpectation: captureStarted,
+            cancelledExpectation: captureCancelled
+        )
+        let manager = ScreenCaptureManager(
+            makeFrozenDisplaySnapshotOperation: { _, _ in
+                operation
+            }
+        )
+
+        do {
+            _ = try await withTimeout(seconds: 0.01) {
+                try await manager.captureFrozenDisplaySnapshot(
+                    contentFilter: SCContentFilter(),
+                    configuration: SCStreamConfiguration()
+                )
+            }
+            XCTFail("Expected freeze snapshot timeout")
+        } catch is TimeoutError {
+            await fulfillment(of: [captureStarted, captureCancelled], timeout: 2.0)
+            XCTAssertEqual(operation.cancelCount, 1)
+        } catch {
+            XCTFail("Expected TimeoutError, got \(error)")
+        }
+    }
+}
+
+@MainActor
+private final class HangingFrozenDisplaySnapshotOperation: FrozenDisplaySnapshotOperation, @unchecked Sendable {
+    private let startedExpectation: XCTestExpectation
+    private let cancelledExpectation: XCTestExpectation
+    private let releaseGate = AsyncGate()
+
+    private(set) var cancelCount = 0
+
+    init(
+        startedExpectation: XCTestExpectation,
+        cancelledExpectation: XCTestExpectation
+    ) {
+        self.startedExpectation = startedExpectation
+        self.cancelledExpectation = cancelledExpectation
+    }
+
+    func captureImage() async throws -> CGImage {
+        startedExpectation.fulfill()
+        await releaseGate.wait()
+        throw CancellationError()
+    }
+
+    func cancel() async {
+        cancelCount += 1
+        cancelledExpectation.fulfill()
+        await releaseGate.open()
     }
 }

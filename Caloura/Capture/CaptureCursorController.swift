@@ -46,7 +46,11 @@ private final class MainActorDeferredCaptureCursorAction: CaptureCursorScheduled
 
     init(action: @escaping @MainActor () -> Void) {
         task = Task { @MainActor in
-            await Task.yield()
+            // Sleep instead of yield: Task.yield() may resume before
+            // AppKit finishes cursor rect processing from key-window
+            // transitions. A minimal sleep ensures we fire after the
+            // current run loop pass completes.
+            try? await Task.sleep(for: .milliseconds(1))
             guard !Task.isCancelled else { return }
             action()
         }
@@ -119,13 +123,15 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
     }
 
     func scheduleReprime() {
-        guard cursorActive, pendingReprime == nil else { return }
+        guard cursorActive else { return }
+        pendingReprime?.cancel()
         pendingReprime = scheduler.schedule { [weak self] in
             guard let self, self.cursorActive else { return }
             self.pendingReprime = nil
             if self.pushed { self.crosshairDriver.popCrosshair() }
             self.crosshairDriver.pushCrosshair()
             self.pushed = true
+            self.crosshairDriver.setCrosshair()
         }
     }
 

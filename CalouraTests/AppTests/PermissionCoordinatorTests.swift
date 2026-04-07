@@ -200,10 +200,12 @@ final class PermissionCoordinatorTests: XCTestCase {
             repairSCKAccess: { .authorized }
         )
 
+        coordinator.armPendingCaptureResume(mode: .window)
         await coordinator.handleCapturePermissionFailure()
 
         XCTAssertEqual(alertCount, 0)
         XCTAssertEqual(coordinator.permissionUIModel.status, .working)
+        XCTAssertNil(coordinator.takePendingCaptureResumeIfFresh())
     }
 
     func testRevalidateAfterSettingsReturnTrustsLiveValidationWhileCGStaysFalse() async {
@@ -479,8 +481,8 @@ final class PermissionCoordinatorTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 26_600) }
         )
 
-        coordinator.armPendingCaptureResume()
-        XCTAssertTrue(coordinator.takePendingCaptureResumeIfFresh())
+        coordinator.armPendingCaptureResume(mode: .area)
+        XCTAssertEqual(coordinator.takePendingCaptureResumeIfFresh(), .area)
         let status = await coordinator.refreshPassiveStatus()
 
         XCTAssertEqual(status, .grantedNeedsValidation)
@@ -502,8 +504,8 @@ final class PermissionCoordinatorTests: XCTestCase {
             now: { Date(timeIntervalSince1970: 26_650) }
         )
 
-        coordinator.armPendingCaptureResume()
-        XCTAssertTrue(coordinator.takePendingCaptureResumeIfFresh())
+        coordinator.armPendingCaptureResume(mode: .window)
+        XCTAssertEqual(coordinator.takePendingCaptureResumeIfFresh(), .window)
         let status = await coordinator.runUserInitiatedValidation()
 
         XCTAssertEqual(status, .working)
@@ -527,8 +529,8 @@ final class PermissionCoordinatorTests: XCTestCase {
             repairSCKAccess: { .authorized }
         )
 
-        coordinator.armPendingCaptureResume()
-        XCTAssertTrue(coordinator.takePendingCaptureResumeIfFresh())
+        coordinator.armPendingCaptureResume(mode: .area)
+        XCTAssertEqual(coordinator.takePendingCaptureResumeIfFresh(), .area)
         await coordinator.handleCapturePermissionFailure()
 
         XCTAssertEqual(alertCount, 0)
@@ -550,14 +552,14 @@ final class PermissionCoordinatorTests: XCTestCase {
             now: { currentTime }
         )
 
-        coordinator.armPendingCaptureResume()
-        XCTAssertTrue(coordinator.takePendingCaptureResumeIfFresh())
-        XCTAssertFalse(coordinator.takePendingCaptureResumeIfFresh())
+        coordinator.armPendingCaptureResume(mode: .fullscreen)
+        XCTAssertEqual(coordinator.takePendingCaptureResumeIfFresh(), .fullscreen)
+        XCTAssertNil(coordinator.takePendingCaptureResumeIfFresh())
 
         currentTime = currentTime.addingTimeInterval(200)
-        coordinator.armPendingCaptureResume()
+        coordinator.armPendingCaptureResume(mode: .area)
         currentTime = currentTime.addingTimeInterval(121)
-        XCTAssertFalse(coordinator.takePendingCaptureResumeIfFresh())
+        XCTAssertNil(coordinator.takePendingCaptureResumeIfFresh())
     }
 
     private func makeAdvancingNow(start: TimeInterval, step: TimeInterval) -> () -> Date {

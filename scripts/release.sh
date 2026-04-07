@@ -433,7 +433,8 @@ generate_source_release_manifest() {
 
     bundle_identifier="$(build_setting_value "PRODUCT_BUNDLE_IDENTIFIER")"
     marketing_version="$(build_setting_value "MARKETING_VERSION")"
-    build_number="$(build_setting_value "CURRENT_PROJECT_VERSION")"
+    # Use the requested release version as the canonical build number.
+    build_number="$VERSION"
     minimum_system_version="$(build_setting_value "MACOSX_DEPLOYMENT_TARGET")"
     release_channel="$(build_setting_value "CALOURA_RELEASE_CHANNEL")"
     requires_signed="$(build_setting_value "CALOURA_REQUIRE_SIGNED_ENTITLEMENT")"
@@ -486,7 +487,8 @@ xcodegen generate
 echo "==> Archiving (Release configuration)..."
 ARCHIVE_OVERRIDES=(
     MARKETING_VERSION="$VERSION"
-    CURRENT_PROJECT_VERSION="$(date +%Y%m%d%H%M%S)"
+    # Keep the release build number stable for a given release version.
+    CURRENT_PROJECT_VERSION="$VERSION"
 )
 [ -n "${CALOURA_REQUIRE_SIGNED_ENTITLEMENT:-}" ] && ARCHIVE_OVERRIDES+=(CALOURA_REQUIRE_SIGNED_ENTITLEMENT="$CALOURA_REQUIRE_SIGNED_ENTITLEMENT")
 [ -n "${CALOURA_LICENSE_ENTITLEMENT_URL:-}" ] && ARCHIVE_OVERRIDES+=(CALOURA_LICENSE_ENTITLEMENT_URL="$CALOURA_LICENSE_ENTITLEMENT_URL")

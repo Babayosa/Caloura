@@ -72,6 +72,24 @@ print_storage_snapshot() {
   echo "  history.key: $([[ -f "$key_path" ]] && echo present || echo missing) perm=${key_perm:-n/a}"
 }
 
+ensure_app_not_running() {
+  local existing_pids
+  existing_pids="$(pgrep -x "$APP_NAME" || true)"
+  if [[ -z "$existing_pids" ]]; then
+    return
+  fi
+
+  echo "Stopping existing $APP_NAME processes before launch QA..."
+  pkill -x "$APP_NAME" || true
+  sleep 2
+
+  if pgrep -x "$APP_NAME" >/dev/null 2>&1; then
+    echo "ERROR: Existing $APP_NAME process is still running; launch QA requires a clean process start."
+    pgrep -fl "$APP_NAME" || true
+    exit 1
+  fi
+}
+
 verify_public_artifacts() {
   require_version "verify"
   print_header "Phase 1: Verify Public Artifact + Appcast"
@@ -128,10 +146,23 @@ install_public_app() {
 
   rm -rf "$INSTALL_PATH"
   ditto "$DMG_MOUNT/Caloura.app" "$INSTALL_PATH"
-  if [[ "${KEEP_QUARANTINE:-0}" = "1" ]]; then
-    echo "KEEP_QUARANTINE=1 set: leaving quarantine attribute intact for Gatekeeper validation."
-  else
+  strip_quarantine="${STRIP_QUARANTINE:-0}"
+  if [[ "${KEEP_QUARANTINE:-1}" = "0" ]]; then
+    strip_quarantine=1
+  fi
+
+  if [[ "$strip_quarantine" = "1" ]]; then
     xattr -dr com.apple.quarantine "$INSTALL_PATH" || true
+    echo "STRIP_QUARANTINE=1 set: removed quarantine attribute for local-only QA."
+  else
+    echo "Quarantine preserved by default for Gatekeeper validation."
+    if [[ "${SIMULATE_QUARANTINE:-0}" = "1" ]] && \
+       ! xattr -p com.apple.quarantine "$INSTALL_PATH" >/dev/null 2>&1; then
+      quarantine_stamp=$(printf '%x' "$(date +%s)")
+      quarantine_value="0081;${quarantine_stamp};CalouraQA;$(uuidgen)"
+      xattr -w com.apple.quarantine "$quarantine_value" "$INSTALL_PATH"
+      echo "SIMULATE_QUARANTINE=1 set: applied quarantine attribute for Gatekeeper QA."
+    fi
   fi
 
   detach_dmg_if_needed
@@ -166,11 +197,26 @@ launch_public_app() {
     exit 1
   fi
 
+  if [[ "${REQUIRE_QUARANTINE:-0}" = "1" ]]; then
+    if ! xattr -p com.apple.quarantine "$INSTALL_PATH" >/dev/null 2>&1; then
+      echo "ERROR: Gatekeeper QA requires a quarantine attribute on $INSTALL_PATH"
+      exit 1
+    fi
+    spctl -a -vv "$INSTALL_PATH"
+  fi
+
+  ensure_app_not_running
   open -a "$INSTALL_PATH"
   sleep 3
 
+  local launched_pids
+  launched_pids="$(pgrep -x "$APP_NAME" || true)"
   echo "Running processes:"
-  pgrep -fl "$APP_NAME" || true
+  if [[ -z "$launched_pids" ]]; then
+    echo "ERROR: $APP_NAME did not remain running after launch"
+    exit 1
+  fi
+  pgrep -fl "$APP_NAME"
 
   print_storage_snapshot
 }
@@ -281,7 +327,7 @@ Usage:
   scripts/public_download_qa.sh [--version <x.y.z>] manual-checks
 
 Notes:
-  - Set KEEP_QUARANTINE=1 to keep quarantine attributes on install (for Gatekeeper validation).
+  - Quarantine is preserved by default. Set STRIP_QUARANTINE=1 to remove it for local-only QA.
 USAGE
 }
 

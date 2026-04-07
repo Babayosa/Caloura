@@ -83,6 +83,11 @@ final class UITestHostWindowController: NSWindowController {
             id: "ui-test-show-quick-access",
             action: #selector(showQuickAccess)
         )
+        let performanceAuditButton = Self.makeButton(
+            "Seed Perf Audit",
+            id: "ui-test-seed-performance",
+            action: #selector(seedPerformanceAudit)
+        )
         let permissionRepairButton = Self.makeButton(
             "Permission Repair",
             id: "ui-test-show-permission-repair",
@@ -103,6 +108,7 @@ final class UITestHostWindowController: NSWindowController {
             quickAccessButton
         ))
         stack.addArrangedSubview(Self.buttonRow(
+            performanceAuditButton,
             permissionRepairButton,
             resetButton
         ))
@@ -114,6 +120,7 @@ final class UITestHostWindowController: NSWindowController {
             fullscreenButton,
             windowButton,
             quickAccessButton,
+            performanceAuditButton,
             permissionRepairButton,
             resetButton
         ].forEach { button in
@@ -216,17 +223,19 @@ final class UITestHostWindowController: NSWindowController {
     }
 
     @objc private func showQuickAccess() {
-        let image = makePreviewImage(width: 160, height: 110)
-        let screenshot = ProcessedScreenshot(
-            image: NSImage(
-                cgImage: image,
-                size: NSSize(width: image.width, height: image.height)
-            ),
-            cgImage: image,
-            context: CaptureContext(mode: .area)
-        )
+        let screenshot = makeProcessedScreenshot(mode: .area)
         QuickAccessOverlay.shared.show(for: screenshot)
-        updateState("quick-access-visible", detail: "Compact 4 + More overlay presented")
+        updateState("quick-access-visible", detail: "Compact quick-access overlay presented")
+    }
+
+    @objc private func seedPerformanceAudit() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.reset()
+            self.updateState("performance-seeding", detail: "Recording strict audit samples")
+            await self.seedStrictAuditSamples()
+            self.updateState("performance-seeded", detail: "Strict audit samples recorded")
+        }
     }
 
     @objc private func showPermissionRepair() {
@@ -242,8 +251,96 @@ final class UITestHostWindowController: NSWindowController {
         detailLabel.stringValue = detail
     }
 
-    private static func buttonRow(_ left: NSButton, _ right: NSButton) -> NSStackView {
-        let row = NSStackView(views: [left, right])
+    private func seedStrictAuditSamples() async {
+        for _ in 0..<5 {
+            seedAreaOverlaySample()
+            seedFullscreenOverlaySample()
+            seedPreviewSample(mode: .area)
+            seedPreviewSample(mode: .fullscreen)
+            seedPreviewSample(mode: .window)
+            await seedWindowPickerSample(isWarm: false)
+            await seedWindowPickerSample(isWarm: true)
+        }
+        reset()
+    }
+
+    private func seedAreaOverlaySample() {
+        let session = performanceRecorder.beginSession(mode: .area)
+        let coordinator = AreaCaptureSessionCoordinator(
+            session: session,
+            performanceRecorder: performanceRecorder,
+            cursorController: cursorController,
+            onSelection: { _, _, _ in },
+            onCancel: { }
+        )
+        let windows = CaptureOverlayWindow
+            .orderedPresentationScreens()
+            .map { CaptureOverlayWindow(for: $0, cursorController: cursorController) }
+        coordinator.present(windows: windows)
+        coordinator.dismiss()
+        windows.forEach { $0.close() }
+        performanceRecorder.finishSession(session)
+    }
+
+    private func seedFullscreenOverlaySample() {
+        let session = performanceRecorder.beginSession(mode: .fullscreen)
+        let coordinator = FullscreenCaptureSessionCoordinator(
+            session: session,
+            performanceRecorder: performanceRecorder,
+            cursorController: cursorController,
+            onSelection: { _ in },
+            onCancel: { }
+        )
+        coordinator.present()
+        coordinator.dismiss()
+        performanceRecorder.finishSession(session)
+    }
+
+    private func seedPreviewSample(mode: CaptureMode) {
+        let session = performanceRecorder.beginSession(mode: mode)
+        let previewStart = CFAbsoluteTimeGetCurrent()
+        QuickAccessOverlay.shared.show(for: makeProcessedScreenshot(mode: mode))
+        let previewDuration = (CFAbsoluteTimeGetCurrent() - previewStart) * 1000.0
+        performanceRecorder.recordDuration(
+            .previewPresentationDuration,
+            milliseconds: previewDuration,
+            in: session
+        )
+        performanceRecorder.mark(.rawPreviewVisible, in: session)
+        performanceRecorder.finishSession(session)
+        QuickAccessOverlay.shared.dismiss()
+    }
+
+    private func seedWindowPickerSample(isWarm: Bool) async {
+        let session = performanceRecorder.beginSession(mode: .window)
+        let coordinator = WindowCaptureSessionCoordinator(
+            session: session,
+            performanceRecorder: performanceRecorder,
+            hasWarmContent: isWarm,
+            prewarmContent: { },
+            pickWindow: { onPresented in
+                onPresented()
+                return .cancelled
+            }
+        )
+        _ = await coordinator.pick()
+        performanceRecorder.finishSession(session)
+    }
+
+    private func makeProcessedScreenshot(mode: CaptureMode) -> ProcessedScreenshot {
+        let image = makePreviewImage(width: 160, height: 110)
+        return ProcessedScreenshot(
+            image: NSImage(
+                cgImage: image,
+                size: NSSize(width: image.width, height: image.height)
+            ),
+            cgImage: image,
+            context: CaptureContext(mode: mode)
+        )
+    }
+
+    private static func buttonRow(_ buttons: NSButton...) -> NSStackView {
+        let row = NSStackView(views: buttons)
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 12

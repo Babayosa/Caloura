@@ -35,9 +35,5 @@ final class HotKeyManager {
         KeyboardShortcuts.onKeyUp(for: .copyOCRText) {
             AppCommandRouter.shared.dispatch(.copyLastOCRText)
         }
-
-        KeyboardShortcuts.onKeyUp(for: .captureScroll) {
-            AppCommandRouter.shared.dispatch(.captureScroll)
-        }
     }
 }

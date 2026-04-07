@@ -125,7 +125,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let permissionCheckStart = CFAbsoluteTimeGetCurrent()
         Task { @MainActor [onboardingController, nagController] in
             let permissionCoordinator = PermissionCoordinator.shared
-            let shouldResumePendingCapture = permissionCoordinator.takePendingCaptureResumeIfFresh()
+            let pendingCaptureMode = permissionCoordinator.takePendingCaptureResumeIfFresh()
+            let shouldResumePendingCapture = pendingCaptureMode != nil
             var launchPermissionStatus = await permissionCoordinator.refreshPassiveStatus()
             AppState.shared.hasScreenRecordingPermission = launchPermissionStatus != .denied
             if launchPermissionStatus != .denied {
@@ -139,7 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             if shouldResumePendingCapture, launchPermissionStatus == .working {
                 AppSettings.shared.hasSeenWelcome = true
-                AppCommandRouter.shared.dispatch(.captureArea)
+                Self.dispatchPendingCapture(mode: pendingCaptureMode ?? .area)
 
                 let permissionDuration = (CFAbsoluteTimeGetCurrent() - permissionCheckStart) * 1000
                 let totalLaunchDuration = (CFAbsoluteTimeGetCurrent() - launchStart) * 1000
@@ -252,6 +253,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 appLaunchLogger.warning("SMAppService.register() failed: \(desc, privacy: .public)")
                 settings.launchAtLogin = false
             }
+        }
+    }
+
+    private static func dispatchPendingCapture(mode: CaptureMode) {
+        switch mode {
+        case .area:
+            AppCommandRouter.shared.dispatch(.captureArea)
+        case .window:
+            AppCommandRouter.shared.dispatch(.captureWindow)
+        case .fullscreen:
+            AppCommandRouter.shared.dispatch(.captureFullscreen)
         }
     }
 }

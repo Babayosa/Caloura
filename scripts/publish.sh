@@ -27,6 +27,7 @@ MANIFEST_PATH="$BUILD_DIR/release-manifest-$VERSION.json"
 SITE_REPO="${SITE_REPO:-$HOME/caloura-site}"
 APPCAST_PATH="$SITE_REPO/appcast.xml"
 INDEX_PATH="$SITE_REPO/index.html"
+APPCAST_URL="https://caloura.app/appcast.xml"
 
 manifest_value() {
     local key="$1"
@@ -51,6 +52,36 @@ validate_appcast_against_manifest() {
     python3 "$SCRIPT_DIR/validate_appcast_against_manifest.py" \
         --manifest "$MANIFEST_PATH" \
         --file "$APPCAST_PATH"
+}
+
+validate_live_appcast_against_manifest() {
+    local attempts="${APPCAST_VALIDATION_ATTEMPTS:-12}"
+    local delay_seconds="${APPCAST_VALIDATION_DELAY_SECONDS:-10}"
+    local attempt=1
+
+    while [[ "$attempt" -le "$attempts" ]]; do
+        if python3 "$SCRIPT_DIR/validate_appcast_against_manifest.py" \
+            --manifest "$MANIFEST_PATH" \
+            --url "$APPCAST_URL"; then
+            return 0
+        fi
+
+        if [[ "$attempt" -lt "$attempts" ]]; then
+            echo "Waiting ${delay_seconds}s for the live appcast to update..."
+            sleep "$delay_seconds"
+        fi
+        attempt=$((attempt + 1))
+    done
+
+    return 1
+}
+
+run_public_download_qa() {
+    "$SCRIPT_DIR/public_download_qa.sh" --version "$VERSION" verify
+    SIMULATE_QUARANTINE=1 \
+        "$SCRIPT_DIR/public_download_qa.sh" --version "$VERSION" install
+    REQUIRE_QUARANTINE=1 \
+        "$SCRIPT_DIR/public_download_qa.sh" --version "$VERSION" launch
 }
 
 find_sign_update() {
@@ -159,6 +190,19 @@ echo "==> Step 3/3: Committing and pushing site changes..."
 git -C "$SITE_REPO" add "releases/$ZIP_NAME" "releases/$DMG_NAME" appcast.xml index.html
 git -C "$SITE_REPO" commit -m "Release v$VERSION"
 git -C "$SITE_REPO" push
+
+echo ""
+echo "==> Validating live appcast after publish..."
+if ! validate_live_appcast_against_manifest; then
+    echo "Error: Live appcast validation failed after publish."
+    exit 1
+fi
+
+if [[ "${SKIP_PUBLIC_DOWNLOAD_QA:-0}" != "1" ]]; then
+    echo ""
+    echo "==> Running public-download QA against the live release..."
+    run_public_download_qa
+fi
 
 echo ""
 echo "========================================"

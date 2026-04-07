@@ -7,7 +7,6 @@ enum AppCommand: Equatable {
     case captureRepeat
     case captureDelayed(mode: CaptureMode, seconds: Int)
     case cancelDelayedCapture
-    case captureScroll
     case copyLastImage
     case copyLastAsMarkdown
     case copyLastWithCitation

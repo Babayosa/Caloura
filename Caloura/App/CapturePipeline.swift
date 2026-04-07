@@ -1,11 +1,8 @@
 import AppKit
-import os.log
-import ScreenCaptureKit
+import Observation
 
-private let performanceLogger = Logger(subsystem: "com.caloura.app", category: "CapturePerformance")
-
-@MainActor
-final class CapturePipeline: ObservableObject {
+@Observable @MainActor
+final class CapturePipeline {
     static let shared = CapturePipeline()
 
     fileprivate struct ServiceDependencies {
@@ -34,7 +31,7 @@ final class CapturePipeline: ObservableObject {
     typealias CopyToClipboardFn = (ProcessedScreenshot, CopyMode) async throws -> Void
     typealias SaveCaptureActionFn = @MainActor (ProcessedScreenshot) async throws -> URL
     typealias RecognizeTextFn = @Sendable (CGImage) async throws -> String
-    typealias HandlePermissionFailureFn = @MainActor () async -> Void
+    typealias HandlePermissionFailureFn = @MainActor (CaptureMode) async -> Void
     typealias ShowQuickAccessFn = (ProcessedScreenshot) -> Void
     typealias PlaySoundFn = () -> Void
     typealias PostNotificationFn = (Notification.Name) -> Void
@@ -78,20 +75,17 @@ final class CapturePipeline: ObservableObject {
     let screenCountProvider: () -> Int
     let freezeScreensEnabled: Bool
     private let enrichmentCoordinator: CaptureEnrichmentCoordinator
+    let metricsRecorder: CaptureMetricsRecorder
+    let freezeService: CaptureFreezeService
 
     // MARK: - Mutable State
 
     let sessionState = CaptureSessionState()
-    var scrollCaptureTask: Task<ScrollCaptureEngine.Result, Never>?
-    private var performanceMetrics = PerformanceMetricsAggregator(
-        maxSamplesPerStage: 200,
-        reportInterval: 20
-    )
     private let requestResolver: CaptureRequestResolver
     let distributionService: CaptureDistributionService
     private let enrichmentService: CaptureEnrichmentService
-    private lazy var executionService = makeCaptureExecutionService()
-    lazy var entrypointService = makeCaptureEntrypointService()
+    @ObservationIgnored lazy var executionService = makeCaptureExecutionService()
+    @ObservationIgnored lazy var entrypointService = makeCaptureEntrypointService()
 
     // MARK: - Init (Production)
 
@@ -120,7 +114,8 @@ final class CapturePipeline: ObservableObject {
         let recognizeText: RecognizeTextFn = { cgImage in
             try await OCREngine.recognizeText(in: cgImage)
         }
-        self.handlePermissionFailure = {
+        self.handlePermissionFailure = { mode in
+            PermissionCoordinator.shared.armPendingCaptureResume(mode: mode)
             await PermissionCoordinator.shared.handleCapturePermissionFailure()
         }
         self.showQuickAccess = { processed in
@@ -139,7 +134,9 @@ final class CapturePipeline: ObservableObject {
         let presetByName: PresetByNameFn = { name in
             presetMgr.preset(named: name)
         }
-        self.selectWindowCapture = makeCapturePipelineSelectWindowCapture()
+        self.selectWindowCapture = makeCapturePipelineSelectWindowCapture(
+            captureManager: self.captureManager
+        )
         self.makeAreaCaptureSession = makeCapturePipelineAreaCaptureSessionFactory(
             performanceRecorder: performanceRecorder,
             cursorController: self.sessionState.cursorController
@@ -155,6 +152,8 @@ final class CapturePipeline: ObservableObject {
         self.screenCountProvider = { NSScreen.screens.count }
         self.freezeScreensEnabled = true
         self.enrichmentCoordinator = CaptureEnrichmentCoordinator()
+        self.metricsRecorder = .shared
+        self.freezeService = .shared
         let services = makeCapturePipelineServices(
             dependencies: ServiceDependencies(
                 settings: self.settings,
@@ -199,7 +198,10 @@ final class CapturePipeline: ObservableObject {
         makeWindowCaptureSession: MakeWindowCaptureSessionFn? = nil,
         screenCountProvider: @escaping () -> Int = { NSScreen.screens.count },
         freezeScreensEnabled: Bool = true,
-        enrichmentCoordinator: CaptureEnrichmentCoordinator = CaptureEnrichmentCoordinator()
+        freezeSnapshotTimeoutSeconds: Double = 2.0,
+        enrichmentCoordinator: CaptureEnrichmentCoordinator = CaptureEnrichmentCoordinator(),
+        metricsRecorder: CaptureMetricsRecorder = CaptureMetricsRecorder(),
+        freezeService: CaptureFreezeService? = nil
     ) {
         let resolvedCaptureManager = captureManager ?? ScreenCaptureManager.shared
         self.captureManager = resolvedCaptureManager
@@ -246,6 +248,12 @@ final class CapturePipeline: ObservableObject {
         self.screenCountProvider = screenCountProvider
         self.freezeScreensEnabled = freezeScreensEnabled
         self.enrichmentCoordinator = enrichmentCoordinator
+        self.metricsRecorder = metricsRecorder
+        self.freezeService = freezeService ?? CaptureFreezeService(
+            captureManager: captureManager ?? ScreenCaptureManager.shared,
+            metricsRecorder: metricsRecorder,
+            freezeSnapshotTimeoutSeconds: freezeSnapshotTimeoutSeconds
+        )
         let resolvedSaveCaptureAction = saveCaptureAction ?? { screenshot in
             let presetName = screenshot.presetName
             let preset = presetName.flatMap(presetByName) ?? CapturePreset(name: "Quick Capture")
@@ -274,28 +282,7 @@ final class CapturePipeline: ObservableObject {
         self.distributionService = services.distributionService
     }
 
-    func elapsedMilliseconds(since start: CFAbsoluteTime) -> Double {
-        (CFAbsoluteTimeGetCurrent() - start) * 1000.0
-    }
-
-    func isSameObject(_ lhs: AnyObject?, _ rhs: AnyObject?) -> Bool {
-        guard let lhs, let rhs else { return false }
-        return ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
-    }
-
     // MARK: - Pipeline
-
-    func performCapture(
-        mode: CaptureMode,
-        performanceSession: CapturePerformanceRecorder.Session? = nil,
-        capture: () async throws -> CGImage
-    ) async {
-        await executionService.performCapture(
-            mode: mode,
-            performanceSession: performanceSession,
-            capture: capture
-        )
-    }
 
     func captureFailureStatusMessage(
         for error: Error,
@@ -323,29 +310,6 @@ final class CapturePipeline: ObservableObject {
         executionService.enqueueEnrichment(for: processed)
     }
 
-    // MARK: - Metrics
-
-    func recordMetric(stage: PerformanceMetricStage, milliseconds: Double) {
-        let key = stage.rawValue
-        performanceLogger.info(
-            "metric_sample stage=\(key, privacy: .public) ms=\(milliseconds, privacy: .public)"
-        )
-        guard let summary = performanceMetrics.record(
-            stage: stage, milliseconds: milliseconds
-        ) else { return }
-        let name = summary.stage.rawValue
-        let count = summary.sampleCount
-        let lat = summary.latestMilliseconds
-        performanceLogger.info(
-            "metric_summary \(name, privacy: .public) n=\(count, privacy: .public) latest=\(lat, privacy: .public)"
-        )
-        let p50 = summary.p50Milliseconds
-        let p95 = summary.p95Milliseconds
-        performanceLogger.info(
-            "metric_percentiles \(name, privacy: .public) p50=\(p50, privacy: .public) p95=\(p95, privacy: .public)"
-        )
-    }
-
 }
 
 @MainActor
@@ -365,13 +329,17 @@ private func makeCapturePipelineCopyToClipboard() -> CapturePipeline.CopyToClipb
 }
 
 @MainActor
-private func makeCapturePipelineSelectWindowCapture() -> CapturePipeline.SelectWindowCaptureFn {
+private func makeCapturePipelineSelectWindowCapture(
+    captureManager: any ScreenCaptureManaging
+) -> CapturePipeline.SelectWindowCaptureFn {
     { onPresented in
         let result = await WindowPickerManager.shared.pickWindow(onPresented: onPresented)
         switch result {
-        case .selected(let filter):
+        case .selected:
             return .selected {
-                try await ScreenCaptureManager.shared.captureWindow(filter: filter)
+                try await WindowPickerManager.shared.captureSelectedWindow(
+                    using: captureManager
+                )
             }
         case .cancelled:
             return .cancelled
@@ -489,10 +457,8 @@ private extension CapturePipeline {
             handlePermissionFailure: handlePermissionFailure,
             showQuickAccess: showQuickAccess,
             postNotification: postNotification,
-            elapsedMilliseconds: elapsedMilliseconds(since:),
-            recordMetric: { [weak self] stage, milliseconds in
-                self?.recordMetric(stage: stage, milliseconds: milliseconds)
-            }
+            metricsRecorder: metricsRecorder
         )
     }
+
 }

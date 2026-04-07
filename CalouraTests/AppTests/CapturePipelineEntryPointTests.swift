@@ -49,7 +49,7 @@ extension CapturePipelineTests {
         areaSession?.triggerCancel()
 
         XCTAssertFalse(pipeline.appState.isCapturing)
-        XCTAssertNil(pipeline.areaCaptureSession)
+        XCTAssertNil(pipeline.sessionState.areaCaptureSession)
     }
 
     func testCaptureArea_selectionRunsLiveAreaCapture() async throws {
@@ -223,7 +223,7 @@ extension CapturePipelineTests {
         }
 
         XCTAssertEqual(captureManager.fullScreenCalls, 1)
-        XCTAssertNil(pipeline.fullscreenCaptureSession)
+        XCTAssertNil(pipeline.sessionState.fullscreenCaptureSession)
     }
 
     func testCaptureWindow_usesInjectedWindowSessionFactory() async {
@@ -266,12 +266,12 @@ extension CapturePipelineTests {
     }
 
     func testCaptureWindow_failedToStartInvokesPermissionFailureHandler() async {
-        var permissionFailureCount = 0
+        var resumedMode: CaptureMode?
         let fakeSession = FakeWindowCaptureSession(result: .failedToStart)
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function,
-            handlePermissionFailure: {
-                permissionFailureCount += 1
+            handlePermissionFailure: { mode in
+                resumedMode = mode
             },
             makeWindowCaptureSession: { _, _, _ in
                 fakeSession
@@ -281,11 +281,11 @@ extension CapturePipelineTests {
         pipeline.captureWindow()
 
         await pollUntil(timeout: 2.0) {
-            permissionFailureCount == 1 && !pipeline.appState.isCapturing
+            resumedMode == .window && !pipeline.appState.isCapturing
         }
 
         XCTAssertEqual(fakeSession.pickCalls, 1)
-        XCTAssertEqual(permissionFailureCount, 1)
+        XCTAssertEqual(resumedMode, .window)
     }
 
     func testCaptureRepeat_usesStoredAreaSelection() async throws {
@@ -379,6 +379,6 @@ extension CapturePipelineTests {
 
         XCTAssertFalse(pipeline.appState.isCountingDown)
         XCTAssertEqual(pipeline.appState.countdownRemaining, 0)
-        XCTAssertNil(pipeline.delayedCaptureTask)
+        XCTAssertNil(pipeline.sessionState.delayedCaptureTask)
     }
 }

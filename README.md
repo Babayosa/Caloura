@@ -92,10 +92,14 @@ For the public website/appcast release flow (v1.0.7 process), use:
 - app build + notarization: `scripts/release.sh`
 - manual-download DMG publish + Sparkle ZIP publish: `scripts/publish.sh`
 - public artifact verification: `scripts/public_download_qa.sh --version 1.0.7 verify`
+- local pre-release validation stays in `scripts/release_ready.sh`
+- live appcast validation happens in `scripts/publish.sh` after the site repo is updated
+- `Release Smoke` GitHub Actions runs the signed packaging flow on a pinned Xcode runner before publish
 
 ## Public Download QA
 
 Use the runbook in `tasks/public-download-qa-runbook.md` for full public download, onboarding, permission, and trial checks.
+Quarantine is preserved by default so Gatekeeper behavior stays visible; set `STRIP_QUARANTINE=1` only when you explicitly want a local-only install without quarantine.
 
 ## License
 

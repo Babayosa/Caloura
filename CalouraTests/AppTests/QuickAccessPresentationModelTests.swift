@@ -3,7 +3,7 @@ import XCTest
 
 final class QuickAccessPresentationModelTests: XCTestCase {
 
-    func testUnsavedScreenshotPrefersSaveAndBeautify() {
+    func testUnsavedScreenshotKeepsBeautifyInOverflow() {
         let screenshot = CapturePipelineTestHelpers.makeProcessed()
 
         let presentation = QuickAccessPresentationModel(
@@ -14,11 +14,11 @@ final class QuickAccessPresentationModelTests: XCTestCase {
 
         XCTAssertEqual(
             presentation.primaryActions,
-            [.copy, .save, .annotate, .beautify]
+            [.copy, .save, .annotate]
         )
         XCTAssertEqual(
             presentation.overflowActions,
-            [.pin, .redact, .markdown, .citation, .dismiss]
+            [.pin, .beautify, .redact, .markdown, .citation, .dismiss]
         )
         XCTAssertFalse(presentation.showsPendingBadge)
         XCTAssertFalse(presentation.showsPIIBadge)

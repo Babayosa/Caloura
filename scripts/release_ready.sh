@@ -11,7 +11,9 @@ TEST_LOG="$OUTPUT_DIR/xcodebuild-test-$TIMESTAMP.log"
 RESULT_BUNDLE_PATH="$OUTPUT_DIR/xcodebuild-test-$TIMESTAMP.xcresult"
 UI_TEST_LOG="$OUTPUT_DIR/xcodebuild-ui-test-$TIMESTAMP.log"
 UI_RESULT_BUNDLE_PATH="$OUTPUT_DIR/xcodebuild-ui-test-$TIMESTAMP.xcresult"
+SCROLL_REPEAT_DERIVED_DATA_PATH="$PROJECT_DIR/.build/DerivedData-scroll-repeat"
 PERF_MINUTES=30
+SCROLL_STABILITY_RUNS="${SCROLL_STABILITY_RUNS:-10}"
 VERSION=""
 SKIP_PERFORMANCE=0
 GUARD_ONLY=0
@@ -32,7 +34,7 @@ What it does:
 Notes:
   - Use --skip-performance only when you are explicitly waiving local perf evidence for this run.
   - Use --guard-only only when you intentionally want to skip full packaging/notarization validation.
-  - The live appcast check requires network access to the SUFeedURL configured in Info.plist.
+  - Live appcast validation happens in scripts/publish.sh after the site repo is updated.
 USAGE
 }
 
@@ -85,13 +87,7 @@ if [[ -z "$VERSION" ]]; then
   exit 1
 fi
 
-SU_FEED_URL="$(read_plist_value "$info_plist" "SUFeedURL")"
 MIN_SYSTEM_VERSION="$(read_plist_value "$info_plist" "LSMinimumSystemVersion")"
-
-if [[ -z "$SU_FEED_URL" ]]; then
-  echo "ERROR: SUFeedURL is missing from $info_plist"
-  exit 1
-fi
 
 if [[ -z "$MIN_SYSTEM_VERSION" ]]; then
   echo "ERROR: LSMinimumSystemVersion is missing from $info_plist"
@@ -110,19 +106,6 @@ check_log_for_warnings() {
     grep -n "warning:" "$log_file"
     exit 1
   fi
-}
-
-validate_live_appcast() {
-  run_step "Validating live appcast against release manifest"
-
-  if [[ ! -f "$MANIFEST_PATH" ]]; then
-    echo "ERROR: Release manifest not found at $MANIFEST_PATH"
-    exit 1
-  fi
-
-  python3 "$PROJECT_DIR/scripts/validate_appcast_against_manifest.py" \
-    --manifest "$MANIFEST_PATH" \
-    --url "$SU_FEED_URL"
 }
 
 run_step "swift build"
@@ -165,6 +148,23 @@ run_step "xcodebuild test"
     2>&1 | tee "$TEST_LOG"
 )
 check_log_for_warnings "$TEST_LOG"
+
+run_step "ScrollCaptureEngine Xcode stability loop (${SCROLL_STABILITY_RUNS}x)"
+for run in $(seq 1 "$SCROLL_STABILITY_RUNS"); do
+  scroll_log="$OUTPUT_DIR/xcodebuild-scroll-repeat-$TIMESTAMP-$run.log"
+  (
+    cd "$PROJECT_DIR"
+    xcodebuild test \
+      -project Caloura.xcodeproj \
+      -scheme Caloura \
+      -configuration Debug \
+      -derivedDataPath "$SCROLL_REPEAT_DERIVED_DATA_PATH" \
+      -only-testing:CalouraTests/ScrollCaptureEngineTests \
+      -destination 'platform=macOS,arch=arm64' \
+      >"$scroll_log" 2>&1
+  )
+  check_log_for_warnings "$scroll_log"
+done
 
 run_step "Coverage gate"
 python3 "$PROJECT_DIR/scripts/coverage_gate.py" \
@@ -237,8 +237,6 @@ else
     RELEASE_TAG="v$VERSION" ./scripts/release.sh "$VERSION"
   )
 fi
-
-validate_live_appcast
 
 if [[ "$SKIP_PERFORMANCE" -eq 1 ]]; then
   echo ""

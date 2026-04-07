@@ -59,7 +59,6 @@ final class AreaCaptureSessionCoordinator {
     func present(windows: [CaptureOverlayWindow], suppressDimming: Bool = false) {
         firstInteractionRecorded = false
         frozenImages = [:]
-        cursorController.beginCrosshairSession()
         overlayWindows = windows
 
         for (index, window) in windows.enumerated() {
@@ -96,6 +95,23 @@ final class AreaCaptureSessionCoordinator {
             }
         }
 
+        cursorController.beginCrosshairSession()
+
+        // Force synchronous cursor rect registration on all overlays.
+        // On pooled window reuse, becomeKey()/viewDidMoveToWindow may
+        // not fire, leaving cursor rects stale. invalidateCursorRects
+        // is async and unreliable; calling resetCursorRects() directly
+        // registers the crosshair rect immediately so AppKit's cursor
+        // tracking applies it without waiting for the next run loop pass.
+        for window in windows {
+            if let contentView = window.contentView {
+                contentView.discardCursorRects()
+                contentView.resetCursorRects()
+                window.invalidateCursorRects(for: contentView)
+            }
+        }
+
+        cursorController.handleCursorUpdate()
         cursorController.scheduleReprime()
         performanceRecorder.mark(.overlayVisible, in: session)
     }

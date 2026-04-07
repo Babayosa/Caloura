@@ -32,7 +32,7 @@ final class CapturePipelineTests: XCTestCase {
         pipeline.settings.autoCopyToClipboard = true
 
         let img = testImage()
-        await pipeline.performCapture(mode: .area) { img }
+        await pipeline.executionService.performCapture(mode: .area) { img }
 
         XCTAssertTrue(processImageCalled)
         XCTAssertTrue(copyToClipboardCalled)
@@ -41,48 +41,12 @@ final class CapturePipelineTests: XCTestCase {
         XCTAssertFalse(pipeline.appState.isCapturing)
     }
 
-    func testPerformCapture_permissionError() async {
-        var permissionFailureCalled = false
-
-        let pipeline = CapturePipelineTestHelpers.makePipeline(
-            testName: #function,
-            handlePermissionFailure: { permissionFailureCalled = true }
-        )
-
-        await pipeline.performCapture(mode: .area) {
-            throw CaptureError.noPermission
-        }
-
-        XCTAssertTrue(permissionFailureCalled)
-        XCTAssertFalse(pipeline.appState.isCapturing)
-    }
-
-    func testPerformCapture_genericError() async {
-        var permissionFailureCalled = false
-
-        let pipeline = CapturePipelineTestHelpers.makePipeline(
-            testName: #function,
-            handlePermissionFailure: { permissionFailureCalled = true }
-        )
-
-        await pipeline.performCapture(mode: .area) {
-            throw CaptureError.captureFailed("test error")
-        }
-
-        XCTAssertFalse(permissionFailureCalled)
-        XCTAssertTrue(
-            pipeline.appState.statusMessage.contains("Try again")
-        )
-        XCTAssertFalse(pipeline.appState.statusMessage.contains("test error"))
-        XCTAssertFalse(pipeline.appState.isCapturing)
-    }
-
     func testPerformCapture_timeoutError() async {
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function
         )
 
-        await pipeline.performCapture(mode: .area) {
+        await pipeline.executionService.performCapture(mode: .area) {
             throw TimeoutError.timedOut
         }
 
@@ -105,7 +69,7 @@ final class CapturePipelineTests: XCTestCase {
         pipeline.settings.autoSaveToDisk = true
 
         let img = testImage()
-        await pipeline.performCapture(mode: .area) { img }
+        await pipeline.executionService.performCapture(mode: .area) { img }
 
         await fulfillment(of: [saveExpectation], timeout: 2.0)
     }
@@ -123,7 +87,7 @@ final class CapturePipelineTests: XCTestCase {
         pipeline.settings.autoSaveToDisk = false
 
         let img = testImage()
-        await pipeline.performCapture(mode: .area) { img }
+        await pipeline.executionService.performCapture(mode: .area) { img }
 
         XCTAssertFalse(saveFileCalled)
     }
@@ -144,7 +108,7 @@ final class CapturePipelineTests: XCTestCase {
         pipeline.settings.autoSaveToDisk = true
 
         let img = testImage()
-        await pipeline.performCapture(mode: .area) { img }
+        await pipeline.executionService.performCapture(mode: .area) { img }
 
         await fulfillment(of: [saveExpectation], timeout: 2.0)
         // filePath stays nil because the save threw
@@ -163,7 +127,7 @@ final class CapturePipelineTests: XCTestCase {
         pipeline.settings.autoCopyToClipboard = true
 
         let img = testImage()
-        await pipeline.performCapture(mode: .area) { img }
+        await pipeline.executionService.performCapture(mode: .area) { img }
 
         XCTAssertTrue(copyToClipboardCalled)
     }
@@ -178,7 +142,7 @@ final class CapturePipelineTests: XCTestCase {
         pipeline.settings.autoCopyToClipboard = false
 
         let img = testImage()
-        await pipeline.performCapture(mode: .area) { img }
+        await pipeline.executionService.performCapture(mode: .area) { img }
 
         XCTAssertFalse(copyToClipboardCalled)
     }
@@ -193,7 +157,7 @@ final class CapturePipelineTests: XCTestCase {
         pipeline.settings.playCaptureSound = true
 
         let img = testImage()
-        await pipeline.performCapture(mode: .area) { img }
+        await pipeline.executionService.performCapture(mode: .area) { img }
 
         XCTAssertTrue(playSoundCalled)
     }
@@ -208,7 +172,7 @@ final class CapturePipelineTests: XCTestCase {
         pipeline.settings.playCaptureSound = false
 
         let img = testImage()
-        await pipeline.performCapture(mode: .area) { img }
+        await pipeline.executionService.performCapture(mode: .area) { img }
 
         XCTAssertFalse(playSoundCalled)
     }
@@ -221,7 +185,7 @@ final class CapturePipelineTests: XCTestCase {
         XCTAssertNil(pipeline.appState.lastScreenshot)
 
         let img = testImage()
-        await pipeline.performCapture(mode: .area) { img }
+        await pipeline.executionService.performCapture(mode: .area) { img }
 
         XCTAssertNotNil(pipeline.appState.lastScreenshot)
         XCTAssertEqual(pipeline.appState.statusMessage, "Captured!")
@@ -244,7 +208,7 @@ final class CapturePipelineTests: XCTestCase {
         XCTAssertEqual(pipeline.appState.recentScreenshots.count, 0)
 
         let img = testImage()
-        await pipeline.performCapture(mode: .area) { img }
+        await pipeline.executionService.performCapture(mode: .area) { img }
 
         await fulfillment(of: [saveExpectation], timeout: 2.0)
         XCTAssertEqual(pipeline.appState.recentScreenshots.count, 1)
@@ -264,7 +228,7 @@ final class CapturePipelineTests: XCTestCase {
         pipeline.settings.autoSaveToDisk = true
 
         let img = testImage()
-        await pipeline.performCapture(mode: .area) { img }
+        await pipeline.executionService.performCapture(mode: .area) { img }
 
         await fulfillment(of: [ocrExpectation], timeout: 5.0)
     }
@@ -469,24 +433,6 @@ final class CapturePipelineTests: XCTestCase {
         XCTAssertEqual(pipeline.appState.lastScreenshot?.context.mode, .window)
     }
 
-    func testCaptureWindow_failedToStartRoutesPermissionFailure() async {
-        var permissionFailureCalled = false
-        let pipeline = CapturePipelineTestHelpers.makePipeline(
-            testName: #function,
-            handlePermissionFailure: { permissionFailureCalled = true },
-            selectWindowCapture: { _ in .failedToStart }
-        )
-
-        pipeline.captureWindow()
-
-        await pollUntil(timeout: 2.0) {
-            permissionFailureCalled
-        }
-
-        XCTAssertTrue(permissionFailureCalled)
-        XCTAssertFalse(pipeline.appState.isCapturing)
-    }
-
     // MARK: - autoContextDetection preset routing
 
     func testAutoContext_on_usesCategory() async {
@@ -505,7 +451,7 @@ final class CapturePipelineTests: XCTestCase {
         pipeline.settings.autoContextDetection = true
 
         let img = testImage()
-        await pipeline.performCapture(mode: .area) { img }
+        await pipeline.executionService.performCapture(mode: .area) { img }
 
         XCTAssertTrue(presetForCategoryCalled)
     }
@@ -523,7 +469,7 @@ final class CapturePipelineTests: XCTestCase {
         pipeline.settings.autoContextDetection = false
 
         let img = testImage()
-        await pipeline.performCapture(mode: .area) { img }
+        await pipeline.executionService.performCapture(mode: .area) { img }
 
         XCTAssertTrue(presetByNameCalled)
     }
@@ -552,7 +498,7 @@ final class CapturePipelineTests: XCTestCase {
         pipeline.settings.autoSaveToDisk = true
 
         let img = testImage()
-        await pipeline.performCapture(mode: .area) { img }
+        await pipeline.executionService.performCapture(mode: .area) { img }
         await fulfillment(of: [saveExpectation], timeout: 2.0)
 
         XCTAssertGreaterThan(quickAccessOrder, 0, "showQuickAccess should be called")
@@ -582,7 +528,7 @@ final class CapturePipelineTests: XCTestCase {
         pipeline.settings.autoCopyToClipboard = true
 
         let img = testImage()
-        await pipeline.performCapture(mode: .area) { img }
+        await pipeline.executionService.performCapture(mode: .area) { img }
 
         XCTAssertGreaterThan(quickAccessOrder, 0, "showQuickAccess should be called")
         XCTAssertGreaterThan(clipboardOrder, 0, "copyToClipboard should be called")
@@ -612,7 +558,7 @@ final class CapturePipelineTests: XCTestCase {
         pipeline.settings.autoSaveToDisk = true
 
         let img = testImage()
-        await pipeline.performCapture(mode: .area) { img }
+        await pipeline.executionService.performCapture(mode: .area) { img }
         let screenshot = try? XCTUnwrap(pipeline.appState.lastScreenshot)
 
         await fulfillment(of: [saveExpectation, recognitionStarted], timeout: 5.0)
