@@ -222,7 +222,11 @@ final class ScreenCaptureManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testMakeFreezeSnapshotConfiguration_usesNativePixelDimensions() throws {
+    func testMakeFreezeSnapshotConfiguration_usesNativeRetinaDimensions() throws {
+        // The freeze snapshot is the backdrop behind the selection overlay,
+        // so it must render at native pixel density. Downsampling and then
+        // having the display layer upscale was producing visible blur on
+        // Retina displays.
         let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
         let scale = screen.backingScaleFactor
 
@@ -230,6 +234,7 @@ final class ScreenCaptureManagerTests: XCTestCase {
 
         XCTAssertEqual(configuration.width, max(1, Int(ceil(screen.frame.width * scale))))
         XCTAssertEqual(configuration.height, max(1, Int(ceil(screen.frame.height * scale))))
+        XCTAssertEqual(configuration.captureResolution, .best)
     }
 
     @MainActor
@@ -297,7 +302,7 @@ final class ScreenCaptureManagerTests: XCTestCase {
             cancelledExpectation: captureCancelled
         )
         let manager = ScreenCaptureManager(
-            makeFrozenDisplaySnapshotOperation: { _, _ in
+            makeFrozenDisplaySnapshotOperation: { _, _, _ in
                 operation
             }
         )

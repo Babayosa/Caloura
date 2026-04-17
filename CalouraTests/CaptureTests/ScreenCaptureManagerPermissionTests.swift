@@ -277,7 +277,7 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
         XCTAssertEqual(capturedMessage, "Restart failed: boom")
     }
 
-    func testShowPermissionAlert_neverGrantedOpensSettings() {
+    func testShowPermissionAlert_neverGrantedOpensSettings() async {
         let box = DependencyBox()
         let manager = ScreenCaptureManager(
             permissionDependencies: makeDependencies(
@@ -286,13 +286,13 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
             )
         )
 
-        _ = manager.showPermissionAlert(for: .neverGranted)
+        _ = await manager.showPermissionAlert(for: .neverGranted)
 
         XCTAssertEqual(box.openedURLs.count, 1)
         XCTAssertTrue(box.openedURLs[0].absoluteString.contains("Privacy_ScreenCapture"))
     }
 
-    func testShowPermissionAlert_neverGrantedCancelDoesNothing() {
+    func testShowPermissionAlert_neverGrantedCancelDoesNothing() async {
         let box = DependencyBox()
         let manager = ScreenCaptureManager(
             permissionDependencies: makeDependencies(
@@ -301,13 +301,13 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
             )
         )
 
-        _ = manager.showPermissionAlert(for: .neverGranted)
+        _ = await manager.showPermissionAlert(for: .neverGranted)
 
         XCTAssertTrue(box.openedURLs.isEmpty)
         XCTAssertEqual(box.terminateCount, 0)
     }
 
-    func testShowPermissionAlert_neverGrantedRestartDoesNothing() {
+    func testShowPermissionAlert_neverGrantedRestartDoesNothing() async {
         let box = DependencyBox()
         let manager = ScreenCaptureManager(
             permissionDependencies: makeDependencies(
@@ -316,7 +316,7 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
             )
         )
 
-        _ = manager.showPermissionAlert(for: .neverGranted)
+        _ = await manager.showPermissionAlert(for: .neverGranted)
 
         XCTAssertTrue(box.openedURLs.isEmpty)
         XCTAssertEqual(box.terminateCount, 0)
@@ -335,13 +335,13 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
             expectation.fulfill()
         }
 
-        _ = manager.showPermissionAlert(for: .grantedButFailing)
+        _ = await manager.showPermissionAlert(for: .grantedButFailing)
 
         await fulfillment(of: [expectation], timeout: 1.0)
         XCTAssertTrue(box.runRepairToolCalls.isEmpty)
     }
 
-    func testShowPermissionAlert_grantedButFailingOpenSettingsUsesURLHandler() {
+    func testShowPermissionAlert_grantedButFailingOpenSettingsUsesURLHandler() async {
         let box = DependencyBox()
         let manager = ScreenCaptureManager(
             permissionDependencies: makeDependencies(
@@ -350,12 +350,12 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
             )
         )
 
-        _ = manager.showPermissionAlert(for: .grantedButFailing)
+        _ = await manager.showPermissionAlert(for: .grantedButFailing)
 
         XCTAssertEqual(box.openedURLs.count, 1)
     }
 
-    func testShowPermissionAlert_grantedButFailingCancelDoesNothing() {
+    func testShowPermissionAlert_grantedButFailingCancelDoesNothing() async {
         let box = DependencyBox()
         let manager = ScreenCaptureManager(
             permissionDependencies: makeDependencies(
@@ -364,7 +364,7 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
             )
         )
 
-        _ = manager.showPermissionAlert(for: .grantedButFailing)
+        _ = await manager.showPermissionAlert(for: .grantedButFailing)
 
         XCTAssertTrue(box.openedURLs.isEmpty)
         XCTAssertEqual(box.terminateCount, 0)

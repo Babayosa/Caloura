@@ -54,10 +54,19 @@ final class ProcessedScreenshotTests: XCTestCase {
         XCTAssertEqual(data[1], 0x50)
     }
 
-    func testTiffData_returnsNonEmptyData() throws {
+    func testReleaseEncodedCaches_clearsPngBuffer() throws {
         let screenshot = makeScreenshot()
-        let data = try screenshot.tiffData()
-        XCTAssertFalse(data.isEmpty)
+        _ = try screenshot.pngData()
+        XCTAssertNotNil(screenshot.cachedPNGData())
+        screenshot.releaseEncodedCaches()
+        XCTAssertNil(screenshot.cachedPNGData())
+    }
+
+    func testReleaseEncodedCaches_isIdempotent() throws {
+        let screenshot = makeScreenshot()
+        screenshot.releaseEncodedCaches()
+        screenshot.releaseEncodedCaches()
+        XCTAssertNil(screenshot.cachedPNGData())
     }
 
     func testPngData_isCached() throws {

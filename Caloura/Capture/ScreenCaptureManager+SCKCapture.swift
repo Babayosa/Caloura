@@ -10,6 +10,23 @@ private let logger = Logger(
     category: "ScreenCapture"
 )
 
+/// Shared CIContext reused across all freeze snapshots. `CIContext` init is
+/// GPU-context setup (~10–50ms); allocating one per capture was a measurable
+/// freeze-latency tax.
+// Extended-linear sRGB keeps wide-gamut (P3) and EDR pixel values unclipped
+// through the CIContext pipeline. The output color space on `createCGImage`
+// still tags the image with the display's native space (usually P3), so the
+// freeze overlay renders without the green cast the sRGB working-space
+// produced on P3 displays.
+private let sharedFreezeCIContext: CIContext = {
+    let workingSpace = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)
+        ?? CGColorSpace(name: CGColorSpace.sRGB)
+        ?? CGColorSpaceCreateDeviceRGB()
+    return CIContext(options: [
+        .workingColorSpace: workingSpace
+    ])
+}()
+
 extension ScreenCaptureManager {
 
     // MARK: - SCK Capture
@@ -107,6 +124,9 @@ extension ScreenCaptureManager {
         for screen: NSScreen
     ) -> SCStreamConfiguration {
         let configuration = SCStreamConfiguration()
+        // Freeze snapshot is what the user sees behind the dimming + selection
+        // overlay — it must render at native pixel density, otherwise Retina
+        // users see a blurry, upsampled backdrop when capture mode opens.
         let scale = screen.backingScaleFactor
         configuration.width = max(
             1,
@@ -149,28 +169,10 @@ extension ScreenCaptureManager {
             throw error
         }
 
-        let target: FrozenDisplayCaptureTarget
-        do {
-            target = try freezeCaptureTarget(
-                screen: screen,
-                shareableContent: shareableContent
-            )
-        } catch {
-            let refreshedContent: SCShareableContent
-            do {
-                refreshedContent = try await self.shareableContent(forceRefresh: true)
-            } catch {
-                handleSCKFailure(error, context: .shareableContentLookup)
-                if let captureError = captureErrorForSCKFailure(error) {
-                    throw captureError
-                }
-                throw error
-            }
-            target = try freezeCaptureTarget(
-                screen: screen,
-                shareableContent: refreshedContent
-            )
-        }
+        let target = try freezeCaptureTarget(
+            screen: screen,
+            shareableContent: shareableContent
+        )
 
         let filter = SCContentFilter(
             display: target.display,
@@ -180,11 +182,13 @@ extension ScreenCaptureManager {
         let configuration = makeFreezeSnapshotConfiguration(
             for: target.resolvedScreen.screen
         )
+        let colorSpace = target.resolvedScreen.screen.colorSpace?.cgColorSpace
 
         do {
             return try await captureFrozenDisplaySnapshot(
                 contentFilter: filter,
-                configuration: configuration
+                configuration: configuration,
+                colorSpace: colorSpace
             )
         } catch is CancellationError {
             logger.debug("Freeze snapshot cancelled before completion")
@@ -227,7 +231,7 @@ final class OneShotFrozenDisplayStreamCapture: NSObject,
     @unchecked Sendable {
     private let contentFilter: SCContentFilter
     private let configuration: SCStreamConfiguration
-    private let imageContext = CIContext()
+    private let outputColorSpace: CGColorSpace
     private let sampleQueue = DispatchQueue(
         label: "com.caloura.app.freeze-stream-capture"
     )
@@ -239,10 +243,14 @@ final class OneShotFrozenDisplayStreamCapture: NSObject,
 
     init(
         contentFilter: SCContentFilter,
-        configuration: SCStreamConfiguration
+        configuration: SCStreamConfiguration,
+        colorSpace: CGColorSpace? = nil
     ) {
         self.contentFilter = contentFilter
         self.configuration = configuration
+        self.outputColorSpace = colorSpace
+            ?? CGColorSpace(name: CGColorSpace.sRGB)
+            ?? CGColorSpaceCreateDeviceRGB()
     }
 
     func captureImage() async throws -> CGImage {
@@ -389,7 +397,12 @@ final class OneShotFrozenDisplayStreamCapture: NSObject,
             height: CVPixelBufferGetHeight(pixelBuffer)
         )
 
-        guard let cgImage = imageContext.createCGImage(image, from: extent) else {
+        guard let cgImage = sharedFreezeCIContext.createCGImage(
+            image,
+            from: extent,
+            format: .RGBA8,
+            colorSpace: outputColorSpace
+        ) else {
             throw CaptureError.noContent(
                 source: "Freeze snapshot stream image conversion"
             )

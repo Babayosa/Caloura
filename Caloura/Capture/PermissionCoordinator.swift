@@ -34,8 +34,6 @@ enum ScreenRecordingState: Equatable {
     case repairing
 }
 
-typealias PermissionStatus = ScreenRecordingState
-
 struct PermissionUIModel: Equatable {
     var status: ScreenRecordingState = .grantedNeedsValidation
     var guidanceText: String?
@@ -59,6 +57,30 @@ struct PermissionIdentity: Equatable {
             signingIdentityType,
             designatedRequirementHash
         ].joined(separator: "|")
+    }
+
+    /// Identity key used when deciding whether the macOS Screen Recording
+    /// grant on disk actually applies to *this* copy of the app. Excludes
+    /// `executablePath` so iterative Debug builds (which write to a new
+    /// DerivedData path each time) do not appear as a different Caloura
+    /// and trigger stale-record alerts. The designated-requirement hash
+    /// still catches different-team or re-signed copies.
+    var trustedSigningKey: String {
+        [
+            bundleIdentifier,
+            teamIdentifier,
+            signingIdentityType,
+            designatedRequirementHash
+        ].joined(separator: "|")
+    }
+
+    /// Recover the trusted signing key from a previously-stored fingerprint
+    /// without needing a new UserDefaults key. The fingerprint layout above
+    /// has the executablePath at column 1; this drops that column.
+    static func trustedSigningKey(fromStoredFingerprint fingerprint: String) -> String? {
+        let parts = fingerprint.split(separator: "|", omittingEmptySubsequences: false)
+        guard parts.count == 5 else { return nil }
+        return [parts[0], parts[2], parts[3], parts[4]].joined(separator: "|")
     }
 
     /// Build the identity for the currently running app bundle.
@@ -240,7 +262,7 @@ final class PermissionCoordinator {
         self.primeCheck = { await ScreenCaptureManager.shared.primeSCKAccessIfPossible() }
         self.interactiveCheck = { await ScreenCaptureManager.shared.validateSCKAccessUserInitiated() }
         self.alertPresenter = { state in
-            alertDecision.lastAction = ScreenCaptureManager.shared.showPermissionAlert(for: state)
+            alertDecision.lastAction = await ScreenCaptureManager.shared.showPermissionAlert(for: state)
         }
         self.alertRequestedRelaunch = {
             alertDecision.lastAction == .restartApp
@@ -572,15 +594,55 @@ final class PermissionCoordinator {
                 _ = publishWorkingValidated(identity, clearPermissionRequest: false)
                 return .working
             }
-            logger.info("silent_repair_did_not_resolve — proceeding to auto-fix")
-            if canAttemptAutoRepairRelaunch() {
-                markAutoRepairRelaunchAttempted()
-                logger.info("auto_repair_relaunch — TCC reset + relaunch")
+            // `.confirmRepairRelaunch` is destructive (TCC reset + forced
+            // relaunch). Gate it on BOTH passive=.denied AND an interactive
+            // check also failing. When CG says granted, a single capture
+            // failure is not strong enough evidence of a real permission
+            // problem — surface a non-blocking status instead of cascading
+            // into a modal alert that greys the menu bar.
+            logger.info("silent_repair_did_not_resolve — CG granted, treating as transient")
+            status = publishExplicitFailure(for: identity)
+            clearPendingCaptureResume()
+            statusMessageSink(nonBlockingMessage(for: status))
+            updateCooldownInModel(cooldownActive: false)
+            return status
+        }
+
+        // Passive status is .denied. Corroborate with a live interactive
+        // check before firing the destructive repair flow. If interactive
+        // succeeds, TCC is stale but SCK works — a relaunch would only be
+        // disruptive. If interactive also fails, the system is genuinely
+        // stuck and the repair prompt is warranted.
+        let interactiveResult = await interactiveCheck()
+        logger.info(
+            "repair_gate_interactive result=\(String(describing: interactiveResult), privacy: .public)"
+        )
+        if interactiveResult == .authorized {
+            return publishWorkingValidated(identity)
+        }
+
+        if interactiveResult == .transientFailure,
+           canAttemptAutoRepairRelaunch(),
+           !isShowingAlert {
+            markAutoRepairRelaunchAttempted()
+            isShowingAlert = true
+            await alertPresenter(.confirmRepairRelaunch)
+            isShowingAlert = false
+            if alertRequestedRelaunch() {
+                logger.info("user_approved_repair_relaunch — TCC reset + relaunch")
                 await performTCCResetAndRelaunch()
                 return .repairing
             }
-            logger.info("auto_repair_relaunch on cooldown — falling through to alert")
-            status = publishExplicitFailure(for: identity)
+            // User declined the destructive repair. Do NOT fall through
+            // to a second modal alert — that's two blocking prompts
+            // back-to-back for the same failure. Set the cooldown and
+            // surface a non-blocking status so the user can retry.
+            logger.info("user_declined_repair_relaunch — surfacing status only")
+            clearPendingCaptureResume()
+            statusMessageSink(nonBlockingMessage(for: status))
+            lastBlockingAlertAt = now()
+            updateCooldownInModel(cooldownActive: true)
+            return status
         }
 
         let now = now()
@@ -630,6 +692,17 @@ final class PermissionCoordinator {
         relaunchApp()
     }
 
+}
+
+extension PermissionCoordinator {
+    /// Pure query. `updateUIModel` reassigns `permissionUIModel` from scratch
+    /// using this value, and `scheduleCooldownReset` clears the model flag
+    /// when the timer fires — so this method does not need a write side effect.
+    func isCooldownActive(at timestamp: Date) -> Bool {
+        lastBlockingAlertAt.map {
+            timestamp.timeIntervalSince($0) < alertCooldownSeconds
+        } ?? false
+    }
 }
 
 private extension PermissionCoordinator {
@@ -741,11 +814,6 @@ private extension PermissionCoordinator {
         }
     }
 
-    func isCooldownActive(at timestamp: Date) -> Bool {
-        guard let lastBlockingAlertAt else { return false }
-        return timestamp.timeIntervalSince(lastBlockingAlertAt) < alertCooldownSeconds
-    }
-
     func updateCooldownInModel(cooldownActive: Bool) {
         permissionUIModel.isAlertCooldownActive = cooldownActive
         if cooldownActive {
@@ -772,7 +840,19 @@ private extension PermissionCoordinator {
     }
 
     func isKnownWorkingIdentity(_ identity: PermissionIdentity) -> Bool {
-        knownWorkingFingerprint() == identity.fingerprint
+        guard let lastWorkingFingerprint = knownWorkingFingerprint() else {
+            return false
+        }
+        if lastWorkingFingerprint == identity.fingerprint {
+            return true
+        }
+        // Path-relaxed match: accept the record if the signing identity
+        // matches. DerivedData iteration changes executablePath but keeps
+        // signing info stable, so the prior grant still applies.
+        let storedSigningKey = PermissionIdentity.trustedSigningKey(
+            fromStoredFingerprint: lastWorkingFingerprint
+        )
+        return storedSigningKey == identity.trustedSigningKey
     }
 
     func isLiveValidatedIdentity(_ identity: PermissionIdentity) -> Bool {
@@ -853,7 +933,14 @@ private extension PermissionCoordinator {
         guard let lastWorkingFingerprint = knownWorkingFingerprint() else {
             return false
         }
-        return lastWorkingFingerprint != identity.fingerprint
+        // A stale-record alert should only fire when the *signing identity*
+        // changed (different team / re-signed binary). Differences in the
+        // executable path alone (DerivedData iteration) are not stale —
+        // macOS continues to honor the grant for the same signed identity.
+        let storedSigningKey = PermissionIdentity.trustedSigningKey(
+            fromStoredFingerprint: lastWorkingFingerprint
+        ) ?? lastWorkingFingerprint
+        return storedSigningKey != identity.trustedSigningKey
     }
 
     func recordWorkingIdentity(_ identity: PermissionIdentity) {

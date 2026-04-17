@@ -9,20 +9,24 @@ final class CaptureFreezeService {
 
     private let captureManager: ScreenCaptureManaging
     private let metricsRecorder: CaptureMetricsRecorder
+    private let performanceRecorder: CapturePerformanceRecorder
     private let freezeSnapshotTimeoutSeconds: Double
 
     init(
         captureManager: ScreenCaptureManaging = ScreenCaptureManager.shared,
         metricsRecorder: CaptureMetricsRecorder = .shared,
+        performanceRecorder: CapturePerformanceRecorder = .shared,
         freezeSnapshotTimeoutSeconds: Double = 2.0
     ) {
         self.captureManager = captureManager
         self.metricsRecorder = metricsRecorder
+        self.performanceRecorder = performanceRecorder
         self.freezeSnapshotTimeoutSeconds = freezeSnapshotTimeoutSeconds
     }
 
     func freezeScreens(
-        entryStart: CFAbsoluteTime
+        entryStart: CFAbsoluteTime,
+        performanceSession: CapturePerformanceRecorder.Session? = nil
     ) async -> [NSScreen: CGImage] {
         let freezeStart = CFAbsoluteTimeGetCurrent()
         let frozenImages = await captureAllScreens()
@@ -34,38 +38,30 @@ final class CaptureFreezeService {
         metricsRecorder.recordMetric(
             stage: .freezeSnapshot, milliseconds: freezeDuration
         )
+        if let performanceSession {
+            performanceRecorder.recordDuration(
+                .freezeSnapshot,
+                milliseconds: freezeDuration,
+                in: performanceSession
+            )
+        }
         return frozenImages
     }
 
     /// Capture all connected screens so every overlay has a clean frozen image
     /// and the selection path never falls back to a live SCK capture.
-    /// Launches captures in parallel for lower total latency on multi-monitor setups.
+    ///
+    /// Captures run sequentially on MainActor — the Task fan-out serialized
+    /// there anyway, and the extra scheduler churn added ~3-5ms of hop noise.
     private func captureAllScreens() async -> [NSScreen: CGImage] {
-        let tasks = NSScreen.screens.map { screen in
-            (
-                screen,
-                Task<CGImage?, Never> { @MainActor [weak self] in
-                    guard let self else { return nil }
-                    return await self.captureFrozenSnapshot(for: screen)
-                }
-            )
-        }
-        let cancellableTasks = tasks.map(\.1)
-
-        return await withTaskCancellationHandler {
-            var result: [NSScreen: CGImage] = [:]
-            for (screen, task) in tasks {
-                let image = await task.value
-                if let image {
-                    result[screen] = image
-                }
-            }
-            return result
-        } onCancel: {
-            for task in cancellableTasks {
-                task.cancel()
+        var result: [NSScreen: CGImage] = [:]
+        for screen in NSScreen.screens {
+            if Task.isCancelled { break }
+            if let image = await captureFrozenSnapshot(for: screen) {
+                result[screen] = image
             }
         }
+        return result
     }
 
     private func captureFrozenSnapshot(

@@ -95,7 +95,8 @@ final class CaptureEntrypointService {
         loadAreaCaptureFrozenImages(
             for: coordinator,
             sessionID: sessionID,
-            entryStart: entryStart
+            entryStart: entryStart,
+            performanceSession: performanceSession
         )
     }
 
@@ -146,8 +147,13 @@ final class CaptureEntrypointService {
             case .cancelled:
                 self.finishInterruptedCapture(performanceSession)
             case .failedToStart:
+                // Transient picker failure. Do NOT cascade into the
+                // permission-repair flow — that path shows a modal alert
+                // and resets TCC, which is destructive when the picker
+                // just had a single transient miss. Surface a soft status
+                // message only; the next hotkey press gets a fresh picker.
+                self.appState.statusMessage = "Window picker unavailable. Try again."
                 self.finishInterruptedCapture(performanceSession)
-                await self.handlePermissionFailure(.window)
             }
         }
     }

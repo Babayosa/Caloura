@@ -15,8 +15,12 @@ final class CapturePerformanceRecorder {
     enum Event: String, CaseIterable {
         case appActivated = "app_activated"
         case overlayVisible = "overlay_visible"
+        case freezeSnapshot = "freeze_snapshot"
+        case prewarmComplete = "prewarm_complete"
         case pickerVisibleWarm = "picker_visible_warm"
         case pickerVisibleCold = "picker_visible_cold"
+        case pickerSelectionReceived = "picker_selection_received"
+        case windowCaptureComplete = "window_capture_complete"
         case firstInteraction = "first_interaction"
         case screenshotDuration = "screenshot_duration"
         case previewPresentationDuration = "preview_presentation_duration"

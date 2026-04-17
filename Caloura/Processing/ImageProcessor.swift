@@ -1,4 +1,9 @@
 import AppKit
+import ImageIO
+import UniformTypeIdentifiers
+import os.log
+
+private let imageProcessorLogger = Logger(subsystem: "com.caloura.app", category: "ImageProcessor")
 
 enum ImageProcessingError: LocalizedError {
     case encodingFailed(String)
@@ -65,6 +70,38 @@ struct ImageProcessor {
                 throw ImageProcessingError.encodingFailed("tiff")
             }
             return data
+        }
+    }
+
+    /// Generate HEIC data from a CGImage via CGImageDestination.
+    /// Emits a debug log when the source has alpha, so downstream "lost
+    /// transparency" reports are traceable to the encoder input rather than
+    /// the capture pipeline.
+    static func heicRepresentation(of cgImage: CGImage, quality: CGFloat = 0.85) throws -> Data {
+        try autoreleasepool {
+            switch cgImage.alphaInfo {
+            case .none, .noneSkipFirst, .noneSkipLast:
+                break
+            default:
+                imageProcessorLogger.debug(
+                    "heic_encode_with_alpha alpha=\(cgImage.alphaInfo.rawValue, privacy: .public)"
+                )
+            }
+
+            let data = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(
+                data, UTType.heic.identifier as CFString, 1, nil
+            ) else {
+                imageProcessorLogger.error("heic_destination_create_failed")
+                throw ImageProcessingError.encodingFailed("heic")
+            }
+            let options: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: quality]
+            CGImageDestinationAddImage(destination, cgImage, options as CFDictionary)
+            guard CGImageDestinationFinalize(destination) else {
+                imageProcessorLogger.error("heic_finalize_failed")
+                throw ImageProcessingError.encodingFailed("heic")
+            }
+            return data as Data
         }
     }
 }

@@ -76,31 +76,40 @@ final class WindowPickerManager: NSObject {
         pendingFilter = nil
         picker.isActive = true
 
-        return await withCheckedContinuation { newContinuation in
-            self.continuation = newContinuation
-            let observer = SessionObserver(sessionID: sessionID, manager: self)
-            self.sessionObserver = observer
-            self.picker.add(observer)
-            self.presentationTask?.cancel()
-            let schedulePresentation = self.schedulePresentation
-            self.presentationTask = Task { @MainActor [weak self] in
-                await schedulePresentation()
-                guard let self, !Task.isCancelled else { return }
-                guard self.pickSessionID == sessionID, self.continuation != nil else {
-                    return
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { newContinuation in
+                self.continuation = newContinuation
+                let observer = SessionObserver(sessionID: sessionID, manager: self)
+                self.sessionObserver = observer
+                self.picker.add(observer)
+                self.presentationTask?.cancel()
+                let schedulePresentation = self.schedulePresentation
+                self.presentationTask = Task { @MainActor [weak self] in
+                    await schedulePresentation()
+                    guard let self, !Task.isCancelled else { return }
+                    guard self.pickSessionID == sessionID, self.continuation != nil else {
+                        return
+                    }
+                    self.picker.present(using: .window)
+                    onPresented?()
                 }
-                self.picker.present(using: .window)
-                onPresented?()
-            }
 
-            self.timeoutTask = Task { [weak self] in
-                try? await Task.sleep(for: self?.timeout ?? .seconds(30))
-                guard !Task.isCancelled else { return }
-                guard let self else { return }
-                if self.continuation != nil {
-                    logger.warning("Window picker timed out — cancelling pending picker session")
-                    self.resumeAndClear(returning: .cancelled, sessionID: sessionID)
+                self.timeoutTask = Task { [weak self] in
+                    try? await Task.sleep(for: self?.timeout ?? .seconds(30))
+                    guard !Task.isCancelled else { return }
+                    guard let self else { return }
+                    if self.continuation != nil {
+                        logger.warning("Window picker timed out — cancelling pending picker session")
+                        self.resumeAndClear(returning: .cancelled, sessionID: sessionID)
+                    }
                 }
+            }
+        } onCancel: {
+            // Outer Task was cancelled (coordinator teardown, app quit, etc.)
+            // Release the picker observer and resume the continuation so
+            // callers don't hang. Must hop to MainActor for state access.
+            Task { @MainActor [weak self] in
+                self?.cancel()
             }
         }
     }
@@ -114,7 +123,34 @@ final class WindowPickerManager: NSObject {
             )
         }
         pendingFilter = nil
-        return try await captureManager.captureWindow(filter: filter)
+
+        // Hard cap on a single capture operation so a hung SCK stream cannot
+        // block the capture pipeline indefinitely. CaptureError.timeout is
+        // handled by CaptureExecutionService as a soft failure (status
+        // message only — no permission-repair cascade).
+        let capture: @MainActor @Sendable () async throws -> CGImage? = {
+            try await captureManager.captureWindow(filter: filter)
+        }
+        do {
+            if let image = try await withTimeout(seconds: 15.0, operation: {
+                try await capture()
+            }) {
+                return image
+            }
+            throw CaptureError.captureFailed(
+                "Window capture returned no image"
+            )
+        } catch is TimeoutError {
+            throw CaptureError.timeout(operation: "Window capture")
+        }
+    }
+
+    /// Cancel any in-flight picker session. Safe to call multiple times.
+    /// Releases the SCContentSharingPicker observer and flips isActive off
+    /// so the next pick() starts clean.
+    func cancel() {
+        let session = pickSessionID
+        resumeAndClear(returning: .cancelled, sessionID: session)
     }
 
     // MARK: - Private

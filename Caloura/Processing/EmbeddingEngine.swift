@@ -6,20 +6,20 @@ struct EmbeddingEngine {
     private static let resources = EmbeddingResources()
 
     /// Generate sentence embedding for text. Returns nil if embedding unavailable.
-    static func embed(_ text: String) -> [Double]? {
+    /// Loads underlying `NLEmbedding` lazily on first call via a background Task —
+    /// keeps the model off the launch thread.
+    static func embed(_ text: String) async -> [Double]? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        // Try sentence embedding first
-        if let vector = resources.sentenceVector(for: trimmed) {
+        if let vector = await resources.sentenceVector(for: trimmed) {
             return vector
         }
 
-        // Fallback: average word embeddings
         let words = trimmed.split(whereSeparator: \.isWhitespace).map(String.init)
         var vectors: [[Double]] = []
         for word in words {
-            if let vector = resources.wordVector(for: word.lowercased()) {
+            if let vector = await resources.wordVector(for: word.lowercased()) {
                 vectors.append(vector)
             }
         }
@@ -36,21 +36,45 @@ struct EmbeddingEngine {
         return avg.map { $0 / count }
     }
 
-    private final class EmbeddingResources: @unchecked Sendable {
-        private let lock = NSLock()
-        private let sentenceEmbedding = NLEmbedding.sentenceEmbedding(for: .english)
-        private let wordEmbedding = NLEmbedding.wordEmbedding(for: .english)
+    private final class EmbeddingBox: @unchecked Sendable {
+        let embedding: NLEmbedding?
+        init(_ embedding: NLEmbedding?) { self.embedding = embedding }
+    }
 
-        func sentenceVector(for text: String) -> [Double]? {
-            lock.lock()
-            defer { lock.unlock() }
-            return sentenceEmbedding?.vector(for: text)
+    private actor EmbeddingResources {
+        private var sentenceTask: Task<EmbeddingBox, Never>?
+        private var wordTask: Task<EmbeddingBox, Never>?
+
+        func sentenceVector(for text: String) async -> [Double]? {
+            let box = await sentenceEmbedding()
+            return box.embedding?.vector(for: text)
         }
 
-        func wordVector(for word: String) -> [Double]? {
-            lock.lock()
-            defer { lock.unlock() }
-            return wordEmbedding?.vector(for: word)
+        func wordVector(for word: String) async -> [Double]? {
+            let box = await wordEmbedding()
+            return box.embedding?.vector(for: word)
+        }
+
+        private func sentenceEmbedding() async -> EmbeddingBox {
+            if let existing = sentenceTask {
+                return await existing.value
+            }
+            let task = Task.detached(priority: .utility) {
+                EmbeddingBox(NLEmbedding.sentenceEmbedding(for: .english))
+            }
+            sentenceTask = task
+            return await task.value
+        }
+
+        private func wordEmbedding() async -> EmbeddingBox {
+            if let existing = wordTask {
+                return await existing.value
+            }
+            let task = Task.detached(priority: .utility) {
+                EmbeddingBox(NLEmbedding.wordEmbedding(for: .english))
+            }
+            wordTask = task
+            return await task.value
         }
     }
 
@@ -76,8 +100,8 @@ struct EmbeddingEngine {
         in store: EmbeddingStore,
         topK: Int = 10,
         threshold: Double = 0.3
-    ) -> [(id: UUID, similarity: Double)] {
-        guard let queryVector = embed(query) else { return [] }
+    ) async -> [(id: UUID, similarity: Double)] {
+        guard let queryVector = await embed(query) else { return [] }
         return store.findSimilar(to: queryVector, topK: topK, threshold: threshold)
     }
 }

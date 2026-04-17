@@ -1,10 +1,51 @@
 import SwiftUI
 import KeyboardShortcuts
 
+@MainActor
+final class GlobalShortcutsWatcher: ObservableObject {
+    @Published private(set) var version = 0
+
+    init() {
+        let name = Notification.Name("KeyboardShortcuts_shortcutByNameDidChange")
+        NotificationCenter.default.addObserver(
+            forName: name,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.version &+= 1 }
+        }
+    }
+}
+
+@MainActor
+private func swiftUIShortcut(
+    for name: KeyboardShortcuts.Name
+) -> KeyboardShortcut? {
+    guard let shortcut = KeyboardShortcuts.getShortcut(for: name),
+          let keyString = shortcut.nsMenuItemKeyEquivalent,
+          let firstChar = keyString.first else {
+        return nil
+    }
+    var modifiers: EventModifiers = []
+    if shortcut.modifiers.contains(.command) { modifiers.insert(.command) }
+    if shortcut.modifiers.contains(.option) { modifiers.insert(.option) }
+    if shortcut.modifiers.contains(.control) { modifiers.insert(.control) }
+    if shortcut.modifiers.contains(.shift) { modifiers.insert(.shift) }
+    return KeyboardShortcut(KeyEquivalent(firstChar), modifiers: modifiers)
+}
+
 struct MenuBarView: View {
-    @ObservedObject var appState: AppState
+    let appState: AppState
     @ObservedObject var settings: AppSettings
     @ObservedObject private var updateManager = UpdateManager.shared
+    @StateObject private var shortcutsWatcher = GlobalShortcutsWatcher()
+
+    private static let recentActivityFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .short
+        return formatter
+    }()
 
     var body: some View {
         // Update banner
@@ -28,7 +69,7 @@ struct MenuBarView: View {
         } label: {
             Label("Capture Area", systemImage: "rectangle.dashed")
         }
-        .keyboardShortcut("4", modifiers: [.command, .shift])
+        .keyboardShortcut(swiftUIShortcut(for: .captureArea))
         .disabled(appState.isCapturing)
 
         Button {
@@ -36,7 +77,7 @@ struct MenuBarView: View {
         } label: {
             Label("Capture Window", systemImage: "macwindow")
         }
-        .keyboardShortcut("5", modifiers: [.command, .shift])
+        .keyboardShortcut(swiftUIShortcut(for: .captureWindow))
         .disabled(appState.isCapturing)
 
         Button {
@@ -44,7 +85,7 @@ struct MenuBarView: View {
         } label: {
             Label("Capture Full Screen", systemImage: "rectangle.inset.filled")
         }
-        .keyboardShortcut("3", modifiers: [.command, .shift])
+        .keyboardShortcut(swiftUIShortcut(for: .captureFullscreen))
         .disabled(appState.isCapturing)
 
         Button {
@@ -159,6 +200,17 @@ struct MenuBarView: View {
             AppCommandRouter.shared.dispatch(.showHistory)
         } label: {
             Label("History", systemImage: "clock")
+        }
+
+        if !appState.recentStatusMessages.isEmpty {
+            Menu {
+                ForEach(appState.recentStatusMessages) { entry in
+                    Text(Self.recentActivityFormatter.string(from: entry.timestamp)
+                        + "  " + entry.message)
+                }
+            } label: {
+                Label("Recent activity", systemImage: "list.bullet.rectangle")
+            }
         }
 
         Divider()

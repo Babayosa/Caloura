@@ -47,14 +47,17 @@ final class ClipboardManagerTests: XCTestCase {
 
     // MARK: - copyImage
 
-    func testCopyImage_putsTIFFDataOnPasteboard() async throws {
+    func testCopyImage_tiffAccessibleViaPasteboardCoercion() async throws {
+        // H1 writes PNG only; NSPasteboard's internal coercion still
+        // surfaces TIFF to legacy paste targets. Guard the user-visible
+        // paste compatibility rather than the raw set-data contract.
         let screenshot = makeScreenshot()
 
         try await ClipboardManager.copyImage(screenshot)
 
         let tiffData = testPasteboard.data(forType: .tiff)
-        XCTAssertNotNil(tiffData, "Pasteboard should contain TIFF data after copyImage")
-        XCTAssertFalse(tiffData!.isEmpty, "TIFF data should not be empty")
+        XCTAssertNotNil(tiffData, "Pasteboard coercion should expose TIFF")
+        XCTAssertFalse(tiffData!.isEmpty, "TIFF coerced data should not be empty")
     }
 
     func testCopyImage_putsPNGDataOnPasteboard() async throws {
@@ -97,13 +100,15 @@ final class ClipboardManagerTests: XCTestCase {
 
     // MARK: - copyMultiFormat
 
-    func testCopyMultiFormat_setsTIFFData() async throws {
+    func testCopyMultiFormat_tiffAccessibleViaPasteboardCoercion() async throws {
+        // See testCopyImage_tiffAccessibleViaPasteboardCoercion — same
+        // pasteboard coercion behaviour applies to the multi-format path.
         let screenshot = makeScreenshot()
 
         try await ClipboardManager.copyMultiFormat(screenshot)
 
         let tiffData = testPasteboard.data(forType: .tiff)
-        XCTAssertNotNil(tiffData, "Pasteboard should contain TIFF data after copyMultiFormat")
+        XCTAssertNotNil(tiffData, "Pasteboard coercion should expose TIFF")
         XCTAssertFalse(tiffData!.isEmpty)
     }
 
@@ -147,13 +152,13 @@ final class ClipboardManagerTests: XCTestCase {
         XCTAssertTrue(html!.contains("<img"), "HTML should contain an img tag")
     }
 
-    func testCopyMultiFormat_allFourTypesSimultaneously() async throws {
+    func testCopyMultiFormat_allThreeTypesSimultaneously() async throws {
         let screenshot = makeScreenshot()
 
         try await ClipboardManager.copyMultiFormat(screenshot)
 
-        // All four types should be present at the same time
-        XCTAssertNotNil(testPasteboard.data(forType: .tiff), "TIFF should be present")
+        // PNG, Markdown, and HTML should be present at the same time.
+        // TIFF is intentionally omitted (H1).
         XCTAssertNotNil(testPasteboard.data(forType: .png), "PNG should be present")
         XCTAssertNotNil(testPasteboard.string(forType: .string), "String should be present")
         XCTAssertNotNil(testPasteboard.data(forType: .html), "HTML should be present")
@@ -226,8 +231,8 @@ final class ClipboardManagerTests: XCTestCase {
 
         try await ClipboardManager.copyImage(screenshot)
 
-        // Should still put data on pasteboard without crashing
-        let tiffData = testPasteboard.data(forType: .tiff)
-        XCTAssertNotNil(tiffData, "Even a 1x1 image should produce TIFF data")
+        // Should still put data on pasteboard without crashing.
+        let pngData = testPasteboard.data(forType: .png)
+        XCTAssertNotNil(pngData, "Even a 1x1 image should produce PNG data")
     }
 }

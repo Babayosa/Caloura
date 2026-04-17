@@ -86,3 +86,49 @@ If behavior differs between lanes, run:
 ```bash
 scripts/permission_diagnose.sh
 ```
+
+## Freeze + Capture Perf (Phase 1-2 regression guard)
+
+Run before shipping any release that touches `ScreenCaptureManager` or
+`CaptureFreezeService`.
+
+1. **Freeze p95 budget** — use Instruments "Points of Interest" track, filter
+   on `freeze_snapshot`, run 30 area captures. Target p95 < **80 ms**.
+2. **Multi-display** — dual-display setup (one P3 + one sRGB). Verify no
+   green shift on the P3 display.
+3. **HDR / EDR** — verify the frozen snapshot is not dimmed / clamped.
+4. **Allocations** — 50 captures in a row, confirm `SCStream` +
+   `CMSampleBuffer` return to baseline after a 5 s idle.
+
+## MetricKit Diagnostics (Phase 5 P1 regression guard)
+
+1. Debug build, trigger `fatalError(...)`, relaunch.
+2. After 24 h MetricKit delivery, verify
+   `~/Library/Application Support/Caloura/diagnostics/diagnostic-*.json`
+   contains payloads with `crashDiagnostics` keys.
+3. Confirm 30-day rotation: `touch -t 202501010000 diagnostic-*.json`,
+   relaunch, confirm the file is removed by `DiagnosticsReporter.start()`.
+
+## Clipboard Paste Matrix (Phase 4 H1 — PNG-only)
+
+Capture a region, paste into each. All must render the image:
+
+- [ ] Slack (desktop + web)
+- [ ] Microsoft Teams
+- [ ] Notion
+- [ ] Microsoft Word
+- [ ] Messages / Mail
+- [ ] Finder (Cmd+V to save as `clipboard.png`)
+- [ ] Preview (Cmd+N → Cmd+V)
+
+If any fail, re-enable TIFF as a lazy secondary representation.
+
+## HEIC Opt-In (Phase 6 P3)
+
+1. Toggle **Preferences → Output → Image format → HEIC**.
+2. Capture; verify file is `.heic` and ~5x smaller than PNG equivalent.
+3. Open in Preview — renders without conversion.
+4. Toggle back to PNG — subsequent captures land as `.png`.
+5. Verify clipboard paste still works in Slack / Teams regardless of toggle
+   (clipboard must stay PNG per Phase 4 H1).
+

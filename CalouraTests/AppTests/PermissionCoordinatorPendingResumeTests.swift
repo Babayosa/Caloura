@@ -26,8 +26,9 @@ final class PermissionCoordinatorPendingResumeTests: XCTestCase {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let identity = PermissionTestHelpers.makeIdentity("permission-cancel")
 
-        // Set recent auto-repair relaunch so the auto-fix path is on cooldown
-        // and the alert path is exercised instead.
+        // Passive=.denied so the alert path is exercised. Set recent
+        // auto-repair to force the confirmRepairRelaunch branch onto
+        // cooldown and reach the regular alert below.
         defaults.set(
             Date(timeIntervalSince1970: 6_020),
             forKey: "permissionLastAutoRepairRelaunchAt"
@@ -35,7 +36,7 @@ final class PermissionCoordinatorPendingResumeTests: XCTestCase {
 
         let coordinator = PermissionCoordinator(
             defaults: defaults,
-            passiveCheck: { true },
+            passiveCheck: { false },
             interactiveCheck: { .transientFailure },
             alertPresenter: { _ in },
             alertRequestedRelaunch: { false },
@@ -56,7 +57,9 @@ final class PermissionCoordinatorPendingResumeTests: XCTestCase {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let identity = PermissionTestHelpers.makeIdentity("permission-restart")
 
-        // Put auto-repair on cooldown so the alert path is exercised.
+        // Passive=.denied + auto-repair on cooldown forces the flow into
+        // the regular (non-repair) alert path where the user's restart
+        // approval preserves the pending capture resume.
         defaults.set(
             Date(timeIntervalSince1970: 6_020),
             forKey: "permissionLastAutoRepairRelaunchAt"
@@ -64,7 +67,7 @@ final class PermissionCoordinatorPendingResumeTests: XCTestCase {
 
         let coordinator = PermissionCoordinator(
             defaults: defaults,
-            passiveCheck: { true },
+            passiveCheck: { false },
             interactiveCheck: { .transientFailure },
             alertPresenter: { _ in },
             alertRequestedRelaunch: { true },

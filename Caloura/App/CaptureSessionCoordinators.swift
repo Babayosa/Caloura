@@ -238,7 +238,6 @@ final class WindowCaptureSessionCoordinator {
     private let session: CapturePerformanceRecorder.Session
     private let performanceRecorder: CapturePerformanceRecorder
     private let hasWarmContent: Bool
-    private let activateApplication: @MainActor () -> Void
     private let prewarmContent: @MainActor () async -> Void
     private let pickWindow: PickerHandler
 
@@ -246,32 +245,51 @@ final class WindowCaptureSessionCoordinator {
         session: CapturePerformanceRecorder.Session,
         performanceRecorder: CapturePerformanceRecorder,
         hasWarmContent: Bool,
-        activateApplication: @escaping @MainActor () -> Void = {
-            NSApplication.shared.activate(ignoringOtherApps: true)
-        },
         prewarmContent: @escaping @MainActor () async -> Void,
         pickWindow: @escaping PickerHandler
     ) {
         self.session = session
         self.performanceRecorder = performanceRecorder
         self.hasWarmContent = hasWarmContent
-        self.activateApplication = activateApplication
         self.prewarmContent = prewarmContent
         self.pickWindow = pickWindow
     }
 
     func pick() async -> SelectionResult {
-        activateApplication()
-        performanceRecorder.mark(.appActivated, in: session)
-
+        // Do not NSApp.activate before SCContentSharingPicker — the picker is
+        // system UI and activating Caloura steals focus from the target app,
+        // which can invalidate the filter the picker returns. See CLAUDE.md.
         let wasWarm = hasWarmContent
-        await prewarmContent()
+        let prewarmStart = CFAbsoluteTimeGetCurrent()
+        await runPrewarmWithTimeout()
+        let prewarmMs = (CFAbsoluteTimeGetCurrent() - prewarmStart) * 1000.0
+        performanceRecorder.recordDuration(
+            .prewarmComplete,
+            milliseconds: prewarmMs,
+            in: session
+        )
         return await pickWindow { [performanceRecorder, session] in
             performanceRecorder.mark(
                 wasWarm ? .pickerVisibleWarm : .pickerVisibleCold,
                 in: session
             )
         }
+    }
+
+    /// Run prewarm with a short hard cap. If shareable-content enumeration
+    /// is slow or hangs, fall through to the picker cold rather than making
+    /// the user wait. The system picker fetches fresh content on its own.
+    private func runPrewarmWithTimeout() async {
+        let prewarm = prewarmContent
+        let task = Task { @MainActor in
+            await prewarm()
+        }
+        let timeoutTask = Task {
+            try? await Task.sleep(for: .seconds(3))
+            task.cancel()
+        }
+        await task.value
+        timeoutTask.cancel()
     }
 }
 

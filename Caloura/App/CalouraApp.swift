@@ -63,18 +63,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         guard AppMover.currentInstallState == .inApplications else { return }
         Task { @MainActor in
-            ScreenCaptureManager.shared.resetSCKState()
+            // ScreenCaptureManager observes didBecomeActive itself — it
+            // refreshes the failure budget and kicks a background prewarm
+            // without wiping the shareable-content cache on every Cmd+Tab.
+            // Here we only re-check permission state.
             let status = await PermissionCoordinator.shared.refreshPassiveStatus()
             AppState.shared.hasScreenRecordingPermission = status != .denied
-            if status != .denied {
-                await ScreenCaptureManager.shared.prewarmWindowShareableContent()
-            }
         }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if isUITestHostEnabled {
-            cleanupStaleTempFiles()
+            Self.cleanupStaleTempFilesInBackground()
             NSApp.setActivationPolicy(.regular)
             setupCommandHandlers()
             #if DEBUG
@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        cleanupStaleTempFiles()
+        Self.cleanupStaleTempFilesInBackground()
 
         if AppMover.currentInstallState != .inApplications {
             onboardingController.show(
@@ -94,6 +94,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let launchStart = CFAbsoluteTimeGetCurrent()
+        Task { @MainActor in await AppState.shared.loadPersistedState() }
+        DiagnosticsReporter.shared.start()
         HotKeyManager.shared.registerAll()
         setupCommandHandlers()
         registerCaptureObserver()
@@ -175,6 +177,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Show nag once per launch if trial expired and unlicensed,
             // but not if we're already showing onboarding/permission repair.
             if !showedOnboarding && AppSettings.shared.hasCompletedOnboarding {
+                // Wait for license decrypt before reading isLicenseActivated,
+                // otherwise paying users see the nag on every cold launch.
+                await AppSettings.shared.licenseReady?.value
+                LicenseManager.shared.refreshState(settings: AppSettings.shared)
                 nagController.showIfNeeded()
             }
 
@@ -224,14 +230,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func cleanupStaleTempFiles() {
-        let tempDir = FileManager.default.temporaryDirectory
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: tempDir, includingPropertiesForKeys: nil
-        ) else { return }
-        for url in contents where url.lastPathComponent.hasPrefix("caloura-")
-            && url.pathExtension == "png" {
-            try? FileManager.default.removeItem(at: url)
+    /// Scan + delete stale temp files off the launch thread. Stale caloura-*.png
+    /// files accumulate on crashes; cleanup is best-effort and never gates UI.
+    private static func cleanupStaleTempFilesInBackground() {
+        Task.detached(priority: .background) {
+            let tempDir = FileManager.default.temporaryDirectory
+            guard let contents = try? FileManager.default.contentsOfDirectory(
+                at: tempDir, includingPropertiesForKeys: nil
+            ) else { return }
+            for url in contents where url.lastPathComponent.hasPrefix("caloura-")
+                && url.pathExtension == "png" {
+                try? FileManager.default.removeItem(at: url)
+            }
         }
     }
 

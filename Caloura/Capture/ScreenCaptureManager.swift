@@ -38,9 +38,13 @@ struct ScreenCapturePermissionDependencies: Sendable {
     let cgRequest: @Sendable () -> Bool
     let sckAccessProbe: @Sendable () async -> ScreenCaptureAccessProbeResult
     let runRepairTool: @Sendable (URL, [String]) async throws -> Void
+    /// Present the permission alert. Async so the live implementation can
+    /// use `beginSheetModal` on an offscreen host window — this does NOT
+    /// block the main run loop, unlike `runModal()` which greys the menu
+    /// bar if the main thread is tied up long enough.
     let presentAlert: @MainActor @Sendable (
         ScreenCaptureManager.PermissionState
-    ) -> ScreenCapturePermissionAlertAction
+    ) async -> ScreenCapturePermissionAlertAction
     let openURL: @MainActor @Sendable (URL) -> Void
     let relaunchApplication: @MainActor @Sendable (URL) async throws -> Void
     let terminateApplication: @MainActor @Sendable () -> Void
@@ -51,7 +55,7 @@ struct ScreenCapturePermissionDependencies: Sendable {
         cgRequest: @escaping @Sendable () -> Bool,
         sckAccessProbe: @escaping @Sendable () async -> ScreenCaptureAccessProbeResult,
         runRepairTool: @escaping @Sendable (URL, [String]) async throws -> Void,
-        presentAlert: @escaping @MainActor @Sendable (ScreenCaptureManager.PermissionState) -> ScreenCapturePermissionAlertAction,
+        presentAlert: @escaping @MainActor @Sendable (ScreenCaptureManager.PermissionState) async -> ScreenCapturePermissionAlertAction,
         openURL: @escaping @MainActor @Sendable (URL) -> Void,
         relaunchApplication: @escaping @MainActor @Sendable (URL) async throws -> Void,
         terminateApplication: @escaping @MainActor @Sendable () -> Void,
@@ -88,48 +92,7 @@ struct ScreenCapturePermissionDependencies: Sendable {
             )
         },
         presentAlert: { state in
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            NSApplication.shared.activate()
-
-            switch state {
-            case .neverGranted:
-                alert.messageText = "Screen Recording Permission Required"
-                alert.informativeText =
-                    "Caloura needs screen recording access to capture "
-                    + "screenshots.\n\n"
-                    + "1. Click \"Open System Settings\" below\n"
-                    + "2. Find Caloura in the list and toggle it ON\n"
-                    + "3. You may need to quit and reopen Caloura "
-                    + "after granting access"
-                alert.addButton(withTitle: "Open System Settings")
-                alert.addButton(withTitle: "Cancel")
-                return alert.runModal() == .alertFirstButtonReturn
-                    ? .openSystemSettings
-                    : .cancel
-            case .grantedButFailing:
-                alert.messageText = "Screen Recording Permission Issue"
-                alert.informativeText =
-                    "Caloura has screen recording permission, but macOS "
-                    + "is not allowing captures. This can happen after an "
-                    + "app update or system change.\n\n"
-                    + "Restarting Caloura usually fixes this. If not, try "
-                    + "toggling the permission off and on in "
-                    + "System Settings."
-                alert.addButton(withTitle: "Restart Caloura")
-                alert.addButton(withTitle: "Open System Settings")
-                alert.addButton(withTitle: "Cancel")
-
-                let response = alert.runModal()
-                switch response {
-                case .alertFirstButtonReturn:
-                    return .restartApp
-                case .alertSecondButtonReturn:
-                    return .openSystemSettings
-                default:
-                    return .cancel
-                }
-            }
+            await ScreenCaptureManager.presentPermissionAlertNonBlocking(for: state)
         },
         openURL: { url in
             NSWorkspace.shared.open(url)
@@ -174,9 +137,13 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     let maxTransientFailures = 3
 
     /// Cached SCShareableContent to avoid 80–300ms fetch on every capture.
+    /// TTL must be long enough that consecutive window captures (e.g. two
+    /// Control+Option+W presses in the same minute) reuse the cache. The
+    /// picker itself fetches fresh content when presented, so our cache is
+    /// only a latency optimization for the prewarm step.
     private var cachedContent: SCShareableContent?
     private var cachedContentTimestamp: CFAbsoluteTime = 0
-    private let contentCacheTTL: CFAbsoluteTime = 2.0
+    private let contentCacheTTL: CFAbsoluteTime = 60.0
 
     /// Observer token for app-became-active notification.
     private var didBecomeActiveObserver: (any NSObjectProtocol)?
@@ -189,16 +156,29 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     ) async throws -> CGImage
     private let makeFrozenDisplaySnapshotOperation: (
         SCContentFilter,
-        SCStreamConfiguration
+        SCStreamConfiguration,
+        CGColorSpace?
     ) -> any FrozenDisplaySnapshotOperation
 
     /// Reset the SCK failure flag so that the next capture retries SCK.
-    /// Called when permission is freshly granted or on app reactivation.
+    /// Called when permission is freshly granted or on a user-initiated
+    /// reset. Wipes the shareable-content cache as well because permission
+    /// changes can invalidate the filter list.
     func resetSCKState() {
         setSCKFailed(false)
         sckFailureCount = 0
         cachedContent = nil
         logger.info("SCK failure flag reset")
+    }
+
+    /// Lightweight reset used on routine app-become-active transitions (e.g.
+    /// Cmd+Tab). Clears the transient-failure budget so the next capture
+    /// retries SCK, but preserves the shareable-content cache — TTL handles
+    /// genuine staleness (wake from sleep, hot-plug, long idle).
+    private func refreshSCKFailureState() {
+        setSCKFailed(false)
+        sckFailureCount = 0
+        logger.debug("SCK failure flag refreshed (cache preserved)")
     }
 
     init(
@@ -213,7 +193,8 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         )? = nil,
         makeFrozenDisplaySnapshotOperation: ((
             SCContentFilter,
-            SCStreamConfiguration
+            SCStreamConfiguration,
+            CGColorSpace?
         ) -> any FrozenDisplaySnapshotOperation)? = nil
     ) {
         self.permissionDependencies = permissionDependencies ?? .live
@@ -246,10 +227,11 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
             }
         }
         self.makeFrozenDisplaySnapshotOperation = (
-            makeFrozenDisplaySnapshotOperation ?? { contentFilter, configuration in
+            makeFrozenDisplaySnapshotOperation ?? { contentFilter, configuration, colorSpace in
                 OneShotFrozenDisplayStreamCapture(
                     contentFilter: contentFilter,
-                    configuration: configuration
+                    configuration: configuration,
+                    colorSpace: colorSpace
                 )
             }
         )
@@ -259,7 +241,11 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.resetSCKState()
+                // Cmd+Tab / return-from-background should not nuke the
+                // shareable-content cache — the TTL already guards staleness.
+                // Only refresh the transient-failure budget so the next
+                // capture retries SCK cleanly, then warm in the background.
+                self?.refreshSCKFailureState()
                 await self?.prewarmWindowShareableContent()
             }
         }
@@ -412,9 +398,11 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         forceRefresh: Bool = false
     ) async throws -> SCShareableContent {
         let now = CFAbsoluteTimeGetCurrent()
+        let liveScreenCount = NSScreen.screens.count
         if !forceRefresh,
            let cached = cachedContent,
-           now - cachedContentTimestamp < contentCacheTTL {
+           now - cachedContentTimestamp < contentCacheTTL,
+           cached.displays.count == liveScreenCount {
             return cached
         }
         let content = try await shareableContentProvider()
@@ -432,11 +420,13 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
 
     func captureFrozenDisplaySnapshot(
         contentFilter: SCContentFilter,
-        configuration: SCStreamConfiguration
+        configuration: SCStreamConfiguration,
+        colorSpace: CGColorSpace? = nil
     ) async throws -> CGImage {
         let operation = makeFrozenDisplaySnapshotOperation(
             contentFilter,
-            configuration
+            configuration,
+            colorSpace
         )
 
         return try await withTaskCancellationHandler {
@@ -674,6 +664,8 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
 
         return Int(rounded)
     }
+
+    // MARK: - Permission Alert Presentation
 
 }
 

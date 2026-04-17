@@ -17,18 +17,17 @@ final class AppSettings: ObservableObject {
     typealias LegacyLicenseMigration = @Sendable () -> LegacyKeychainReadResult
 
     static let shared = AppSettings()
-    nonisolated private static let keychainService = Bundle.main.bundleIdentifier ?? "com.caloura.app"
+    nonisolated static let keychainService = Bundle.main.bundleIdentifier ?? "com.caloura.app"
 
-    private let defaults: UserDefaults
-    private let legacyLicenseMigration: LegacyLicenseMigration
-    private let logger = Logger(subsystem: "com.caloura.app", category: "AppSettings")
+    let defaults: UserDefaults
+    let legacyLicenseMigration: LegacyLicenseMigration
 
     // Debounce settings saves to avoid hammering UserDefaults.
     private var saveTask: Task<Void, Never>?
     private let saveDebounceInterval: UInt64 = 300_000_000 // 300ms
-    private var legacyMigrationTask: Task<Void, Never>?
+    var legacyMigrationTask: Task<Void, Never>?
 
-    private enum Keys {
+    enum Keys {
         static let saveDirectory = "saveDirectory"
         static let autoCopyToClipboard = "autoCopyToClipboard"
         static let autoSaveToDisk = "autoSaveToDisk"
@@ -55,6 +54,7 @@ final class AppSettings: ObservableObject {
         static let smartMetadataEnabled = "smartMetadataEnabled"
         static let semanticSearchEnabled = "semanticSearchEnabled"
         static let lowProfileCaptureEnabled = "lowProfileCaptureEnabled"
+        static let anonymousDiagnosticsEnabled = "anonymousDiagnosticsEnabled"
     }
 
     @Published var saveDirectory: String {
@@ -109,7 +109,13 @@ final class AppSettings: ObservableObject {
         didSet { persistLicenseState() }
     }
 
-    @Published private(set) var isLicenseActivated: Bool
+    @Published var isLicenseActivated: Bool
+
+    /// Resolves once the license subsystem has finished decrypting persisted
+    /// state off the launch thread. Callers that depend on `licenseKey` /
+    /// `isLicenseActivated` being authoritative (e.g. trial gating, nag UI)
+    /// should `await` this before reading. `nil` means already resolved.
+    var licenseReady: Task<Void, Never>?
 
     @Published var hasSeenWelcome: Bool {
         didSet { debouncedSave() }
@@ -139,9 +145,8 @@ final class AppSettings: ObservableObject {
         didSet { debouncedSave() }
     }
 
-    var lastLicenseValidationDate: Date? {
-        get { defaults.object(forKey: Keys.lastLicenseValidationDate) as? Date }
-        set { defaults.set(newValue, forKey: Keys.lastLicenseValidationDate) }
+    @Published var anonymousDiagnosticsEnabled: Bool {
+        didSet { debouncedSave() }
     }
 
     var furthestDateSeen: Date? {
@@ -157,15 +162,11 @@ final class AppSettings: ObservableObject {
         defaults.set(true, forKey: tip.defaultsKey)
     }
 
-    private var licenseEntitlement: LicenseEntitlement? {
+    var licenseEntitlement: LicenseEntitlement? {
         didSet {
             syncDerivedLicenseState()
             persistLicenseState()
         }
-    }
-
-    var currentLicenseEntitlement: LicenseEntitlement? {
-        licenseEntitlement
     }
 
     private static var defaultSaveDirectory: String {
@@ -173,17 +174,6 @@ final class AppSettings: ObservableObject {
             return NSHomeDirectory() + "/Pictures/Caloura"
         }
         return pictures.appendingPathComponent("Caloura").path
-    }
-
-    nonisolated private static func defaultLegacyLicenseMigration() -> LegacyKeychainReadResult {
-        KeychainHelper.readLegacyStringNonInteractive(service: keychainService, account: Keys.licenseKey)
-    }
-
-    private enum LegacyLicenseMigrationOutcome: Sendable {
-        case notFound
-        case migrated(String)
-        case interactionRequired
-        case failure(OSStatus)
     }
 
     // MARK: - Debounced Save
@@ -218,95 +208,37 @@ final class AppSettings: ObservableObject {
         defaults.set(smartMetadataEnabled, forKey: Keys.smartMetadataEnabled)
         defaults.set(semanticSearchEnabled, forKey: Keys.semanticSearchEnabled)
         defaults.set(lowProfileCaptureEnabled, forKey: Keys.lowProfileCaptureEnabled)
+        defaults.set(anonymousDiagnosticsEnabled, forKey: Keys.anonymousDiagnosticsEnabled)
     }
 
-    func persistLicenseState() {
-        let normalized = licenseKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if normalized.isEmpty {
-            defaults.removeObject(forKey: Keys.licenseKey)
-        } else {
-            if let encrypted = Self.encryptLicenseKey(normalized) {
-                defaults.set(encrypted, forKey: Keys.licenseKey)
-                defaults.set(true, forKey: Keys.licenseKeyMigrated)
-            } else {
-                logger.error("Failed to encrypt license key — not persisting")
-            }
-        }
-
-        if let licenseEntitlement {
-            if let encryptedEntitlement = Self.encryptLicenseEntitlement(licenseEntitlement) {
-                defaults.set(encryptedEntitlement, forKey: Keys.licenseEntitlement)
-            } else {
-                logger.error("Failed to encrypt license entitlement — not persisting")
-            }
-        } else {
-            defaults.removeObject(forKey: Keys.licenseEntitlement)
-        }
-
-        // Mirror the derived state for compatibility, but do not trust this value on load.
-        defaults.set(isLicenseActivated, forKey: Keys.isLicenseActivated)
-    }
-
-    // MARK: - License Key Encryption
-
-    nonisolated private static func encryptLicenseKey(_ plaintext: String) -> Data? {
-        guard let data = plaintext.data(using: .utf8) else { return nil }
-        return try? HistoryCrypto.encrypt(data, purpose: "license-key")
-    }
-
-    nonisolated private static func encryptLicenseEntitlement(_ entitlement: LicenseEntitlement) -> Data? {
-        guard let data = try? JSONEncoder().encode(entitlement) else { return nil }
-        return try? HistoryCrypto.encrypt(data, purpose: "license-artifact")
-    }
-
-    nonisolated private static func decryptLicenseKey(
-        _ stored: Any?,
-        migrated: Bool
-    ) -> String? {
-        if let data = stored as? Data {
-            // Encrypted format
-            let decrypted = (
-                (try? HistoryCrypto.decrypt(data, purpose: "license-key"))
-                ?? (try? HistoryCrypto.decrypt(data))
-            )
-            guard let decrypted,
-                  let string = String(data: decrypted, encoding: .utf8) else {
-                return nil
-            }
-            return string
-        }
-        // Legacy plaintext format — only accept if encryption has never succeeded
-        if migrated {
-            return nil
-        }
-        return stored as? String
-    }
-
-    nonisolated private static func decryptLicenseEntitlement(_ stored: Any?) -> LicenseEntitlement? {
-        guard let data = stored as? Data,
-              let decrypted = try? HistoryCrypto.decrypt(data, purpose: "license-artifact") else {
-            return nil
-        }
-        return try? JSONDecoder().decode(LicenseEntitlement.self, from: decrypted)
-    }
-
-    private func syncDerivedLicenseState(referenceDate: Date = Date()) {
-        isLicenseActivated = licenseEntitlement?.isCurrentlyValid(at: referenceDate) ?? false
-    }
-
-    func updateLicenseEntitlement(_ entitlement: LicenseEntitlement?) {
-        licenseEntitlement = entitlement
-        lastLicenseValidationDate = entitlement?.validatedAt
-    }
+    // MARK: - HotKey Defaults Migration
 
     private func migrateHotKeyDefaultsIfNeeded() {
-        guard !defaults.bool(forKey: "hotKeyDefaultsMigratedV2") else { return }
-        defaults.set(true, forKey: "hotKeyDefaultsMigratedV2")
-        // Only reset shortcuts that still match the old Cmd+Shift defaults.
-        // User-customized shortcuts are left untouched.
-        resetShortcutIfMatchesOldDefault(.captureArea, oldModifiers: 768, oldKeyCode: 21)
-        resetShortcutIfMatchesOldDefault(.captureWindow, oldModifiers: 768, oldKeyCode: 23)
-        resetShortcutIfMatchesOldDefault(.captureFullscreen, oldModifiers: 768, oldKeyCode: 20)
+        if !defaults.bool(forKey: "hotKeyDefaultsMigratedV2") {
+            defaults.set(true, forKey: "hotKeyDefaultsMigratedV2")
+            // Only reset shortcuts that still match the old Cmd+Shift defaults.
+            // User-customized shortcuts are left untouched.
+            resetShortcutIfMatchesOldDefault(.captureArea, oldModifiers: 768, oldKeyCode: 21)
+            resetShortcutIfMatchesOldDefault(.captureWindow, oldModifiers: 768, oldKeyCode: 23)
+            resetShortcutIfMatchesOldDefault(.captureFullscreen, oldModifiers: 768, oldKeyCode: 20)
+        }
+
+        if !defaults.bool(forKey: "hotKeyDefaultsMigratedV3") {
+            defaults.set(true, forKey: "hotKeyDefaultsMigratedV3")
+            // captureArea default moved from Control+Option+4 to Control+Option+C.
+            // Carbon modifiers: controlKey (4096) + optionKey (2048) = 6144.
+            // Carbon keyCode for "4" = 21.
+            resetShortcutIfMatchesOldDefault(.captureArea, oldModifiers: 6144, oldKeyCode: 21)
+        }
+
+        if !defaults.bool(forKey: "hotKeyDefaultsMigratedV4") {
+            defaults.set(true, forKey: "hotKeyDefaultsMigratedV4")
+            // captureWindow default moved from Control+Option+5 to Control+Option+W.
+            // captureFullscreen default moved from Control+Option+3 to Control+Option+F.
+            // Carbon keyCodes: "5" = 23, "3" = 20. Modifiers 6144 as above.
+            resetShortcutIfMatchesOldDefault(.captureWindow, oldModifiers: 6144, oldKeyCode: 23)
+            resetShortcutIfMatchesOldDefault(.captureFullscreen, oldModifiers: 6144, oldKeyCode: 20)
+        }
     }
 
     private func resetShortcutIfMatchesOldDefault(
@@ -325,97 +257,6 @@ final class AppSettings: ObservableObject {
         else { return }
         KeyboardShortcuts.reset(name)
     }
-
-    private func migrateLegacyActivationStateIfNeeded() {
-        guard licenseEntitlement == nil,
-              defaults.bool(forKey: Keys.isLicenseActivated) else {
-            return
-        }
-
-        let normalized = licenseKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return }
-
-        let validatedAt = lastLicenseValidationDate ?? Date()
-        let now = Date()
-        let effectiveValidation = max(validatedAt, now)
-        licenseEntitlement = LicenseEntitlement(
-            claims: LicenseEntitlementClaims(
-                productID: Bundle.main.bundleIdentifier ?? "com.caloura.app",
-                licenseID: normalized,
-                issuedAt: validatedAt,
-                refreshAfter: validatedAt,
-                expiresAt: effectiveValidation.addingTimeInterval(7 * 86_400),
-                featureFlags: [:]
-            ),
-            source: .legacyMigration,
-            token: nil,
-            signature: nil,
-            validatedAt: validatedAt
-        )
-    }
-
-    /// Best-effort migration path for legacy keychain-backed license keys.
-    /// This is non-interactive, runs off-main, and never shows authentication UI.
-    func migrateLegacyLicenseSilentlyIfAvailable() {
-        guard !defaults.bool(forKey: Keys.hasAttemptedLegacyLicenseMigration) else {
-            return
-        }
-        guard licenseKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            defaults.set(true, forKey: Keys.hasAttemptedLegacyLicenseMigration)
-            return
-        }
-
-        defaults.set(true, forKey: Keys.hasAttemptedLegacyLicenseMigration)
-
-        let legacyLicenseMigration = self.legacyLicenseMigration
-        legacyMigrationTask?.cancel()
-        legacyMigrationTask = Task.detached(priority: .utility) { [weak self] in
-            let outcome = Self.performLegacyLicenseMigration(legacyLicenseMigration)
-            guard !Task.isCancelled else { return }
-            await self?.applyLegacyLicenseMigrationOutcome(outcome)
-        }
-    }
-
-    nonisolated private static func performLegacyLicenseMigration(
-        _ migration: @escaping LegacyLicenseMigration
-    ) -> LegacyLicenseMigrationOutcome {
-        switch migration() {
-        case .success(let migratedKey):
-            let normalized = migratedKey.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !normalized.isEmpty else {
-                return .notFound
-            }
-            KeychainHelper.deleteLegacyItem(service: keychainService, account: Keys.licenseKey)
-            return .migrated(normalized)
-        case .notFound:
-            return .notFound
-        case .interactionRequired:
-            return .interactionRequired
-        case .failure(let status):
-            return .failure(status)
-        }
-    }
-
-    private func applyLegacyLicenseMigrationOutcome(_ outcome: LegacyLicenseMigrationOutcome) {
-        switch outcome {
-        case .migrated(let normalized):
-            licenseKey = normalized
-            migrateLegacyActivationStateIfNeeded()
-            logger.info("Migrated legacy license key without prompting user.")
-        case .interactionRequired:
-            logger.info("Skipped legacy license migration: keychain interaction required.")
-        case .failure(let status):
-            logger.error("Failed legacy license migration read: status=\(status)")
-        case .notFound:
-            break
-        }
-    }
-
-    #if DEBUG
-    func waitForLegacyLicenseMigrationForTesting() async {
-        await legacyMigrationTask?.value
-    }
-    #endif
 
     // MARK: - Init
 
@@ -457,10 +298,7 @@ final class AppSettings: ObservableObject {
             defaults.set(now, forKey: Keys.firstLaunchDate)
         }
 
-        self.licenseKey = Self.decryptLicenseKey(
-            defaults.object(forKey: Keys.licenseKey),
-            migrated: defaults.bool(forKey: Keys.licenseKeyMigrated)
-        ) ?? ""
+        self.licenseKey = ""
         self.isLicenseActivated = false
         self.hasSeenWelcome = defaults.bool(forKey: Keys.hasSeenWelcome)
         self.autoClearClipboard = defaults.object(forKey: Keys.autoClearClipboard) as? Bool ?? false
@@ -469,14 +307,12 @@ final class AppSettings: ObservableObject {
         self.smartMetadataEnabled = defaults.object(forKey: Keys.smartMetadataEnabled) as? Bool ?? true
         self.semanticSearchEnabled = defaults.object(forKey: Keys.semanticSearchEnabled) as? Bool ?? true
         self.lowProfileCaptureEnabled = defaults.object(forKey: Keys.lowProfileCaptureEnabled) as? Bool ?? false
-        self.licenseEntitlement = Self.decryptLicenseEntitlement(
-            defaults.object(forKey: Keys.licenseEntitlement)
-        )
+        self.licenseEntitlement = nil
+        self.anonymousDiagnosticsEnabled = defaults.object(
+            forKey: Keys.anonymousDiagnosticsEnabled
+        ) as? Bool ?? false
 
         migrateHotKeyDefaultsIfNeeded()
-        migrateLegacyLicenseSilentlyIfAvailable()
-        migrateLegacyActivationStateIfNeeded()
-        syncDerivedLicenseState()
-        persistLicenseState()
+        activateLicenseSubsystem()
     }
 }

@@ -50,6 +50,7 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
+  BUILD_TIMESTAMP="$(date +%Y%m%d%H%M%S)"
 APP_NAME="Caloura"
 SCHEME="Caloura"
 TEAM_ID="NG4ML6Q47T"
@@ -60,7 +61,7 @@ BUILD_DIR="$PROJECT_DIR/build"
 ARCHIVE_PATH="$BUILD_DIR/$APP_NAME.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
 APP_PATH="$EXPORT_PATH/$APP_NAME.app"
-ZIP_PATH="$BUILD_DIR/$APP_NAME-$VERSION.zip"
+ZIP_PATH="$BUILD_DIR/$APP_NAME-$VERSION-$BUILD_TIMESTAMP.zip"
 DMG_PATH="$BUILD_DIR/$APP_NAME-$VERSION.dmg"
 MANIFEST_PATH="$BUILD_DIR/release-manifest-$VERSION.json"
 NOTARY_PROFILE="${NOTARY_PROFILE:-Caloura-Notarize}"
@@ -434,7 +435,7 @@ generate_source_release_manifest() {
     bundle_identifier="$(build_setting_value "PRODUCT_BUNDLE_IDENTIFIER")"
     marketing_version="$(build_setting_value "MARKETING_VERSION")"
     # Use the requested release version as the canonical build number.
-    build_number="$VERSION"
+    build_number="$BUILD_TIMESTAMP"
     minimum_system_version="$(build_setting_value "MACOSX_DEPLOYMENT_TARGET")"
     release_channel="$(build_setting_value "CALOURA_RELEASE_CHANNEL")"
     requires_signed="$(build_setting_value "CALOURA_REQUIRE_SIGNED_ENTITLEMENT")"
@@ -488,7 +489,7 @@ echo "==> Archiving (Release configuration)..."
 ARCHIVE_OVERRIDES=(
     MARKETING_VERSION="$VERSION"
     # Keep the release build number stable for a given release version.
-    CURRENT_PROJECT_VERSION="$VERSION"
+    CURRENT_PROJECT_VERSION="$BUILD_TIMESTAMP"
 )
 [ -n "${CALOURA_REQUIRE_SIGNED_ENTITLEMENT:-}" ] && ARCHIVE_OVERRIDES+=(CALOURA_REQUIRE_SIGNED_ENTITLEMENT="$CALOURA_REQUIRE_SIGNED_ENTITLEMENT")
 [ -n "${CALOURA_LICENSE_ENTITLEMENT_URL:-}" ] && ARCHIVE_OVERRIDES+=(CALOURA_LICENSE_ENTITLEMENT_URL="$CALOURA_LICENSE_ENTITLEMENT_URL")

@@ -81,18 +81,6 @@ struct FileOrganizer {
 
     /// Generate filename: uses smartFileName if available, otherwise Caloura_HH-mm-ss_AppName.{ext}
     static func generateFileName(
-        for screenshot: ProcessedScreenshot,
-        imageFormat: String = "png",
-        smartFileName: String? = nil
-    ) -> String {
-        generateFileName(
-            for: screenshot.context,
-            imageFormat: imageFormat,
-            smartFileName: smartFileName
-        )
-    }
-
-    static func generateFileName(
         for context: CaptureContext,
         imageFormat: String = "png",
         smartFileName: String? = nil
@@ -101,6 +89,7 @@ struct FileOrganizer {
         switch imageFormat {
         case "jpeg": ext = "jpeg"
         case "tiff": ext = "tiff"
+        case "heic": ext = "heic"
         default: ext = "png"
         }
 
@@ -169,6 +158,8 @@ struct FileOrganizer {
             return "jpeg"
         case "tif", "tiff":
             return "tiff"
+        case "heic", "heif":
+            return "heic"
         default:
             return "png"
         }
@@ -256,6 +247,8 @@ struct FileOrganizer {
             return try ImageProcessor.jpegRepresentation(of: cgImage)
         case "tiff":
             return try ImageProcessor.tiffRepresentation(of: cgImage)
+        case "heic":
+            return try ImageProcessor.heicRepresentation(of: cgImage)
         case "png":
             return try ImageProcessor.pngRepresentation(of: cgImage)
         default:

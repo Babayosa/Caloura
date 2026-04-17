@@ -149,6 +149,7 @@ final class ScreenshotArtifactCoordinator {
             switch imageFormat {
             case "jpeg": "jpeg"
             case "tiff": "tiff"
+            case "heic": "heic"
             default: "png"
             }
         }()

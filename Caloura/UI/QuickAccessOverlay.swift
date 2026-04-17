@@ -139,7 +139,7 @@ struct QuickAccessPresentationModel {
 
 struct QuickAccessOverlayView: View {
     let screenshot: ProcessedScreenshot
-    @ObservedObject var appState: AppState
+    let appState: AppState
     let onAction: (CaptureQuickAction) -> Void
     var onHoverChanged: ((Bool) -> Void)?
 

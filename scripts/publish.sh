@@ -19,9 +19,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_DIR/build"
-ZIP_PATH="$BUILD_DIR/Caloura-$VERSION.zip"
 DMG_PATH="$BUILD_DIR/Caloura-$VERSION.dmg"
-ZIP_NAME="$(basename "$ZIP_PATH")"
 DMG_NAME="$(basename "$DMG_PATH")"
 MANIFEST_PATH="$BUILD_DIR/release-manifest-$VERSION.json"
 SITE_REPO="${SITE_REPO:-$HOME/caloura-site}"
@@ -113,12 +111,16 @@ echo "  Caloura v$VERSION — Full Publish"
 echo "========================================"
 echo ""
 
-if [ "${SKIP_BUILD:-0}" = "1" ] && [ -f "$ZIP_PATH" ] && [ -f "$DMG_PATH" ]; then
+if [ "${SKIP_BUILD:-0}" = "1" ] && [ -f "$DMG_PATH" ] && [ -f "$MANIFEST_PATH" ]; then
     echo "==> Skipping build (SKIP_BUILD=1), using existing artifacts"
 else
     echo "==> Step 1/3: Building and notarizing artifacts..."
     "$SCRIPT_DIR/release.sh" "$VERSION"
 fi
+
+# Resolve ZIP path from manifest (filename includes build number for CDN safety)
+ZIP_PATH="$(manifest_value sparkle_artifact_path)"
+ZIP_NAME="$(basename "$ZIP_PATH")"
 
 if [ ! -f "$ZIP_PATH" ]; then
     echo "Error: Expected Sparkle ZIP not found at $ZIP_PATH"
@@ -177,6 +179,27 @@ cat > "$TMPITEM" <<XMLEOF
       />
     </item>
 XMLEOF
+
+# Remove any existing appcast entry with the same shortVersionString
+# to prevent duplicate entries with conflicting signatures.
+python3 - "$APPCAST_PATH" "$VERSION" <<'DEDUP'
+import re
+import sys
+
+path, version = sys.argv[1], sys.argv[2]
+with open(path, "r", encoding="utf-8") as f:
+    content = f.read()
+
+# Match <item> blocks containing this shortVersionString
+pattern = (
+    r'\s*<item>\s*'
+    r'<title>Version ' + re.escape(version) + r'</title>'
+    r'.*?</item>'
+)
+content = re.sub(pattern, '', content, flags=re.DOTALL)
+with open(path, "w", encoding="utf-8") as f:
+    f.write(content)
+DEDUP
 
 sed -i '' "/<language>en<\/language>/r $TMPITEM" "$APPCAST_PATH"
 rm -f "$TMPITEM"

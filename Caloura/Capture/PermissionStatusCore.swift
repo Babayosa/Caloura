@@ -69,8 +69,10 @@ enum PermissionStatusCore {
             return "Screen Recording permission required. Open System Settings to continue capturing."
         case .needsRelaunch:
             return "macOS still needs Caloura to relaunch before capture is available."
-        case .grantedNeedsValidation, .working, .repairing:
+        case .grantedNeedsValidation, .repairing:
             return "Screen Recording is still initializing. Try again in a moment."
+        case .working:
+            return "Screen Recording is ready."
         }
     }
 

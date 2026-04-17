@@ -122,23 +122,29 @@ final class AppStateEdgeCaseTests: XCTestCase {
 
         XCTAssertEqual(appState.recentScreenshots.count, 50)
 
-        // Force immediate save (skip debounce) and poll until file contains the expected data
+        // Force immediate save (skip debounce) and poll until file exists, then
+        // reload via the async hydration path that production uses.
         appState.saveHistoryNow()
         let historyURL = historyFileURL!
-        let storeDefaults = defaults!
-        var reloaded: AppState?
         await pollUntil(timeout: 5.0) {
-            guard FileManager.default.fileExists(atPath: historyURL.path) else { return false }
-            let candidate = AppState(defaults: storeDefaults, historyStoreURL: historyURL)
-            if candidate.recentScreenshots.count == 50 {
-                reloaded = candidate
-                return true
-            }
-            return false
+            FileManager.default.fileExists(atPath: historyURL.path)
         }
 
-        // Use the reloaded state verified by polling, or create one for assertion failure message
-        let verified = reloaded ?? AppState(defaults: defaults, historyStoreURL: historyFileURL)
+        var reloaded: AppState?
+        let reloadDeadline = Date().addingTimeInterval(5.0)
+        while reloaded == nil && Date() < reloadDeadline {
+            let candidate = AppState(defaults: defaults, historyStoreURL: historyFileURL)
+            await candidate.loadPersistedState()
+            if candidate.recentScreenshots.count == 50 {
+                reloaded = candidate
+            } else {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+        }
+
+        let fallback = AppState(defaults: defaults, historyStoreURL: historyFileURL)
+        await fallback.loadPersistedState()
+        let verified = reloaded ?? fallback
 
         XCTAssertEqual(verified.recentScreenshots.count, 50)
         XCTAssertEqual(

@@ -80,6 +80,14 @@ final class PermissionStatusCoreTests: XCTestCase {
         )
     }
 
+    func testNonBlockingMessageForWorkingIsDistinctFromInitializing() {
+        let working = PermissionStatusCore.nonBlockingMessage(for: .working)
+        let initializing = PermissionStatusCore.nonBlockingMessage(for: .grantedNeedsValidation)
+
+        XCTAssertEqual(working, "Screen Recording is ready.")
+        XCTAssertNotEqual(working, initializing)
+    }
+
     private func makeContext(
         identity: PermissionIdentity = PermissionTestHelpers.makeIdentity("status-core"),
         hasFreshPermissionRequest: Bool = false,

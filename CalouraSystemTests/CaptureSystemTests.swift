@@ -153,17 +153,18 @@ final class CaptureSystemTests: XCTestCase {
     }
 
     func testWindowCaptureMarksPickerPresentation() async {
+        // Regression guard: WindowCaptureSessionCoordinator must NOT activate
+        // Caloura before presenting SCContentSharingPicker — doing so steals
+        // focus from the target app and can invalidate the filter the picker
+        // returns. The coordinator only prewarms content, then hands off to
+        // the system picker.
         let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 10, reportInterval: 50)
         let session = recorder.beginSession(mode: .window)
         var presented = false
-        var activationCount = 0
         let coordinator = WindowCaptureSessionCoordinator(
             session: session,
             performanceRecorder: recorder,
             hasWarmContent: false,
-            activateApplication: {
-                activationCount += 1
-            },
             prewarmContent: { },
             pickWindow: { onPresented in
                 onPresented()
@@ -181,7 +182,6 @@ final class CaptureSystemTests: XCTestCase {
             XCTFail("Expected cancelled result")
         }
         XCTAssertTrue(presented)
-        XCTAssertEqual(activationCount, 1)
         XCTAssertTrue(
             recorder.summary(for: .window, event: .pickerVisibleCold) != nil
                 || recorder.summary(for: .window, event: .pickerVisibleWarm) != nil

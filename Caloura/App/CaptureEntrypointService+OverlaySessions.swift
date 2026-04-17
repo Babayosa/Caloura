@@ -99,11 +99,15 @@ extension CaptureEntrypointService {
     func loadAreaCaptureFrozenImages(
         for coordinator: any AreaCaptureSessionHandling,
         sessionID: UInt,
-        entryStart: CFAbsoluteTime
+        entryStart: CFAbsoluteTime,
+        performanceSession: CapturePerformanceRecorder.Session
     ) {
         Task { @MainActor [weak self, weak coordinator] in
             guard let self else { return }
-            let frozenImages = await self.freezeService.freezeScreens(entryStart: entryStart)
+            let frozenImages = await self.freezeService.freezeScreens(
+                entryStart: entryStart,
+                performanceSession: performanceSession
+            )
 
             guard self.sessionState.isCurrentTrackedSession(sessionID),
                   self.sessionState.areaCaptureSession as AnyObject? === coordinator as AnyObject? else {

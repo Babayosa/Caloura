@@ -6,7 +6,7 @@ import os.log
 final class CaptureEnrichmentService {
     typealias RecognizeTextFn = @Sendable (CGImage) async throws -> String
     typealias DetectPIIFn = @Sendable (CGImage) async throws -> [PIIDetection]
-    typealias EmbedTextFn = @Sendable (String) -> [Double]?
+    typealias EmbedTextFn = @Sendable (String) async -> [Double]?
     typealias GenerateMetadataFn = @Sendable (String, String?, String?) async -> ScreenshotMetadata?
 
     private struct Dependencies: Sendable {
@@ -41,7 +41,7 @@ final class CaptureEnrichmentService {
         recognizeText: @escaping RecognizeTextFn,
         detectPII: @escaping DetectPIIFn = { try await PIIDetector.detect(in: $0) },
         embedText: @escaping EmbedTextFn = { text in
-            EmbeddingEngine.embed(text)
+            await EmbeddingEngine.embed(text)
         },
         generateMetadata: @escaping GenerateMetadataFn = { text, sourceApp, windowTitle in
             await SmartMetadataGenerator.shared.generate(
@@ -225,7 +225,7 @@ final class CaptureEnrichmentService {
     ) async {
         let enabled = await dependencies.semanticSearchEnabled()
         guard enabled, !text.isEmpty else { return }
-        guard let vector = dependencies.embedText(text) else { return }
+        guard let vector = await dependencies.embedText(text) else { return }
 
         let textHash = stableHash(text)
         await dependencies.storeEmbedding(screenshotID, vector, textHash)

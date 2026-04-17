@@ -41,7 +41,13 @@ extension CapturePipelineTests {
         XCTAssertFalse(pipeline.appState.isCapturing)
     }
 
-    func testCaptureWindow_failedToStartRoutesPermissionFailure() async {
+    func testCaptureWindow_failedToStartDoesNotRoutePermissionFailure() async {
+        // Regression guard for the production-grade window-capture overhaul.
+        // A picker `.failedToStart` result must NOT cascade into the
+        // permission-repair flow — that path greys the menu bar and resets
+        // TCC, which is wildly disproportionate for a transient picker
+        // hiccup. Surface a status message and let the next hotkey press
+        // produce a fresh picker.
         var resumedMode: CaptureMode?
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function,
@@ -54,10 +60,14 @@ extension CapturePipelineTests {
         pipeline.captureWindow()
 
         await pollUntil(timeout: 2.0) {
-            resumedMode == .window
+            !pipeline.appState.isCapturing
         }
 
-        XCTAssertEqual(resumedMode, .window)
+        XCTAssertNil(resumedMode, "failedToStart must not trigger permission repair")
         XCTAssertFalse(pipeline.appState.isCapturing)
+        XCTAssertTrue(
+            pipeline.appState.statusMessage.contains("picker"),
+            "expected soft picker-unavailable status; got \(pipeline.appState.statusMessage)"
+        )
     }
 }

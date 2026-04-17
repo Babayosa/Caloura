@@ -204,10 +204,14 @@ struct GeneralPreferencesView: View {
 
                     Picker("Image format", selection: $settings.imageFormat) {
                         Text("PNG").tag("png")
+                        Text("HEIC").tag("heic")
                         Text("JPEG").tag("jpeg")
                         Text("TIFF").tag("tiff")
                     }
                     .pickerStyle(.segmented)
+                    Text("HEIC produces ~5× smaller files. Clipboard always uses PNG for compatibility.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -236,6 +240,16 @@ struct GeneralPreferencesView: View {
                     + "in the Quick Access overlay for review before redaction.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Toggle(
+                    "Share anonymous diagnostics",
+                    isOn: $settings.anonymousDiagnosticsEnabled
+                )
+                Text("Opt in to share anonymized crash + hang reports via MetricKit. "
+                    + "No uploads happen today — this toggle stores your preference for "
+                    + "a future release. Diagnostic files always stay on your Mac.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -256,9 +270,9 @@ struct GeneralPreferencesView: View {
 // MARK: - Shortcuts Preferences
 
 extension KeyboardShortcuts.Name {
-    static let captureArea = Self("captureArea", default: .init(.four, modifiers: [.control, .option]))
-    static let captureWindow = Self("captureWindow", default: .init(.five, modifiers: [.control, .option]))
-    static let captureFullscreen = Self("captureFullscreen", default: .init(.three, modifiers: [.control, .option]))
+    static let captureArea = Self("captureArea", default: .init(.c, modifiers: [.control, .option]))
+    static let captureWindow = Self("captureWindow", default: .init(.w, modifiers: [.control, .option]))
+    static let captureFullscreen = Self("captureFullscreen", default: .init(.f, modifiers: [.control, .option]))
     static let captureRepeat = Self("captureRepeat", default: .init(.r, modifiers: [.command, .shift]))
     static let copyAsMarkdown = Self("copyAsMarkdown")
     static let copyWithCitation = Self("copyWithCitation")

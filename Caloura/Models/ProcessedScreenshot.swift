@@ -2,14 +2,11 @@ import AppKit
 
 enum ProcessedScreenshotEncodingError: LocalizedError {
     case pngEncodingFailed
-    case tiffEncodingFailed
 
     var errorDescription: String? {
         switch self {
         case .pngEncodingFailed:
             return "Failed to encode screenshot as PNG."
-        case .tiffEncodingFailed:
-            return "Failed to encode screenshot as TIFF."
         }
     }
 }
@@ -91,25 +88,15 @@ final class ProcessedScreenshot: @unchecked Sendable {
         return data
     }
 
-    // Lazy-cached TIFF representation (only computed when needed for clipboard)
-    private var _tiffData: Data?
-    func cachedTIFFData() -> Data? {
+    /// Drop the lazy PNG buffer once distribution (clipboard + disk save)
+    /// has completed. A 5K capture's PNG cache is 4-8 MB; on long-running
+    /// sessions this reclaims 60-90 MB across the recent-capture window.
+    /// `image`/`cgImage` are NOT released — beautify, preview, and
+    /// thumbnailing still read them.
+    func releaseEncodedCaches() {
         dataLock.lock()
-        let data = _tiffData
+        _pngData = nil
         dataLock.unlock()
-        return data
-    }
-    func tiffData() throws -> Data {
-        dataLock.lock()
-        defer { dataLock.unlock() }
-        if let cached = _tiffData {
-            return cached
-        }
-        guard let data = try? ImageProcessor.tiffRepresentation(of: cgImage) else {
-            throw ProcessedScreenshotEncodingError.tiffEncodingFailed
-        }
-        _tiffData = data
-        return data
     }
 
     init(

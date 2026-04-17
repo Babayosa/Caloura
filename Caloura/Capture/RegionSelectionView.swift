@@ -28,7 +28,6 @@ final class RegionSelectionView: NSView {
     private var isSelecting = false
     private var hasSentFirstMouseDown = false
 
-
     // Layer tree (z-order: background → dimming → border → labels)
     private let backgroundLayer = CALayer()
     private let dimmingLayer = CAShapeLayer()
@@ -102,62 +101,6 @@ final class RegionSelectionView: NSView {
         CATransaction.commit()
     }
 
-    // MARK: - Layer Setup
-
-    private func setupBackgroundLayer(in root: CALayer) {
-        backgroundLayer.contentsGravity = .resizeAspectFill
-        backgroundLayer.frame = bounds
-        root.addSublayer(backgroundLayer)
-    }
-
-    private func setupDimmingLayer(in root: CALayer) {
-        dimmingLayer.fillColor = NSColor.clear.cgColor
-        dimmingLayer.fillRule = .evenOdd
-        dimmingLayer.frame = bounds
-        root.addSublayer(dimmingLayer)
-    }
-
-    private func setupBorderLayer(in root: CALayer) {
-        borderLayer.strokeColor = NSColor.white.withAlphaComponent(0.9).cgColor
-        borderLayer.fillColor = nil
-        borderLayer.lineWidth = 1
-        borderLayer.isHidden = true
-        root.addSublayer(borderLayer)
-    }
-
-    private func setupSizeLabel(in root: CALayer) {
-        sizeContainer.backgroundColor = NSColor.black.withAlphaComponent(0.65).cgColor
-        sizeContainer.cornerRadius = 4
-        sizeContainer.isHidden = true
-        root.addSublayer(sizeContainer)
-
-        sizeTextLayer.font = sizeFont
-        sizeTextLayer.fontSize = sizeFont.pointSize
-        sizeTextLayer.foregroundColor = NSColor.white.withAlphaComponent(0.9).cgColor
-        sizeTextLayer.alignmentMode = .center
-        sizeTextLayer.truncationMode = .none
-        sizeTextLayer.isWrapped = false
-        sizeContainer.addSublayer(sizeTextLayer)
-    }
-
-    private func setupHintLabel(in root: CALayer) {
-        hintContainer.backgroundColor = NSColor.black.withAlphaComponent(0.50).cgColor
-        hintContainer.cornerRadius = 8
-        hintContainer.isHidden = false
-        root.addSublayer(hintContainer)
-
-        hintTextLayer.string = Self.hintText
-        hintTextLayer.font = hintFont
-        hintTextLayer.fontSize = hintFont.pointSize
-        hintTextLayer.foregroundColor = NSColor.white.withAlphaComponent(0.8).cgColor
-        hintTextLayer.alignmentMode = .center
-        hintTextLayer.truncationMode = .none
-        hintTextLayer.isWrapped = false
-        hintContainer.addSublayer(hintTextLayer)
-
-        layoutHintLabel()
-    }
-
     // MARK: - Layout
 
     override func layout() {
@@ -177,13 +120,18 @@ final class RegionSelectionView: NSView {
             window.makeFirstResponder(self)
             window.acceptsMouseMovedEvents = true
             cursorController?.scheduleReprime()
-
-            // Set contentsScale for crisp Retina text
-            let scale = window.backingScaleFactor
-            sizeTextLayer.contentsScale = scale
-            hintTextLayer.contentsScale = scale
+            applyBackingScale(window.backingScaleFactor)
         }
         window?.invalidateCursorRects(for: self)
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        window.map { applyBackingScale($0.backingScaleFactor) }
+    }
+
+    private func applyBackingScale(_ scale: CGFloat) {
+        [backgroundLayer, sizeTextLayer, hintTextLayer].forEach { $0.contentsScale = scale }
     }
 
     override func updateTrackingAreas() {
@@ -382,13 +330,70 @@ final class RegionSelectionView: NSView {
         }
     }
 
-    // MARK: - Helpers
-
     private func normalizedRect(from start: NSPoint, to end: NSPoint) -> CGRect {
         let x = min(start.x, end.x)
         let y = min(start.y, end.y)
         let width = abs(end.x - start.x)
         let height = abs(end.y - start.y)
         return CGRect(x: x, y: y, width: width, height: height)
+    }
+}
+
+// MARK: - Layer Setup
+
+private extension RegionSelectionView {
+    func setupBackgroundLayer(in root: CALayer) {
+        backgroundLayer.contentsGravity = .resizeAspectFill
+        backgroundLayer.frame = bounds
+        backgroundLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
+        root.addSublayer(backgroundLayer)
+    }
+
+    func setupDimmingLayer(in root: CALayer) {
+        dimmingLayer.fillColor = NSColor.clear.cgColor
+        dimmingLayer.fillRule = .evenOdd
+        dimmingLayer.frame = bounds
+        root.addSublayer(dimmingLayer)
+    }
+
+    func setupBorderLayer(in root: CALayer) {
+        borderLayer.strokeColor = NSColor.white.withAlphaComponent(0.9).cgColor
+        borderLayer.fillColor = nil
+        borderLayer.lineWidth = 1
+        borderLayer.isHidden = true
+        root.addSublayer(borderLayer)
+    }
+
+    func setupSizeLabel(in root: CALayer) {
+        sizeContainer.backgroundColor = NSColor.black.withAlphaComponent(0.65).cgColor
+        sizeContainer.cornerRadius = 4
+        sizeContainer.isHidden = true
+        root.addSublayer(sizeContainer)
+
+        sizeTextLayer.font = sizeFont
+        sizeTextLayer.fontSize = sizeFont.pointSize
+        sizeTextLayer.foregroundColor = NSColor.white.withAlphaComponent(0.9).cgColor
+        sizeTextLayer.alignmentMode = .center
+        sizeTextLayer.truncationMode = .none
+        sizeTextLayer.isWrapped = false
+        sizeContainer.addSublayer(sizeTextLayer)
+    }
+
+    func setupHintLabel(in root: CALayer) {
+        hintContainer.backgroundColor = NSColor.black.withAlphaComponent(0.50).cgColor
+        hintContainer.cornerRadius = 8
+        hintContainer.isHidden = false
+        root.addSublayer(hintContainer)
+
+        hintTextLayer.string = Self.hintText
+        hintTextLayer.font = hintFont
+        hintTextLayer.fontSize = hintFont.pointSize
+        hintTextLayer.foregroundColor = NSColor.white.withAlphaComponent(0.8).cgColor
+        hintTextLayer.alignmentMode = .center
+        hintTextLayer.truncationMode = .none
+        hintTextLayer.isWrapped = false
+        hintContainer.addSublayer(hintTextLayer)
+
+        layoutHintLabel()
     }
 }

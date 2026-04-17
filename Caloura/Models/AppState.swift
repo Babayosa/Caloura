@@ -1,78 +1,68 @@
 import AppKit
+import Observation
 import os.log
 import SwiftUI
 
 private let appStateLogger = Logger(subsystem: "com.caloura.app", category: "AppState")
 
-private struct UserDefaultsHandle: @unchecked Sendable {
-    let defaults: UserDefaults
-}
-
-private actor HistoryPersistenceWorker {
-    private let defaultsHandle: UserDefaultsHandle
-    private let historyDefaultsKey: String
-    private let legacyHistoryDefaultsKey: String
-    private var latestRevisionRequested: UInt64 = 0
-
-    init(
-        defaultsHandle: UserDefaultsHandle,
-        historyDefaultsKey: String,
-        legacyHistoryDefaultsKey: String
-    ) {
-        self.defaultsHandle = defaultsHandle
-        self.historyDefaultsKey = historyDefaultsKey
-        self.legacyHistoryDefaultsKey = legacyHistoryDefaultsKey
-    }
-
-    func persistHistory(_ encodedData: Data, to historyFileURL: URL, revision: UInt64) {
-        guard revision >= latestRevisionRequested else {
-            return
-        }
-        latestRevisionRequested = revision
-        do {
-            try HistoryCrypto.writeEncrypted(encodedData, to: historyFileURL)
-            AppState.purgeHistoryDefaults(
-                in: defaultsHandle.defaults,
-                historyDefaultsKey: historyDefaultsKey,
-                legacyHistoryDefaultsKey: legacyHistoryDefaultsKey
-            )
-        } catch {
-            appStateLogger.error("Failed to persist screenshot history: \(error.localizedDescription)")
-        }
-    }
+struct RecentStatusMessage: Identifiable, Equatable, Sendable {
+    let id = UUID()
+    let message: String
+    let timestamp: Date
 }
 
 @MainActor
-final class AppState: ObservableObject {
+@Observable
+final class AppState {
     static let shared = AppState()
 
-    @Published var recentScreenshots: [ScreenshotItem] = []
-    @Published var lastScreenshot: ProcessedScreenshot? {
+    var recentScreenshots: [ScreenshotItem] = []
+    var lastScreenshot: ProcessedScreenshot? {
         didSet { resetLastScreenshotTimer() }
     }
-    @Published var isCapturing: Bool = false
-    @Published var hasScreenRecordingPermission: Bool = false
-    @Published var statusMessage: String = ""
-    @Published var isCountingDown: Bool = false
-    @Published var countdownRemaining: Int = 0
-    @Published private(set) var lastCapturePreviewPhase: CapturePreviewPhase = .rawPreviewReady
-    @Published private(set) var lastCapturePreviewScreenshotID: UUID?
+    var isCapturing: Bool = false
+    var hasScreenRecordingPermission: Bool = false
+    var statusMessage: String = "" {
+        didSet {
+            let trimmed = statusMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, trimmed != oldValue else { return }
+            recentStatusMessages.insert(
+                RecentStatusMessage(message: trimmed, timestamp: Date()),
+                at: 0
+            )
+            if recentStatusMessages.count > Self.maxRecentStatusMessages {
+                recentStatusMessages = Array(
+                    recentStatusMessages.prefix(Self.maxRecentStatusMessages)
+                )
+            }
+        }
+    }
+
+    /// In-memory rolling log of the last `maxRecentStatusMessages`
+    /// `statusMessage` values. Exposed for the menu bar "Recent activity"
+    /// drawer so users can see transient errors after they disappear.
+    private(set) var recentStatusMessages: [RecentStatusMessage] = []
+    private static let maxRecentStatusMessages = 10
+    var isCountingDown: Bool = false
+    var countdownRemaining: Int = 0
+    private(set) var lastCapturePreviewPhase: CapturePreviewPhase = .rawPreviewReady
+    private(set) var lastCapturePreviewScreenshotID: UUID?
 
     /// Stores the last area capture rect for the repeat capture feature.
-    @Published var lastCaptureRect: CGRect?
-    /// Stores the screen used for the last area capture.
-    /// Not @Published — NSScreen is not Equatable and no SwiftUI view reads this directly.
-    var lastCaptureScreen: NSScreen?
+    var lastCaptureRect: CGRect?
+    /// Stores the screen used for the last area capture. Not SwiftUI-observed —
+    /// NSScreen isn't Equatable and no view reads this directly.
+    @ObservationIgnored var lastCaptureScreen: NSScreen?
 
-    @Published var lastPIIResult: PIIDetectionResult?
+    var lastPIIResult: PIIDetectionResult?
 
     let embeddingStore = EmbeddingStore()
 
     private let maxRecentItems = 50
-    private let historyDefaultsKey = "screenshotHistoryEncrypted"
-    private let legacyHistoryDefaultsKey = "screenshotHistory"
-    private let defaults: UserDefaults
-    private let historyFileURL: URL
+    let historyDefaultsKey = "screenshotHistoryEncrypted"
+    let legacyHistoryDefaultsKey = "screenshotHistory"
+    let defaults: UserDefaults
+    let historyFileURL: URL
     private let historyPersistence: HistoryPersistenceWorker
     private var previewPhasesByScreenshotID: [UUID: CapturePreviewPhase] = [:]
     private var piiResultsByScreenshotID: [UUID: PIIDetectionResult] = [:]
@@ -91,9 +81,6 @@ final class AppState: ObservableObject {
             historyDefaultsKey: "screenshotHistoryEncrypted",
             legacyHistoryDefaultsKey: "screenshotHistory"
         )
-        loadHistory()
-        embeddingStore.load()
-        auditStoragePermissions()
     }
 
     func addScreenshot(_ item: ScreenshotItem) {
@@ -275,96 +262,6 @@ final class AppState: ObservableObject {
         HistoryCrypto.applicationSupportURL(filename: "history.enc")
     }
 
-    private func loadHistory() {
-        if let encryptedFileData = try? Data(contentsOf: historyFileURL) {
-            do {
-                let decrypted = try HistoryCrypto.decrypt(encryptedFileData)
-                if let result = decodeHistory(from: decrypted, source: "file") {
-                    purgeLegacyHistoryDefaults()
-                    recentScreenshots = result.items
-                    if result.recovered {
-                        saveHistoryNow()
-                    }
-                    return
-                }
-            } catch {
-                let desc = error.localizedDescription
-                appStateLogger.error(
-                    "Failed to decrypt file-backed screenshot history: \(desc)"
-                )
-            }
-        }
-
-        if let encryptedDefaultsData = defaults.data(forKey: historyDefaultsKey) {
-            defaults.removeObject(forKey: historyDefaultsKey)
-            do {
-                let decrypted = try HistoryCrypto.decrypt(encryptedDefaultsData)
-                if let result = decodeHistory(from: decrypted, source: "defaults-encrypted") {
-                    recentScreenshots = result.items
-                    saveHistoryNow()
-                    return
-                }
-            } catch {
-                let desc = error.localizedDescription
-                appStateLogger.error(
-                    "Failed to decrypt defaults-backed screenshot history: \(desc)"
-                )
-            }
-        }
-
-        guard let legacyData = defaults.data(forKey: legacyHistoryDefaultsKey) else {
-            return
-        }
-        // Remove plaintext history blob immediately after loading into memory.
-        defaults.removeObject(forKey: legacyHistoryDefaultsKey)
-
-        if let result = decodeHistory(from: legacyData, source: "defaults-legacy") {
-            recentScreenshots = result.items
-            saveHistoryNow()
-        }
-    }
-
-    private struct HistoryLoadResult {
-        let items: [ScreenshotItem]
-        let recovered: Bool
-    }
-
-    private func decodeHistory(from data: Data, source: String) -> HistoryLoadResult? {
-        do {
-            let items = try JSONDecoder().decode([ScreenshotItem].self, from: data)
-            return HistoryLoadResult(items: items, recovered: false)
-        } catch {
-            let desc = error.localizedDescription
-            let errMsg = "Failed to decode \(source) screenshot history:"
-                + " \(desc). Attempting partial recovery."
-            appStateLogger.error("\(errMsg)")
-            // Attempt to recover individual items from the array.
-            if let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
-                var recovered: [ScreenshotItem] = []
-                for element in jsonArray {
-                    if let elementData = try? JSONSerialization.data(withJSONObject: element),
-                       let item = try? JSONDecoder().decode(ScreenshotItem.self, from: elementData) {
-                        recovered.append(item)
-                    }
-                }
-                appStateLogger.info("Recovered \(recovered.count) of \(jsonArray.count) history items")
-                return HistoryLoadResult(items: recovered, recovered: true)
-            }
-        }
-        return nil
-    }
-
-    private func auditStoragePermissions() {
-        let warnings = HistoryCrypto.auditStoragePermissions(historyFileURL: historyFileURL)
-        if warnings.isEmpty {
-            appStateLogger.debug("History storage permission audit passed.")
-            return
-        }
-        for warning in warnings {
-            appStateLogger.warning("\(warning, privacy: .public)")
-        }
-    }
-
     private func resetLastScreenshotTimer() {
         lastScreenshotTimer?.invalidate()
         lastScreenshotTimer = nil
@@ -374,23 +271,6 @@ final class AppState: ObservableObject {
                 self?.lastScreenshot = nil
             }
         }
-    }
-
-    private func purgeLegacyHistoryDefaults() {
-        Self.purgeHistoryDefaults(
-            in: defaults,
-            historyDefaultsKey: historyDefaultsKey,
-            legacyHistoryDefaultsKey: legacyHistoryDefaultsKey
-        )
-    }
-
-    nonisolated fileprivate static func purgeHistoryDefaults(
-        in defaults: UserDefaults,
-        historyDefaultsKey: String,
-        legacyHistoryDefaultsKey: String
-    ) {
-        defaults.removeObject(forKey: historyDefaultsKey)
-        defaults.removeObject(forKey: legacyHistoryDefaultsKey)
     }
 
     private func pruneRecentScreenshotsIfNeeded() {

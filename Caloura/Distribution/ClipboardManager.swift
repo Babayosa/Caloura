@@ -54,15 +54,13 @@ struct ClipboardManager {
         scheduleAutoClearIfEnabled()
     }
 
-    /// Copy image to clipboard as TIFF + PNG
+    /// Copy image to clipboard as PNG. Skipping eager TIFF encode saves ~40ms
+    /// per capture on 5K images; modern macOS paste targets accept PNG natively.
     static func copyImage(_ screenshot: ProcessedScreenshot) async throws {
-        let imageData = try await imageData(for: screenshot)
+        let png = try await pngData(for: screenshot)
         try await MainActor.run {
             activePasteboard.clearContents()
-            guard activePasteboard.setData(imageData.tiff, forType: .tiff) else {
-                throw ClipboardManagerError.pasteboardWriteFailed("TIFF image")
-            }
-            guard activePasteboard.setData(imageData.png, forType: .png) else {
+            guard activePasteboard.setData(png, forType: .png) else {
                 throw ClipboardManagerError.pasteboardWriteFailed("PNG image")
             }
             scheduleAutoClearIfEnabled()
@@ -104,7 +102,7 @@ struct ClipboardManager {
     /// Copy multi-format: image + Markdown + HTML simultaneously
     /// Rich text editors get the image, plain text editors get markdown
     static func copyMultiFormat(_ screenshot: ProcessedScreenshot) async throws {
-        let imageData = try await imageData(for: screenshot)
+        let png = try await pngData(for: screenshot)
         let markdown = MarkdownExporter.markdownImageTag(for: screenshot)
         let html = MarkdownExporter.htmlImageTag(for: screenshot)
         guard let htmlData = html.data(using: .utf8) else {
@@ -113,11 +111,7 @@ struct ClipboardManager {
         try await MainActor.run {
             activePasteboard.clearContents()
 
-            // Image formats (use cached data)
-            guard activePasteboard.setData(imageData.tiff, forType: .tiff) else {
-                throw ClipboardManagerError.pasteboardWriteFailed("TIFF image")
-            }
-            guard activePasteboard.setData(imageData.png, forType: .png) else {
+            guard activePasteboard.setData(png, forType: .png) else {
                 throw ClipboardManagerError.pasteboardWriteFailed("PNG image")
             }
 
@@ -135,19 +129,12 @@ struct ClipboardManager {
         }
     }
 
-    private static func imageData(for screenshot: ProcessedScreenshot) async throws -> (png: Data, tiff: Data) {
-        let cachedPNG = screenshot.cachedPNGData()
-        let cachedTIFF = screenshot.cachedTIFFData()
-        if let cachedPNG, let cachedTIFF {
-            return (cachedPNG, cachedTIFF)
+    private static func pngData(for screenshot: ProcessedScreenshot) async throws -> Data {
+        if let cached = screenshot.cachedPNGData() {
+            return cached
         }
-
-        let generated = try await Task.detached(priority: .utility) {
-            let png = try screenshot.pngData()
-            let tiff = try screenshot.tiffData()
-            return (png: png, tiff: tiff)
+        return try await Task.detached(priority: .utility) {
+            try screenshot.pngData()
         }.value
-
-        return generated
     }
 }

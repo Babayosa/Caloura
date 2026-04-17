@@ -50,12 +50,13 @@ private actor HistoryThumbnailStore {
 private let historyLogger = Logger(subsystem: "com.caloura.app", category: "HistoryUI")
 
 struct HistoryView: View {
-    @ObservedObject var appState: AppState
+    let appState: AppState
     @State private var searchText = ""
     @State private var selectedItem: ScreenshotItem?
     @State private var itemToDelete: ScreenshotItem?
     @State private var semanticResults: Set<UUID> = []
     @State private var semanticSearchTask: Task<Void, Never>?
+    @State private var copyImageTask: Task<Void, Never>?
 
     private var filteredScreenshots: [ScreenshotItem] {
         HistorySearchModel.filteredScreenshots(
@@ -190,7 +191,7 @@ struct HistoryView: View {
                 try? await Task.sleep(for: .milliseconds(300))
                 guard !Task.isCancelled else { return }
                 let results = await Task.detached(priority: .utility) {
-                    EmbeddingEngine.search(query: query, in: store)
+                    await EmbeddingEngine.search(query: query, in: store)
                 }.value
                 guard !Task.isCancelled else { return }
                 semanticResults = Set(results.map(\.id))
@@ -213,12 +214,20 @@ struct HistoryView: View {
     private func copyImage(_ item: ScreenshotItem) {
         guard !item.filePath.isEmpty else { return }
         let url = URL(fileURLWithPath: item.filePath)
-        guard let image = NSImage(contentsOf: url) else { return }
-        do {
-            try ClipboardManager.copyNSImage(image)
-            appState.setStatusMessage("Copied image")
-        } catch {
-            appState.setStatusMessage(error.localizedDescription)
+        // Cancel any in-flight copy so rapid double-taps don't race two
+        // disk loads into clipboard writes in non-deterministic order.
+        copyImageTask?.cancel()
+        copyImageTask = Task {
+            let loaded = await Task.detached(priority: .userInitiated) {
+                NSImage(contentsOf: url)
+            }.value
+            guard !Task.isCancelled, let image = loaded else { return }
+            do {
+                try ClipboardManager.copyNSImage(image)
+                appState.setStatusMessage("Copied image")
+            } catch {
+                appState.setStatusMessage(error.localizedDescription)
+            }
         }
     }
 }
@@ -228,7 +237,7 @@ struct HistoryView: View {
 struct HistoryGridItem: View {
     let item: ScreenshotItem
     let isSelected: Bool
-    @ObservedObject var appState: AppState
+    let appState: AppState
     @State private var thumbnail: NSImage?
     @State private var isEditingTitle = false
     @State private var editingTitle = ""

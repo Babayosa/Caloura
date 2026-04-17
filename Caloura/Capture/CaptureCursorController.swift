@@ -128,8 +128,12 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
         pendingReprime = scheduler.schedule { [weak self] in
             guard let self, self.cursorActive else { return }
             self.pendingReprime = nil
-            if self.pushed { self.crosshairDriver.popCrosshair() }
+            // Push new crosshair BEFORE popping the old one so there is never a
+            // frame in which the cursor stack reverts to the arrow — that gap
+            // caused visible flicker while the mouse was moving.
+            let wasPushed = self.pushed
             self.crosshairDriver.pushCrosshair()
+            if wasPushed { self.crosshairDriver.popCrosshair() }
             self.pushed = true
             self.crosshairDriver.setCrosshair()
         }

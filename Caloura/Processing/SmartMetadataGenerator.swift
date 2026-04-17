@@ -12,6 +12,18 @@ protocol MetadataGenerating {
     func generate(ocrText: String, sourceApp: String?, windowTitle: String?) async -> ScreenshotMetadata?
 }
 
+/// `LanguageModelSession` is not thread-safe; hoisting to an actor-isolated
+/// singleton lets us persist one session across captures instead of spinning
+/// up a fresh session per call (~80-120ms warmup).
+private actor SharedLanguageModelSession {
+    static let shared = SharedLanguageModelSession()
+    private let session = LanguageModelSession()
+
+    func respond(to prompt: String) async throws -> String {
+        try await session.respond(to: prompt).content
+    }
+}
+
 struct SmartMetadataGenerator: MetadataGenerating {
     static let shared = SmartMetadataGenerator()
     private static let logger = Logger(
@@ -43,11 +55,10 @@ struct SmartMetadataGenerator: MetadataGenerating {
         TAGS: <tag1>, <tag2>, <tag3>
         """
 
-        let session = LanguageModelSession()
         let response: String?
         do {
             response = try await withTimeout(seconds: 2) {
-                try await session.respond(to: prompt).content
+                try await SharedLanguageModelSession.shared.respond(to: prompt)
             }
         } catch TimeoutError.timedOut {
             Self.logger.debug("Metadata generation timed out")

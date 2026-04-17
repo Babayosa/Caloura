@@ -20,6 +20,9 @@ extension ScreenCaptureManager {
     enum PermissionState: Sendable {
         case neverGranted
         case grantedButFailing
+        // Asks for explicit user consent before the coordinator runs
+        // `tccutil reset ScreenCapture` and relaunches the app.
+        case confirmRepairRelaunch
     }
 
     /// Quick check using CoreGraphics — no prompt, but may not reflect
@@ -119,7 +122,7 @@ extension ScreenCaptureManager {
     /// Show a permission guidance alert for a specific diagnosed state.
     func showPermissionAlert(
         for state: PermissionState
-    ) -> ScreenCapturePermissionAlertAction {
+    ) async -> ScreenCapturePermissionAlertAction {
 
         let settingsURLString = "x-apple.systempreferences:"
             + "com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture"
@@ -129,7 +132,7 @@ extension ScreenCaptureManager {
 
         switch state {
         case .neverGranted:
-            let action = permissionDependencies.presentAlert(state)
+            let action = await permissionDependencies.presentAlert(state)
             switch action {
             case .openSystemSettings:
                 permissionDependencies.openURL(settingsURL)
@@ -138,7 +141,7 @@ extension ScreenCaptureManager {
             }
             return action
         case .grantedButFailing:
-            let action = permissionDependencies.presentAlert(state)
+            let action = await permissionDependencies.presentAlert(state)
             switch action {
             case .restartApp:
                 relaunchApp()
@@ -148,6 +151,10 @@ extension ScreenCaptureManager {
                 break
             }
             return action
+        case .confirmRepairRelaunch:
+            // The coordinator drives the reset+relaunch on approval; this
+            // method is only responsible for surfacing the alert.
+            return await permissionDependencies.presentAlert(state)
         }
     }
 
@@ -256,6 +263,102 @@ extension ScreenCaptureManager {
                     return
                 }
                 continuation.resume()
+            }
+        }
+    }
+}
+
+// MARK: - Permission Alert
+
+extension ScreenCaptureManager {
+    /// Build the NSAlert for a permission state. Pure factory — no AppKit
+    /// side effects (no activation, no run loop mutation), so tests can
+    /// assert title/buttons without presenting the alert.
+    @MainActor
+    static func makePermissionAlert(for state: PermissionState) -> NSAlert {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        switch state {
+        case .neverGranted:
+            alert.messageText = "Screen Recording Permission Required"
+            alert.informativeText =
+                "Caloura needs screen recording access to capture "
+                + "screenshots.\n\n"
+                + "1. Click \"Open System Settings\" below\n"
+                + "2. Find Caloura in the list and toggle it ON\n"
+                + "3. You may need to quit and reopen Caloura "
+                + "after granting access"
+            alert.addButton(withTitle: "Open System Settings")
+            alert.addButton(withTitle: "Cancel")
+        case .grantedButFailing:
+            alert.messageText = "Screen Recording Permission Issue"
+            alert.informativeText =
+                "Caloura has screen recording permission, but macOS "
+                + "is not allowing captures. This can happen after an "
+                + "app update or system change.\n\n"
+                + "Restarting Caloura usually fixes this. If not, try "
+                + "toggling the permission off and on in "
+                + "System Settings."
+            alert.addButton(withTitle: "Restart Caloura")
+            alert.addButton(withTitle: "Open System Settings")
+            alert.addButton(withTitle: "Cancel")
+        case .confirmRepairRelaunch:
+            alert.messageText = "Reset Screen Recording permission?"
+            alert.informativeText =
+                "Caloura can't verify its Screen Recording access. "
+                + "Resetting the permission and relaunching usually "
+                + "fixes this, but you'll need to re-approve Caloura "
+                + "in System Settings afterward.\n\n"
+                + "Reset only if a plain restart didn't work."
+            alert.addButton(withTitle: "Reset and Relaunch")
+            alert.addButton(withTitle: "Cancel")
+        }
+        return alert
+    }
+
+    /// Map an NSAlert modal response code to the coordinator action.
+    /// Pure — safe for unit tests without AppKit side effects.
+    nonisolated static func mapAlertResponse(
+        _ response: NSApplication.ModalResponse,
+        for state: PermissionState
+    ) -> ScreenCapturePermissionAlertAction {
+        switch state {
+        case .neverGranted:
+            return response == .alertFirstButtonReturn ? .openSystemSettings : .cancel
+        case .grantedButFailing:
+            switch response {
+            case .alertFirstButtonReturn:
+                return .restartApp
+            case .alertSecondButtonReturn:
+                return .openSystemSettings
+            default:
+                return .cancel
+            }
+        case .confirmRepairRelaunch:
+            return response == .alertFirstButtonReturn ? .restartApp : .cancel
+        }
+    }
+
+    /// Present the permission alert without blocking the awaiter. The modal
+    /// runs on the next run-loop tick so the calling async task yields
+    /// before the nested event loop begins. We deliberately skip
+    /// `NSApp.activate()` here — Caloura is a menu bar app, and forcing
+    /// activation during a capture flow steals focus from whatever app
+    /// the user was in, producing the "menu bar greys for a minute"
+    /// symptom reported during post-overhaul manual testing.
+    @MainActor
+    static func presentPermissionAlertNonBlocking(
+        for state: PermissionState
+    ) async -> ScreenCapturePermissionAlertAction {
+        typealias Continuation = CheckedContinuation<
+            ScreenCapturePermissionAlertAction, Never
+        >
+        return await withCheckedContinuation { (continuation: Continuation) in
+            DispatchQueue.main.async {
+                let alert = Self.makePermissionAlert(for: state)
+                let response = alert.runModal()
+                let action = Self.mapAlertResponse(response, for: state)
+                continuation.resume(returning: action)
             }
         }
     }

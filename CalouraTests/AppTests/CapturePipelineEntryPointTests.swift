@@ -265,7 +265,11 @@ extension CapturePipelineTests {
         XCTAssertNil(pipeline.appState.lastScreenshot)
     }
 
-    func testCaptureWindow_failedToStartInvokesPermissionFailureHandler() async {
+    func testCaptureWindow_failedToStartDoesNotInvokePermissionFailureHandler() async {
+        // Picker `.failedToStart` is treated as a transient failure. The
+        // permission-repair flow is destructive (modal alert, TCC reset,
+        // forced relaunch) — gated on genuine denial evidence, not a
+        // single picker hiccup.
         var resumedMode: CaptureMode?
         let fakeSession = FakeWindowCaptureSession(result: .failedToStart)
         let pipeline = CapturePipelineTestHelpers.makePipeline(
@@ -281,11 +285,15 @@ extension CapturePipelineTests {
         pipeline.captureWindow()
 
         await pollUntil(timeout: 2.0) {
-            resumedMode == .window && !pipeline.appState.isCapturing
+            !pipeline.appState.isCapturing
         }
 
         XCTAssertEqual(fakeSession.pickCalls, 1)
-        XCTAssertEqual(resumedMode, .window)
+        XCTAssertNil(resumedMode, "failedToStart must not trigger permission repair")
+        XCTAssertTrue(
+            pipeline.appState.statusMessage.contains("picker"),
+            "expected soft picker-unavailable status; got \(pipeline.appState.statusMessage)"
+        )
     }
 
     func testCaptureRepeat_usesStoredAreaSelection() async throws {

@@ -168,6 +168,7 @@ final class CaptureDistributionService {
         Task {
             do {
                 try await copy(screenshot, using: mode)
+                screenshot.releaseEncodedCaches()
                 await MainActor.run {
                     if showShareTip {
                         showTip(.share)
@@ -190,6 +191,7 @@ final class CaptureDistributionService {
         Task {
             do {
                 _ = try await saveCapture(screenshot)
+                screenshot.releaseEncodedCaches()
                 await MainActor.run {
                     if showShareTip {
                         showTip(.share)

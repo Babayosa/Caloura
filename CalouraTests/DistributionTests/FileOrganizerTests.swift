@@ -1,8 +1,6 @@
-// swiftlint:disable file_length
 import XCTest
 @testable import Caloura
 
-// swiftlint:disable:next type_body_length
 final class FileOrganizerTests: XCTestCase {
 
     func testGenerateFileName_withAppName() {
@@ -13,8 +11,7 @@ final class FileOrganizerTests: XCTestCase {
             timestamp: makeDate(hour: 14, minute: 30, second: 45)
         )
 
-        let screenshot = makeProcessedScreenshot(context: context)
-        let fileName = FileOrganizer.generateFileName(for: screenshot)
+        let fileName = FileOrganizer.generateFileName(for: context)
 
         XCTAssertEqual(fileName, "Caloura_14-30-45-000_Safari.png")
     }
@@ -26,8 +23,7 @@ final class FileOrganizerTests: XCTestCase {
             timestamp: makeDate(hour: 9, minute: 5, second: 0)
         )
 
-        let screenshot = makeProcessedScreenshot(context: context)
-        let fileName = FileOrganizer.generateFileName(for: screenshot)
+        let fileName = FileOrganizer.generateFileName(for: context)
 
         XCTAssertEqual(fileName, "Caloura_09-05-00-000_Unknown.png")
     }
@@ -39,8 +35,7 @@ final class FileOrganizerTests: XCTestCase {
             timestamp: makeDate(hour: 12, minute: 0, second: 0)
         )
 
-        let screenshot = makeProcessedScreenshot(context: context)
-        let fileName = FileOrganizer.generateFileName(for: screenshot)
+        let fileName = FileOrganizer.generateFileName(for: context)
 
         XCTAssertEqual(fileName, "Caloura_12-00-00-000_VSCode.png")
     }
@@ -115,8 +110,7 @@ final class FileOrganizerTests: XCTestCase {
             sourceAppName: "App/With/Slashes",
             timestamp: makeDate(hour: 8, minute: 0, second: 0)
         )
-        let screenshot = makeProcessedScreenshot(context: context)
-        let fileName = FileOrganizer.generateFileName(for: screenshot)
+        let fileName = FileOrganizer.generateFileName(for: context)
 
         XCTAssertFalse(fileName.contains("/"), "Filename should not contain slashes")
         XCTAssertEqual(fileName, "Caloura_08-00-00-000_AppWithSlashes.png")
@@ -406,8 +400,7 @@ final class FileOrganizerTests: XCTestCase {
             sourceAppName: "TestApp",
             timestamp: makeDate(hour: 23, minute: 59, second: 59)
         )
-        let screenshot = makeProcessedScreenshot(context: context)
-        let fileName = FileOrganizer.generateFileName(for: screenshot)
+        let fileName = FileOrganizer.generateFileName(for: context)
 
         XCTAssertTrue(
             fileName.contains("23-59-59-000"),

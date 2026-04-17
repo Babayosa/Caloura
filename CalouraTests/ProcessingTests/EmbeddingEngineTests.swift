@@ -3,17 +3,19 @@ import XCTest
 
 final class EmbeddingEngineTests: XCTestCase {
 
-    func testEmbed_validText_returnsVector() {
-        let vector = EmbeddingEngine.embed("This is a sample sentence about math homework")
+    func testEmbed_validText_returnsVector() async {
+        let vector = await EmbeddingEngine.embed("This is a sample sentence about math homework")
         XCTAssertNotNil(vector)
         if let vector {
             XCTAssertGreaterThan(vector.count, 0)
         }
     }
 
-    func testEmbed_emptyText_returnsNil() {
-        XCTAssertNil(EmbeddingEngine.embed(""))
-        XCTAssertNil(EmbeddingEngine.embed("   "))
+    func testEmbed_emptyText_returnsNil() async {
+        let emptyVector = await EmbeddingEngine.embed("")
+        XCTAssertNil(emptyVector)
+        let whitespaceVector = await EmbeddingEngine.embed("   ")
+        XCTAssertNil(whitespaceVector)
     }
 
     func testCosineSimilarity_identical_returnsOne() {
@@ -37,25 +39,24 @@ final class EmbeddingEngineTests: XCTestCase {
         XCTAssertEqual(EmbeddingEngine.cosineSimilarity([1.0], [1.0, 2.0]), 0.0)
     }
 
-    func testSearch_similarText_ranksHigher() {
+    func testSearch_similarText_ranksHigher() async {
         let storeURL = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("test-embeddings-\(UUID().uuidString).enc")
         let store = EmbeddingStore(storeURL: storeURL)
 
-        // Add embeddings for different topics
-        if let mathVec = EmbeddingEngine.embed("calculus derivatives integration math homework") {
+        if let mathVec = await EmbeddingEngine.embed("calculus derivatives integration math homework") {
             store.add(screenshotID: UUID(), vector: mathVec, textHash: "math")
         }
-        if let catVec = EmbeddingEngine.embed("cute cat sitting on the couch photo") {
+        if let catVec = await EmbeddingEngine.embed("cute cat sitting on the couch photo") {
             store.add(screenshotID: UUID(), vector: catVec, textHash: "cat")
         }
 
-        let results = EmbeddingEngine.search(query: "calculus problem", in: store, topK: 10, threshold: 0.0)
-        // If embeddings are available, math should rank higher than cat
+        let results = await EmbeddingEngine.search(
+            query: "calculus problem", in: store, topK: 10, threshold: 0.0
+        )
         if results.count >= 2 {
             XCTAssertGreaterThan(results[0].similarity, results[1].similarity)
         }
-        // Cleanup
         store.clear()
     }
 }
