@@ -97,7 +97,7 @@ struct PermissionIdentity: Equatable {
                 executablePath: executablePath,
                 teamIdentifier: teamIdentifier
             )
-        let requirementHash = sha256Hex(requirementSeed)
+        let requirementHash = SHA256Hex.encode(requirementSeed)
 
         return PermissionIdentity(
             bundleIdentifier: bundleID,
@@ -124,11 +124,6 @@ struct PermissionIdentity: Equatable {
         teamIdentifier: String
     ) -> String {
         "\(bundleID)|\(teamIdentifier)|\(executablePath)"
-    }
-
-    private static func sha256Hex(_ input: String) -> String {
-        let digest = SHA256.hash(data: Data(input.utf8))
-        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     private struct SigningInfo {
@@ -221,9 +216,7 @@ final class PermissionCoordinator {
 
     private var inFlightValidation: Task<ScreenRecordingState, Never>?
     private var isShowingAlert = false
-    private var lastBlockingAlertAt: Date?
-    private let alertCooldownSeconds: TimeInterval = 45
-    private let autoRepairRelaunchCooldownSeconds: TimeInterval = 60
+    private var cooldownPolicy: PermissionCooldownPolicy
     private let permissionRequestLifetimeSeconds: TimeInterval = 180
     private let pendingCaptureResumeTTLSeconds: TimeInterval = 120
     private var cooldownResetTask: Task<Void, Never>?
@@ -269,12 +262,16 @@ final class PermissionCoordinator {
         }
         self.permissionRequester = { ScreenCaptureManager.shared.requestPermission() }
         self.identityProvider = { await PermissionIdentityProvider.shared.currentIdentity() }
-        self.statusMessageSink = { AppState.shared.statusMessage = $0 }
+        self.statusMessageSink = { StatusMessageRouter.sink($0) }
         self.now = Date.init
         self.repairSCKAccess = { await ScreenCaptureManager.shared.repairSCKAccess() }
         self.resetTCCEntry = { await ScreenCaptureManager.shared.resetTCCEntry() }
         self.relaunchApp = { ScreenCaptureManager.shared.relaunchApp() }
         self.sckStateResetter = { ScreenCaptureManager.shared.resetSCKState() }
+        self.cooldownPolicy = PermissionCooldownPolicy(
+            defaults: defaults,
+            lastAutoRepairRelaunchKey: Keys.lastAutoRepairRelaunchAt
+        )
     }
 
     init(
@@ -307,6 +304,11 @@ final class PermissionCoordinator {
         self.resetTCCEntry = resetTCCEntry
         self.relaunchApp = relaunchApp
         self.sckStateResetter = sckStateResetter
+        self.cooldownPolicy = PermissionCooldownPolicy(
+            defaults: defaults,
+            lastAutoRepairRelaunchKey: Keys.lastAutoRepairRelaunchAt,
+            now: now
+        )
     }
 
     /// Perform a non-interactive permission check and update the published UI model.
@@ -622,12 +624,20 @@ final class PermissionCoordinator {
         }
 
         if interactiveResult == .transientFailure,
-           canAttemptAutoRepairRelaunch(),
+           cooldownPolicy.canAttemptAutoRepairRelaunch(),
+           isShowingAlert {
+            logger.info(
+                "permission_alert_suppressed reason=inflight_repair status=\(String(describing: status), privacy: .public)"
+            )
+        }
+        if interactiveResult == .transientFailure,
+           cooldownPolicy.canAttemptAutoRepairRelaunch(),
            !isShowingAlert {
-            markAutoRepairRelaunchAttempted()
+            cooldownPolicy.markAutoRepairRelaunchAttempted()
             isShowingAlert = true
+            // defer clears across cancellation — see CLAUDE.md "Stateful flags require recovery API + diagnostic log + defer-based clear".
+            defer { isShowingAlert = false }
             await alertPresenter(.confirmRepairRelaunch)
-            isShowingAlert = false
             if alertRequestedRelaunch() {
                 logger.info("user_approved_repair_relaunch — TCC reset + relaunch")
                 await performTCCResetAndRelaunch()
@@ -640,7 +650,7 @@ final class PermissionCoordinator {
             logger.info("user_declined_repair_relaunch — surfacing status only")
             clearPendingCaptureResume()
             statusMessageSink(nonBlockingMessage(for: status))
-            lastBlockingAlertAt = now()
+            cooldownPolicy.markBlockingAlertShown(at: now())
             updateCooldownInModel(cooldownActive: true)
             return status
         }
@@ -671,14 +681,14 @@ final class PermissionCoordinator {
             + " state=\(alertDesc) path=\(alertPath)"
         logger.info("\(alertMsg, privacy: .public)")
         isShowingAlert = true
+        defer { isShowingAlert = false }  // see comment on the prior defer
         await alertPresenter(alertState)
-        isShowingAlert = false
         if alertRequestedRelaunch() {
             pendingCaptureResumeRequiresRelaunch = true
         } else {
             clearPendingCaptureResume()
         }
-        lastBlockingAlertAt = now
+        cooldownPolicy.markBlockingAlertShown(at: now)
         updateCooldownInModel(cooldownActive: true)
         return status
     }
@@ -699,9 +709,7 @@ extension PermissionCoordinator {
     /// using this value, and `scheduleCooldownReset` clears the model flag
     /// when the timer fires — so this method does not need a write side effect.
     func isCooldownActive(at timestamp: Date) -> Bool {
-        lastBlockingAlertAt.map {
-            timestamp.timeIntervalSince($0) < alertCooldownSeconds
-        } ?? false
+        cooldownPolicy.isCooldownActive(at: timestamp)
     }
 }
 
@@ -714,9 +722,11 @@ private extension PermissionCoordinator {
         }
         let task = Task { @MainActor in await operation() }
         inFlightValidation = task
-        let result = await task.value
-        inFlightValidation = nil
-        return result
+        // defer ensures the in-flight slot clears even if the calling task is
+        // cancelled mid-await. Without this, subsequent callers would co-await
+        // a dead task forever, identical-shape regression to D4 cursor leak.
+        defer { inFlightValidation = nil }
+        return await task.value
     }
 
     @discardableResult
@@ -823,7 +833,7 @@ private extension PermissionCoordinator {
 
     func scheduleCooldownReset() {
         cooldownResetTask?.cancel()
-        let seconds = alertCooldownSeconds
+        let seconds = cooldownPolicy.alertCooldownSeconds
         cooldownResetTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled else { return }
@@ -902,14 +912,11 @@ private extension PermissionCoordinator {
     }
 
     func canAttemptAutoRepairRelaunch() -> Bool {
-        guard let lastAt = defaults.object(forKey: Keys.lastAutoRepairRelaunchAt) as? Date else {
-            return true
-        }
-        return now().timeIntervalSince(lastAt) > autoRepairRelaunchCooldownSeconds
+        cooldownPolicy.canAttemptAutoRepairRelaunch()
     }
 
     func markAutoRepairRelaunchAttempted() {
-        defaults.set(now(), forKey: Keys.lastAutoRepairRelaunchAt)
+        cooldownPolicy.markAutoRepairRelaunchAttempted()
     }
 
     func canAutoRelaunchAfterSettingsReturn(at timestamp: Date) -> Bool {

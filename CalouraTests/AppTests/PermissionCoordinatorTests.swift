@@ -569,4 +569,5 @@ final class PermissionCoordinatorTests: XCTestCase {
             return Date(timeIntervalSince1970: current)
         }
     }
+
 }

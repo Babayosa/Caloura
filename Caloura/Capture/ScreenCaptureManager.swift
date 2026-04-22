@@ -70,7 +70,7 @@ struct ScreenCapturePermissionDependencies: Sendable {
         self.relaunchApplication = relaunchApplication
         self.terminateApplication = terminateApplication
         self.statusMessageSink = statusMessageSink ?? { message in
-            AppState.shared.statusMessage = message
+            StatusMessageRouter.sink(message)
         }
     }
 
@@ -469,28 +469,11 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
 
     /// Capture the full screen, falling back from SCK to CLI.
     func captureFullScreen(screen: NSScreen? = nil) async throws -> CGImage {
-        if !sckFailed {
-            do {
-                return try await sckCaptureFullScreen(screen: screen)
-            } catch {
-                logger.warning(
-                    "SCK captureFullScreen failed: \(error.localizedDescription)"
-                )
-                handleSCKFailure(error)
-                if let captureError = captureErrorForSCKFailure(error) {
-                    throw captureError
-                }
-            }
-        }
-        do {
-            logger.info("Trying screencapture CLI for fullscreen")
-            return try await screencaptureFullScreen(screen: screen)
-        } catch {
-            if sckFailed || shouldTreatCoreGraphicsStateAsPermissionDenied() {
-                throw CaptureError.noPermission
-            }
-            throw error
-        }
+        try await withSCKFallback(
+            label: "fullscreen",
+            sckOperation: { try await self.sckCaptureFullScreen(screen: screen) },
+            cliOperation: { try await self.screencaptureFullScreen(screen: screen) }
+        )
     }
 
     // MARK: - Area Capture
@@ -505,30 +488,11 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
             logger.warning("Rejecting degenerate capture rect: \(desc)")
             throw CaptureError.invalidRegion(reason: desc)
         }
-
-        if !sckFailed {
-            do {
-                return try await sckCaptureArea(rect: rect, screen: screen)
-            } catch {
-                logger.warning(
-                    "SCK captureArea failed: \(error.localizedDescription)"
-                )
-                handleSCKFailure(error)
-                if let captureError = captureErrorForSCKFailure(error) {
-                    throw captureError
-                }
-            }
-        }
-
-        do {
-            logger.info("Trying screencapture CLI for area")
-            return try await screencaptureArea(rect: rect, screen: screen)
-        } catch {
-            if sckFailed || shouldTreatCoreGraphicsStateAsPermissionDenied() {
-                throw CaptureError.noPermission
-            }
-            throw error
-        }
+        return try await withSCKFallback(
+            label: "area",
+            sckOperation: { try await self.sckCaptureArea(rect: rect, screen: screen) },
+            cliOperation: { try await self.screencaptureArea(rect: rect, screen: screen) }
+        )
     }
 
     func captureAreaInDisplaySpace(
@@ -539,13 +503,28 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
             logger.warning("Rejecting degenerate display-space rect: \(desc)")
             throw CaptureError.invalidRegion(reason: desc)
         }
+        return try await withSCKFallback(
+            label: "display-space area",
+            sckOperation: { try await self.sckCaptureAreaInDisplaySpace(rect: rect) },
+            cliOperation: { try await self.screencaptureAreaInDisplaySpace(rect: rect) }
+        )
+    }
 
+    /// Run an SCK capture, falling back to the `screencapture` CLI when SCK
+    /// fails transiently or has been disabled. Centralizes the error
+    /// classification + permission-check rethrow that all three top-level
+    /// capture entry points used to duplicate.
+    private func withSCKFallback(
+        label: String,
+        sckOperation: () async throws -> CGImage,
+        cliOperation: () async throws -> CGImage
+    ) async throws -> CGImage {
         if !sckFailed {
             do {
-                return try await sckCaptureAreaInDisplaySpace(rect: rect)
+                return try await sckOperation()
             } catch {
                 logger.warning(
-                    "SCK captureAreaInDisplaySpace failed: \(error.localizedDescription)"
+                    "SCK \(label, privacy: .public) failed: \(error.localizedDescription)"
                 )
                 handleSCKFailure(error)
                 if let captureError = captureErrorForSCKFailure(error) {
@@ -553,10 +532,9 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                 }
             }
         }
-
         do {
-            logger.info("Trying screencapture CLI for display-space area")
-            return try await screencaptureAreaInDisplaySpace(rect: rect)
+            logger.info("Trying screencapture CLI for \(label, privacy: .public)")
+            return try await cliOperation()
         } catch {
             if sckFailed || shouldTreatCoreGraphicsStateAsPermissionDenied() {
                 throw CaptureError.noPermission
