@@ -56,6 +56,11 @@ enum CapturePipelineTestHelpers {
         makeFullscreenCaptureSession: CapturePipeline.MakeFullscreenCaptureSessionFn? = nil,
         makeWindowCaptureSession: CapturePipeline.MakeWindowCaptureSessionFn? = nil,
         screenCountProvider: @escaping () -> Int = { NSScreen.screens.count },
+        screensProvider: @escaping () -> [NSScreen] = { NSScreen.screens },
+        mainScreenProvider: @escaping () -> NSScreen? = { NSScreen.main },
+        delaySleeper: @escaping (UInt64) async -> Void = { nanoseconds in
+            try? await Task.sleep(nanoseconds: nanoseconds)
+        },
         freezeScreensEnabled: Bool = true,
         freezeSnapshotTimeoutSeconds: Double = 2.0,
         enrichmentCoordinator: CaptureEnrichmentCoordinator = CaptureEnrichmentCoordinator()
@@ -106,6 +111,9 @@ enum CapturePipelineTestHelpers {
             makeFullscreenCaptureSession: makeFullscreenCaptureSession,
             makeWindowCaptureSession: makeWindowCaptureSession,
             screenCountProvider: screenCountProvider,
+            screensProvider: screensProvider,
+            mainScreenProvider: mainScreenProvider,
+            delaySleeper: delaySleeper,
             freezeScreensEnabled: freezeScreensEnabled,
             freezeSnapshotTimeoutSeconds: freezeSnapshotTimeoutSeconds,
             enrichmentCoordinator: enrichmentCoordinator

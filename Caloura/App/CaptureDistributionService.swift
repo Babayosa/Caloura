@@ -144,10 +144,22 @@ final class CaptureDistributionService {
     }
 
     func copyLastOCRText() {
-        guard let lastItem = appState.recentScreenshots.first,
-              let text = lastItem.ocrText,
-              !text.isEmpty else {
+        guard let lastItem = appState.recentScreenshots.first else {
             appState.setStatusMessage("No OCR text available")
+            return
+        }
+
+        let text = lastItem.ocrText ?? ""
+        if text.isEmpty {
+            // Enrichment is async — OCR usually lands within a few seconds of
+            // capture. Distinguish "still processing" from "no text found" so
+            // the user knows whether to retry or move on.
+            let ageSeconds = Date().timeIntervalSince(lastItem.timestamp)
+            if ageSeconds < 10 {
+                appState.setStatusMessage("OCR is still processing — try again in a moment.")
+            } else {
+                appState.setStatusMessage("No OCR text available")
+            }
             return
         }
 
@@ -200,6 +212,7 @@ final class CaptureDistributionService {
                     let hasOCRText = !(screenshot.ocrText?.isEmpty ?? true)
                     let alreadyEnriched = phase == .enrichmentPending
                         || phase == .enrichmentComplete
+                        || phase == .piiScanFailed
                         || hasOCRText
                     if !alreadyEnriched {
                         appState.setCapturePreviewPhase(

@@ -73,6 +73,9 @@ final class CapturePipeline {
     let makeFullscreenCaptureSession: MakeFullscreenCaptureSessionFn
     let makeWindowCaptureSession: MakeWindowCaptureSessionFn
     let screenCountProvider: () -> Int
+    let screensProvider: () -> [NSScreen]
+    let mainScreenProvider: () -> NSScreen?
+    let delaySleeper: (UInt64) async -> Void
     let freezeScreensEnabled: Bool
     private let enrichmentCoordinator: CaptureEnrichmentCoordinator
     let metricsRecorder: CaptureMetricsRecorder
@@ -150,6 +153,11 @@ final class CapturePipeline {
             captureManager: self.captureManager
         )
         self.screenCountProvider = { NSScreen.screens.count }
+        self.screensProvider = { NSScreen.screens }
+        self.mainScreenProvider = { NSScreen.main }
+        self.delaySleeper = { nanoseconds in
+            try? await Task.sleep(nanoseconds: nanoseconds)
+        }
         self.freezeScreensEnabled = true
         self.enrichmentCoordinator = CaptureEnrichmentCoordinator()
         self.metricsRecorder = .shared
@@ -197,6 +205,11 @@ final class CapturePipeline {
         makeFullscreenCaptureSession: MakeFullscreenCaptureSessionFn? = nil,
         makeWindowCaptureSession: MakeWindowCaptureSessionFn? = nil,
         screenCountProvider: @escaping () -> Int = { NSScreen.screens.count },
+        screensProvider: @escaping () -> [NSScreen] = { NSScreen.screens },
+        mainScreenProvider: @escaping () -> NSScreen? = { NSScreen.main },
+        delaySleeper: @escaping (UInt64) async -> Void = { nanoseconds in
+            try? await Task.sleep(nanoseconds: nanoseconds)
+        },
         freezeScreensEnabled: Bool = true,
         freezeSnapshotTimeoutSeconds: Double = 2.0,
         enrichmentCoordinator: CaptureEnrichmentCoordinator = CaptureEnrichmentCoordinator(),
@@ -246,6 +259,9 @@ final class CapturePipeline {
             )
         }
         self.screenCountProvider = screenCountProvider
+        self.screensProvider = screensProvider
+        self.mainScreenProvider = mainScreenProvider
+        self.delaySleeper = delaySleeper
         self.freezeScreensEnabled = freezeScreensEnabled
         self.enrichmentCoordinator = enrichmentCoordinator
         self.metricsRecorder = metricsRecorder
@@ -280,34 +296,6 @@ final class CapturePipeline {
         self.requestResolver = services.requestResolver
         self.enrichmentService = services.enrichmentService
         self.distributionService = services.distributionService
-    }
-
-    // MARK: - Pipeline
-
-    func captureFailureStatusMessage(
-        for error: Error,
-        operation: String = "Capture"
-    ) -> String {
-        executionService.captureFailureStatusMessage(
-            for: error,
-            operation: operation
-        )
-    }
-
-    func captureFailureLogMessage(
-        for error: Error,
-        operation: String = "Capture"
-    ) -> String {
-        executionService.captureFailureLogMessage(
-            for: error,
-            operation: operation
-        )
-    }
-
-    // MARK: - History + OCR
-
-    func addToHistoryWithOCR(_ processed: ProcessedScreenshot) {
-        executionService.enqueueEnrichment(for: processed)
     }
 
 }

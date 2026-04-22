@@ -19,7 +19,7 @@ extension CapturePipelineTests {
             freezeScreensEnabled: false
         )
 
-        pipeline.captureArea()
+        pipeline.entrypointService.captureArea()
 
         XCTAssertEqual(areaSession?.presentCalls, 1)
         XCTAssertFalse(areaSession?.lastSuppressDimming ?? true)
@@ -42,7 +42,7 @@ extension CapturePipelineTests {
             freezeScreensEnabled: false
         )
 
-        pipeline.captureArea()
+        pipeline.entrypointService.captureArea()
 
         XCTAssertEqual(areaSession?.presentCalls, 1)
 
@@ -71,7 +71,7 @@ extension CapturePipelineTests {
         )
         let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
 
-        pipeline.captureArea()
+        pipeline.entrypointService.captureArea()
         XCTAssertEqual(areaSession?.presentCalls, 1)
         await areaSession?.triggerSelection(
             rect: CGRect(x: 10, y: 12, width: 80, height: 60),
@@ -109,7 +109,7 @@ extension CapturePipelineTests {
             height: max(1, Int(screen.frame.height) * scale)
         )
 
-        pipeline.captureArea()
+        pipeline.entrypointService.captureArea()
         XCTAssertEqual(areaSession?.presentCalls, 1)
         await areaSession?.triggerSelection(
             rect: CGRect(x: 20, y: 24, width: 80, height: 60),
@@ -143,7 +143,7 @@ extension CapturePipelineTests {
             freezeScreensEnabled: true
         )
 
-        pipeline.captureArea()
+        pipeline.entrypointService.captureArea()
 
         // Phase 1: present is synchronous with dimming suppressed
         XCTAssertEqual(areaSession?.presentCalls, 1)
@@ -166,7 +166,7 @@ extension CapturePipelineTests {
             screenCountProvider: { 1 }
         )
 
-        pipeline.captureFullscreen()
+        pipeline.entrypointService.captureFullscreen()
 
         await pollUntil(timeout: 2.0) {
             pipeline.appState.lastScreenshot != nil
@@ -191,7 +191,7 @@ extension CapturePipelineTests {
             screenCountProvider: { 2 }
         )
 
-        pipeline.captureFullscreen()
+        pipeline.entrypointService.captureFullscreen()
 
         XCTAssertEqual(fullscreenSession?.presentCalls, 1)
         XCTAssertTrue(pipeline.appState.isCapturing)
@@ -215,7 +215,7 @@ extension CapturePipelineTests {
         )
         let screen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
 
-        pipeline.captureFullscreen()
+        pipeline.entrypointService.captureFullscreen()
         await fullscreenSession?.triggerSelection(screen: screen)
 
         await pollUntil(timeout: 2.0) {
@@ -236,7 +236,7 @@ extension CapturePipelineTests {
             }
         )
 
-        pipeline.captureWindow()
+        pipeline.entrypointService.captureWindow()
 
         await pollUntil(timeout: 2.0) {
             pipeline.appState.lastScreenshot != nil
@@ -255,7 +255,7 @@ extension CapturePipelineTests {
             }
         )
 
-        pipeline.captureWindow()
+        pipeline.entrypointService.captureWindow()
 
         await pollUntil(timeout: 2.0) {
             !pipeline.appState.isCapturing
@@ -282,7 +282,7 @@ extension CapturePipelineTests {
             }
         )
 
-        pipeline.captureWindow()
+        pipeline.entrypointService.captureWindow()
 
         await pollUntil(timeout: 2.0) {
             !pipeline.appState.isCapturing
@@ -305,7 +305,7 @@ extension CapturePipelineTests {
         pipeline.appState.lastCaptureRect = CGRect(x: 10, y: 20, width: 120, height: 80)
         pipeline.appState.lastCaptureScreen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
 
-        pipeline.captureRepeat()
+        pipeline.entrypointService.captureRepeat()
 
         await pollUntil(timeout: 2.0) {
             pipeline.appState.lastScreenshot != nil
@@ -315,18 +315,85 @@ extension CapturePipelineTests {
         XCTAssertEqual(pipeline.appState.lastScreenshot?.context.mode, .area)
     }
 
+    func testCaptureRepeat_clearsStaleScreenReferenceWhenScreenNoLongerPresent() async throws {
+        // Simulates a monitor unplug between the original area capture and
+        // the repeat: `lastCaptureScreen` still points at the now-disconnected
+        // NSScreen instance. captureRepeat must recognize the stale reference,
+        // clear it, and fall back to mainScreenProvider() rather than try to
+        // capture from a screen that's no longer in the layout.
+        let captureManager = FakeScreenCaptureManager()
+        let realScreen = try XCTUnwrap(NSScreen.main ?? NSScreen.screens.first)
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            captureManager: captureManager,
+            screensProvider: { [] },
+            mainScreenProvider: { realScreen }
+        )
+        pipeline.appState.lastCaptureRect = CGRect(x: 10, y: 20, width: 120, height: 80)
+        pipeline.appState.lastCaptureScreen = realScreen
+
+        pipeline.entrypointService.captureRepeat()
+
+        await pollUntil(timeout: 2.0) {
+            pipeline.appState.lastScreenshot != nil
+        }
+
+        XCTAssertNil(
+            pipeline.appState.lastCaptureScreen,
+            "stale screen reference must be cleared when the screen is no longer present"
+        )
+        XCTAssertEqual(captureManager.areaCalls, 1)
+        XCTAssertEqual(pipeline.appState.lastScreenshot?.context.mode, .area)
+    }
+
     func testCaptureRepeat_withoutPreviousAreaSelectionShowsStatus() {
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function
         )
 
-        pipeline.captureRepeat()
+        pipeline.entrypointService.captureRepeat()
 
         XCTAssertEqual(
             pipeline.appState.statusMessage,
             "No previous area capture to repeat."
         )
         XCTAssertFalse(pipeline.appState.isCapturing)
+    }
+
+    func testCaptureDelayed_usesInjectedClockToAdvanceCountdownInstantly() async {
+        // The countdown loop sleeps between ticks via the injected sleeper.
+        // Tests substitute a no-op sleeper so we can advance through a 5s
+        // countdown without waiting 5 real seconds and without the test
+        // depending on wall-clock timing.
+        let captureManager = FakeScreenCaptureManager()
+        let sleeperCount = SleeperCounter()
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            captureManager: captureManager,
+            screenCountProvider: { 1 },
+            delaySleeper: { _ in
+                sleeperCount.increment()
+            }
+        )
+
+        let started = Date()
+        pipeline.entrypointService.captureDelayed(seconds: 5, mode: .fullscreen)
+
+        await pollUntil(timeout: 1.0) {
+            pipeline.appState.lastScreenshot?.context.mode == .fullscreen
+        }
+
+        let elapsed = Date().timeIntervalSince(started)
+        XCTAssertLessThan(
+            elapsed, 0.5,
+            "injected sleeper must short-circuit the countdown — elapsed \(elapsed)s"
+        )
+        XCTAssertEqual(captureManager.fullScreenCalls, 1)
+        XCTAssertFalse(pipeline.appState.isCountingDown)
+        XCTAssertEqual(
+            sleeperCount.value, 5,
+            "delaySleeper must be invoked once per countdown tick"
+        )
     }
 
     func testCaptureDelayed_areaDispatchesToAreaEntrypoint() async {
@@ -345,7 +412,7 @@ extension CapturePipelineTests {
             freezeScreensEnabled: false
         )
 
-        pipeline.captureDelayed(seconds: 1, mode: .area)
+        pipeline.entrypointService.captureDelayed(seconds: 1, mode: .area)
 
         await pollUntil(timeout: 3.0) {
             areaSession?.presentCalls == 1
@@ -363,7 +430,7 @@ extension CapturePipelineTests {
             screenCountProvider: { 1 }
         )
 
-        pipeline.captureDelayed(seconds: 1, mode: .fullscreen)
+        pipeline.entrypointService.captureDelayed(seconds: 1, mode: .fullscreen)
 
         await pollUntil(timeout: 3.0) {
             pipeline.appState.lastScreenshot?.context.mode == .fullscreen
@@ -373,13 +440,44 @@ extension CapturePipelineTests {
         XCTAssertFalse(pipeline.appState.isCountingDown)
     }
 
+    func testCaptureFullscreen_emptyOverlaysAbortsAndClearsCaptureState() async {
+        var fullscreenSession: FakeFullscreenCaptureSession?
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            makeFullscreenCaptureSession: { _, onSelection, onCancel in
+                let session = FakeFullscreenCaptureSession(
+                    onSelection: onSelection,
+                    onCancel: onCancel
+                )
+                session.simulatedOverlayCount = 0
+                fullscreenSession = session
+                return session
+            },
+            screenCountProvider: { 2 }
+        )
+
+        pipeline.entrypointService.captureFullscreen()
+
+        await pollUntil(timeout: 1.0) {
+            !pipeline.appState.isCapturing
+        }
+
+        XCTAssertEqual(fullscreenSession?.presentCalls, 1)
+        XCTAssertEqual(fullscreenSession?.dismissCalls, 1)
+        XCTAssertFalse(pipeline.appState.isCapturing)
+        XCTAssertEqual(
+            pipeline.appState.statusMessage,
+            "No active display — capture cancelled."
+        )
+    }
+
     func testCancelDelayedCapture_clearsCountdownState() async {
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function
         )
 
-        pipeline.captureDelayed(seconds: 2, mode: .area)
-        pipeline.cancelDelayedCapture()
+        pipeline.entrypointService.captureDelayed(seconds: 2, mode: .area)
+        pipeline.entrypointService.cancelDelayedCapture()
 
         await pollUntil(timeout: 5.0) {
             !pipeline.appState.isCountingDown
@@ -389,4 +487,13 @@ extension CapturePipelineTests {
         XCTAssertEqual(pipeline.appState.countdownRemaining, 0)
         XCTAssertNil(pipeline.sessionState.delayedCaptureTask)
     }
+}
+
+/// Lock-protected counter for asserting how many times the injected
+/// captureDelayed sleeper was invoked.
+final class SleeperCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+    func increment() { lock.lock(); count += 1; lock.unlock() }
 }

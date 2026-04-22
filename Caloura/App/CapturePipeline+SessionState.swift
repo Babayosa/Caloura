@@ -19,8 +19,9 @@ extension CapturePipeline {
             },
             metricsRecorder: metricsRecorder,
             screenCountProvider: screenCountProvider,
-            screensProvider: { NSScreen.screens },
-            mainScreenProvider: { NSScreen.main },
+            screensProvider: screensProvider,
+            mainScreenProvider: mainScreenProvider,
+            delaySleeper: delaySleeper,
             freezeScreensEnabled: freezeScreensEnabled,
             settings: settings
         )

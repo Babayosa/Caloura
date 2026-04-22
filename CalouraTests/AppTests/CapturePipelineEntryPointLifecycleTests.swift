@@ -38,7 +38,7 @@ extension CapturePipelineTests {
             freezeScreensEnabled: true
         )
 
-        pipeline.captureArea()
+        pipeline.entrypointService.captureArea()
 
         await fulfillment(of: [freezeStarted], timeout: 2.0)
         areaSession?.triggerCancel()
@@ -65,7 +65,7 @@ extension CapturePipelineTests {
             screenCountProvider: { 2 }
         )
 
-        pipeline.captureFullscreen()
+        pipeline.entrypointService.captureFullscreen()
         fullscreenSession?.triggerCancel()
 
         XCTAssertFalse(pipeline.appState.isCapturing)
@@ -105,7 +105,7 @@ extension CapturePipelineTests {
             freezeSnapshotTimeoutSeconds: 0.01
         )
 
-        pipeline.captureArea()
+        pipeline.entrypointService.captureArea()
 
         XCTAssertEqual(areaSession?.presentCalls, 1)
         await pollUntil(timeout: 1.0) {
@@ -125,7 +125,7 @@ extension CapturePipelineTests {
             screenCountProvider: { 1 }
         )
 
-        pipeline.captureDelayed(seconds: 1, mode: .fullscreen)
+        pipeline.entrypointService.captureDelayed(seconds: 1, mode: .fullscreen)
 
         await pollUntil(timeout: 3.0) {
             pipeline.appState.lastScreenshot?.context.mode == .fullscreen

@@ -2,10 +2,9 @@ import AppKit
 import os.log
 import ScreenCaptureKit
 
-let captureEntryLogger = Logger(subsystem: "com.caloura.app", category: "CaptureEntry")
-
 @MainActor
 final class CaptureEntrypointService {
+    nonisolated static let logger = Logger(subsystem: "com.caloura.app", category: "CaptureEntry")
     typealias HandlePermissionFailureFn = CapturePipeline.HandlePermissionFailureFn
     typealias SelectWindowCaptureFn = CapturePipeline.SelectWindowCaptureFn
     typealias MakeAreaCaptureSessionFn = CapturePipeline.MakeAreaCaptureSessionFn
@@ -14,6 +13,7 @@ final class CaptureEntrypointService {
     typealias PrewarmWindowContentFn = @MainActor () async -> Void
     typealias ScreensProviderFn = () -> [NSScreen]
     typealias MainScreenProviderFn = () -> NSScreen?
+    typealias DelaySleeperFn = (UInt64) async -> Void
 
     let appState: AppState
     let capturePerformanceRecorder: CapturePerformanceRecorder
@@ -31,6 +31,7 @@ final class CaptureEntrypointService {
     let screenCountProvider: () -> Int
     let screensProvider: ScreensProviderFn
     let mainScreenProvider: MainScreenProviderFn
+    let delaySleeper: DelaySleeperFn
     let freezeScreensEnabled: Bool
     let settings: AppSettings
 
@@ -51,6 +52,9 @@ final class CaptureEntrypointService {
         screenCountProvider: @escaping () -> Int,
         screensProvider: @escaping ScreensProviderFn,
         mainScreenProvider: @escaping MainScreenProviderFn,
+        delaySleeper: @escaping DelaySleeperFn = { nanoseconds in
+            try? await Task.sleep(nanoseconds: nanoseconds)
+        },
         freezeScreensEnabled: Bool,
         settings: AppSettings
     ) {
@@ -70,6 +74,7 @@ final class CaptureEntrypointService {
         self.screenCountProvider = screenCountProvider
         self.screensProvider = screensProvider
         self.mainScreenProvider = mainScreenProvider
+        self.delaySleeper = delaySleeper
         self.freezeScreensEnabled = freezeScreensEnabled
         self.settings = settings
     }
@@ -79,7 +84,7 @@ final class CaptureEntrypointService {
         let sessionID = sessionState.beginTrackedSession()
         let entryStart = CFAbsoluteTimeGetCurrent()
         let performanceSession = capturePerformanceRecorder.beginSession(mode: .area)
-        captureEntryLogger.debug("Capture entry: request received")
+        Self.logger.debug("Capture entry: request received")
 
         let coordinator = makeAreaCaptureCoordinator(
             sessionID: sessionID,
@@ -89,7 +94,12 @@ final class CaptureEntrypointService {
         sessionState.areaCaptureSession?.dismiss()
         sessionState.areaCaptureSession = coordinator
 
-        presentAreaCaptureCoordinator(coordinator, entryStart: entryStart)
+        let presented = presentAreaCaptureCoordinator(
+            coordinator,
+            entryStart: entryStart,
+            performanceSession: performanceSession
+        )
+        guard presented else { return }
 
         guard freezeScreensEnabled, !settings.lowProfileCaptureEnabled else { return }
         loadAreaCaptureFrozenImages(
@@ -111,6 +121,19 @@ final class CaptureEntrypointService {
             sessionState.fullscreenCaptureSession?.dismiss()
             sessionState.fullscreenCaptureSession = coordinator
             coordinator.present()
+            // Mirror the area path: if the overlay presenter returned no
+            // overlays (all displays disconnected mid-flow), unwind cleanly
+            // instead of leaving isCapturing stuck-true.
+            guard !coordinator.overlayWindows.isEmpty else {
+                Self.logger.error(
+                    "Capture entry: no active displays — aborting fullscreen capture"
+                )
+                appState.statusMessage = "No active display — capture cancelled."
+                coordinator.dismiss()
+                sessionState.fullscreenCaptureSession = nil
+                finishInterruptedCapture(performanceSession)
+                return
+            }
             sessionState.screenOverlays = coordinator.overlayWindows
             return
         }
@@ -196,7 +219,7 @@ final class CaptureEntrypointService {
                 self.appState.statusMessage = "Capturing in \(remaining)s..."
                 self.appState.countdownRemaining = remaining
                 CountdownOverlay.shared.updateCount(remaining)
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                await self.delaySleeper(1_000_000_000)
             }
 
             if Task.isCancelled { return }

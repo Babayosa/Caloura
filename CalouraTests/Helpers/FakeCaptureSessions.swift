@@ -70,8 +70,20 @@ final class FakeFullscreenCaptureSession: FullscreenCaptureSessionHandling {
         self.onCancel = onCancel
     }
 
+    var simulatedOverlayCount = 1
+
     func present() {
         presentCalls += 1
+        // Populate overlayWindows so the entrypoint's empty-screens guard
+        // does not interpret a fake session as a "no active displays" abort.
+        // simulatedOverlayCount = 0 lets a test exercise that abort path.
+        if simulatedOverlayCount > 0, let screen = NSScreen.main ?? NSScreen.screens.first {
+            overlayWindows = (0..<simulatedOverlayCount).map { _ in
+                ScreenSelectionOverlayWindow(for: screen, cursorController: nil)
+            }
+        } else {
+            overlayWindows = []
+        }
     }
 
     func dismiss() {

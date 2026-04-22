@@ -72,28 +72,43 @@ extension CaptureEntrypointService {
     func recordAreaCaptureFirstMouseDown(entryStart: CFAbsoluteTime) {
         guard sessionState.recordFirstMouseDownIfNeeded() else { return }
         let duration = metricsRecorder.elapsedMilliseconds(since: entryStart)
-        captureEntryLogger.info(
+        Self.logger.info(
             "Capture entry: first mouseDown at \(duration, privacy: .public) ms"
         )
         metricsRecorder.recordMetric(stage: .firstMouseDown, milliseconds: duration)
     }
 
+    @discardableResult
     func presentAreaCaptureCoordinator(
         _ coordinator: any AreaCaptureSessionHandling,
-        entryStart: CFAbsoluteTime
-    ) {
+        entryStart: CFAbsoluteTime,
+        performanceSession: CapturePerformanceRecorder.Session
+    ) -> Bool {
         let windows = sessionState.overlayWindowPool.acquire(
             cursorController: sessionState.cursorController
         )
+
+        // No active screens (all displays disconnected mid-flow) leaves the
+        // pipeline with no overlay to drive cancel/select callbacks. Without
+        // this guard, isCapturing would stay stuck-true until app restart.
+        guard !windows.isEmpty else {
+            Self.logger.error("Capture entry: no active displays — aborting area capture")
+            appState.statusMessage = "No active display — capture cancelled."
+            sessionState.areaCaptureSession = nil
+            finishInterruptedCapture(performanceSession)
+            return false
+        }
+
         let shouldSuppressDimming = freezeScreensEnabled && !settings.lowProfileCaptureEnabled
         coordinator.present(windows: windows, suppressDimming: shouldSuppressDimming)
         sessionState.overlayWindows = coordinator.overlayWindows
 
         let overlayVisibleDuration = metricsRecorder.elapsedMilliseconds(since: entryStart)
-        captureEntryLogger.info(
+        Self.logger.info(
             "Capture entry: overlay visible at \(overlayVisibleDuration, privacy: .public) ms"
         )
         metricsRecorder.recordMetric(stage: .overlayVisible, milliseconds: overlayVisibleDuration)
+        return true
     }
 
     func loadAreaCaptureFrozenImages(

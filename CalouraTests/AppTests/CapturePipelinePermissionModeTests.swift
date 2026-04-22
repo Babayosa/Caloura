@@ -57,7 +57,7 @@ extension CapturePipelineTests {
             selectWindowCapture: { _ in .failedToStart }
         )
 
-        pipeline.captureWindow()
+        pipeline.entrypointService.captureWindow()
 
         await pollUntil(timeout: 2.0) {
             !pipeline.appState.isCapturing

@@ -230,7 +230,7 @@ final class CapturePipelineTests: XCTestCase {
         let img = testImage()
         await pipeline.executionService.performCapture(mode: .area) { img }
 
-        await fulfillment(of: [ocrExpectation], timeout: 5.0)
+        await fulfillment(of: [ocrExpectation], timeout: 1.0)
     }
 
     func testHistoryWithOCR_preservesEnrichmentForRapidCaptures() async {
@@ -253,15 +253,15 @@ final class CapturePipelineTests: XCTestCase {
         let first = CapturePipelineTestHelpers.makeProcessed(cgImage: firstImage)
         let second = CapturePipelineTestHelpers.makeProcessed(cgImage: secondImage)
 
-        pipeline.addToHistoryWithOCR(first)
-        pipeline.addToHistoryWithOCR(second)
+        pipeline.executionService.enqueueEnrichment(for: first)
+        pipeline.executionService.enqueueEnrichment(for: second)
 
         await fulfillment(of: [firstRecognitionStarted], timeout: 2.0)
-        await pollUntil(timeout: 5.0) {
+        await pollUntil(timeout: 1.0) {
             pipeline.appState.recentScreenshots.first(where: { $0.id == second.id })?.ocrText == "text-102"
         }
         await releaseFirstRecognition.open()
-        await pollUntil(timeout: 5.0) {
+        await pollUntil(timeout: 1.0) {
             let items = pipeline.appState.recentScreenshots
             let firstText = items.first(where: { $0.id == first.id })?.ocrText
             let secondText = items.first(where: { $0.id == second.id })?.ocrText
@@ -291,7 +291,7 @@ final class CapturePipelineTests: XCTestCase {
         )
         let processed = CapturePipelineTestHelpers.makeProcessed()
 
-        pipeline.addToHistoryWithOCR(processed)
+        pipeline.executionService.enqueueEnrichment(for: processed)
 
         await pollUntil(timeout: 2.0) {
             pipeline.appState.previewPhase(for: processed.id) == .enrichmentFailed
@@ -317,7 +317,7 @@ final class CapturePipelineTests: XCTestCase {
         let screenshot = CapturePipelineTestHelpers.makeProcessed()
         pipeline.appState.lastScreenshot = screenshot
 
-        pipeline.copyLastImage()
+        pipeline.distributionService.copyLastImage()
 
         await fulfillment(of: [copyExpectation], timeout: 2.0)
         await pollUntil(timeout: 2.0) {
@@ -360,13 +360,13 @@ final class CapturePipelineTests: XCTestCase {
         let screenshot = CapturePipelineTestHelpers.makeProcessed()
         pipeline.appState.lastScreenshot = screenshot
 
-        pipeline.saveLastCapture()
+        pipeline.distributionService.saveLastCapture()
 
         await pollUntil(timeout: 2.0) {
             pipeline.appState.previewPhase(for: screenshot.id) == .enrichmentPending
         }
 
-        pipeline.saveLastCapture()
+        pipeline.distributionService.saveLastCapture()
 
         await fulfillment(of: [saveExpectation], timeout: 2.0)
         await pollUntil(timeout: 3.0) {
@@ -384,7 +384,7 @@ final class CapturePipelineTests: XCTestCase {
         pipeline.appState.lastCaptureRect = CGRect(x: 10, y: 10, width: 80, height: 60)
         pipeline.appState.lastCaptureScreen = nil
 
-        pipeline.captureRepeat()
+        pipeline.entrypointService.captureRepeat()
 
         await pollUntil(timeout: 2.0) {
             pipeline.appState.lastScreenshot != nil
@@ -403,7 +403,7 @@ final class CapturePipelineTests: XCTestCase {
             }
         )
 
-        pipeline.captureDelayed(seconds: 1, mode: .window)
+        pipeline.entrypointService.captureDelayed(seconds: 1, mode: .window)
 
         await pollUntil(timeout: 3.0) {
             pipeline.appState.lastScreenshot != nil
@@ -423,7 +423,7 @@ final class CapturePipelineTests: XCTestCase {
             }
         )
 
-        pipeline.captureWindow()
+        pipeline.entrypointService.captureWindow()
 
         await pollUntil(timeout: 2.0) {
             pipeline.appState.lastScreenshot != nil
@@ -568,7 +568,7 @@ final class CapturePipelineTests: XCTestCase {
                 .enrichmentPending
             )
             await releaseRecognition.open()
-            await pollUntil(timeout: 5.0) {
+            await pollUntil(timeout: 1.0) {
                 pipeline.appState.previewPhase(for: screenshot.id) == .enrichmentComplete
             }
             XCTAssertEqual(
