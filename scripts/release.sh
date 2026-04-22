@@ -333,9 +333,18 @@ create_branded_dmg() {
         -noautoopen \
         "$rw_dmg"
 
-    # Finder needs the volume at /Volumes/<name> to address it by disk name
+    # Finder needs the volume at /Volumes/<name> to address it by disk name.
+    # Poll instead of fixed sleep — `hdiutil attach` returns before the volume
+    # is fully mounted under load (cold cache, slow disks, parallel CI jobs).
     mount_point="/Volumes/$DMG_VOLUME_NAME"
-    sleep 1
+    local mount_tries=0
+    while [ ! -d "$mount_point" ]; do
+        sleep 0.2
+        mount_tries=$((mount_tries + 1))
+        if [ "$mount_tries" -gt 50 ]; then
+            fail_release "DMG volume never appeared at $mount_point after 10s."
+        fi
+    done
 
     osascript >/dev/null <<EOF
 tell application "Finder"
@@ -368,10 +377,36 @@ EOF
 
 sign_and_notarize_dmg() {
     codesign --force --sign "Developer ID Application" --timestamp "$DMG_PATH"
-    if ! xcrun notarytool submit "$DMG_PATH" \
+
+    # Submit without --wait so the UUID prints immediately. If the user Ctrl-C's
+    # the wait, they can resume with `xcrun notarytool wait <uuid> --keychain-profile ...`
+    # instead of resubmitting (which costs another upload + Apple-side queue slot).
+    local submit_output
+    if ! submit_output=$(xcrun notarytool submit "$DMG_PATH" \
         --keychain-profile "$NOTARY_PROFILE" \
-        --wait; then
-        fail_release "DMG notarization failed. Run 'xcrun notarytool log' for details."
+        --output-format json 2>&1); then
+        echo "$submit_output" >&2
+        fail_release "DMG notarization submission failed."
+    fi
+
+    # notarytool --output-format json prints a single JSON object with keys id,
+    # path, message. Extract id with a narrow regex instead of adding a python
+    # dependency — the output is well-formed when the submit succeeded.
+    local submission_id
+    submission_id=$(printf '%s\n' "$submit_output" \
+        | tr -d '\n' \
+        | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    if [ -z "$submission_id" ]; then
+        echo "$submit_output" >&2
+        fail_release "Could not parse notarization submission id from output."
+    fi
+
+    echo "==> Notarization submitted: $submission_id"
+    echo "==> Resume after Ctrl-C with: xcrun notarytool wait $submission_id --keychain-profile $NOTARY_PROFILE"
+
+    if ! xcrun notarytool wait "$submission_id" \
+        --keychain-profile "$NOTARY_PROFILE"; then
+        fail_release "DMG notarization failed. Run 'xcrun notarytool log $submission_id --keychain-profile $NOTARY_PROFILE' for details."
     fi
     xcrun stapler staple "$DMG_PATH"
 }

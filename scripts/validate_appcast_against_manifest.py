@@ -61,6 +61,57 @@ def first_item(root: ET.Element) -> ET.Element:
     return item
 
 
+def all_items(root: ET.Element) -> list[ET.Element]:
+    channel = root.find("channel")
+    if channel is None:
+        raise SystemExit("Appcast missing <channel>")
+    return channel.findall("item")
+
+
+def parse_build_number(item: ET.Element) -> int:
+    """Read the integer sparkle:version from an <item>.
+
+    Prefers the value on <enclosure> (the field Sparkle actually compares),
+    falls back to the sibling <sparkle:version> tag inside <item>.
+    """
+    enclosure = item.find("enclosure")
+    if enclosure is not None:
+        raw = enclosure.attrib.get(f"{{{SPARKLE_NAMESPACE}}}version", "")
+        if raw:
+            try:
+                return int(raw)
+            except ValueError:
+                pass
+    sibling = item.find(f"{{{SPARKLE_NAMESPACE}}}version")
+    if sibling is not None and sibling.text:
+        try:
+            return int(sibling.text)
+        except ValueError:
+            pass
+    raise SystemExit("Appcast item missing sparkle:version")
+
+
+def detect_downgrade(items: list[ET.Element]) -> str | None:
+    """Return an error message if the appcast advertises a downgrade.
+
+    Sparkle treats the first <item> as the candidate update. If any later
+    item exposes a higher build number, an attacker (or a publish-script
+    bug) has effectively downgraded the offered version. EdDSA cannot
+    catch this since the older item is also signed. Reject by structure.
+    """
+    if not items:
+        return "Appcast has no <item>"
+    first_build = parse_build_number(items[0])
+    for index, item in enumerate(items[1:], start=1):
+        build = parse_build_number(item)
+        if build > first_build:
+            return (
+                "downgrade detected: item[0] has sparkle:version "
+                f"{first_build} but item[{index}] has higher version {build}"
+            )
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate a Sparkle appcast against a generated release manifest.")
     parser.add_argument("--manifest", required=True, help="Path to release manifest JSON")
@@ -75,7 +126,12 @@ def main() -> int:
     root = ET.fromstring(
         load_appcast(args.url, Path(args.file) if args.file else None)
     )
-    item = first_item(root)
+    items = all_items(root)
+    downgrade_error = detect_downgrade(items)
+    if downgrade_error:
+        print(downgrade_error)
+        return 1
+    item = items[0]
     enclosure = item.find("enclosure")
     if enclosure is None:
         raise SystemExit("Appcast item missing <enclosure>")

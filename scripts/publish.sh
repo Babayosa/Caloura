@@ -82,21 +82,17 @@ run_public_download_qa() {
         "$SCRIPT_DIR/public_download_qa.sh" --version "$VERSION" launch
 }
 
-find_sign_update() {
-    for candidate in \
-        "$PROJECT_DIR/.build/xcode/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update" \
-        "$HOME/Applications/Sparkle/bin/sign_update"; do
-        if [ -f "$candidate" ]; then
-            echo "$candidate"
-            return
-        fi
-    done
-    command -v sign_update || true
-}
-
-SIGN_UPDATE="$(find_sign_update)"
-if [ -z "$SIGN_UPDATE" ]; then
-    echo "Error: sign_update not found. Build the project first or install Sparkle."
+# Single source of truth for sign_update — the binary baked from the project's
+# resolved Sparkle SPM package. Stray copies (~/Applications/Sparkle, brew, PATH)
+# can drift to a different EdDSA build or a forked binary; refuse to fall back.
+# Override only with SIGN_UPDATE_PATH (kept for parity with caloura-site's
+# release.sh, which uses the same env var).
+SIGN_UPDATE="${SIGN_UPDATE_PATH:-$PROJECT_DIR/.build/xcode/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update}"
+if [ ! -f "$SIGN_UPDATE" ]; then
+    echo "Error: sign_update not found at $SIGN_UPDATE"
+    echo "Resolve Sparkle first:"
+    echo "  xcodebuild -resolvePackageDependencies -project $PROJECT_DIR/Caloura.xcodeproj -scheme Caloura -derivedDataPath $PROJECT_DIR/.build/xcode"
+    echo "Or override with SIGN_UPDATE_PATH=/path/to/sign_update."
     exit 1
 fi
 
@@ -106,6 +102,29 @@ if [ ! -d "$SITE_REPO/.git" ]; then
     exit 1
 fi
 
+# Concurrent publish guard — two parallel runs racing on appcast.xml or pushing
+# competing commits is the worst-case publish failure (silent overwrite, lost
+# release). flock holds an exclusive lock for the lifetime of this process.
+LOCK_FILE="$SITE_REPO/.publish.lock"
+if command -v flock >/dev/null 2>&1; then
+    exec 9>"$LOCK_FILE"
+    if ! flock -n 9; then
+        echo "Error: another publish is in progress (lock at $LOCK_FILE)."
+        echo "       If certain no other publish runs, remove the lock file."
+        exit 1
+    fi
+else
+    # macOS ships without flock(1). Fall back to a directory mkdir lock — atomic
+    # across processes, cleaned up on EXIT (including normal completion + signals).
+    LOCK_DIR="$SITE_REPO/.publish.lock.d"
+    if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+        echo "Error: another publish is in progress (lock at $LOCK_DIR)."
+        echo "       If certain no other publish runs, remove the lock directory."
+        exit 1
+    fi
+    trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+fi
+
 echo "========================================"
 echo "  Caloura v$VERSION — Full Publish"
 echo "========================================"
@@ -113,6 +132,30 @@ echo ""
 
 if [ "${SKIP_BUILD:-0}" = "1" ] && [ -f "$DMG_PATH" ] && [ -f "$MANIFEST_PATH" ]; then
     echo "==> Skipping build (SKIP_BUILD=1), using existing artifacts"
+
+    # Even with SKIP_BUILD, verify the cached DMG bundles the requested version.
+    # Without this check, a stale DMG from a prior release could be re-published
+    # under a new tag — Sparkle would offer the wrong binary to users.
+    VERIFY_MOUNT="$BUILD_DIR/dmg-skipbuild-verify"
+    rm -rf "$VERIFY_MOUNT"
+    mkdir -p "$VERIFY_MOUNT"
+    hdiutil attach -quiet -readonly -noverify -noautoopen "$DMG_PATH" \
+        -mountpoint "$VERIFY_MOUNT"
+    DMG_BUNDLE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+        "$VERIFY_MOUNT/Caloura.app/Contents/Info.plist" 2>/dev/null || true)"
+    hdiutil detach -quiet "$VERIFY_MOUNT" || true
+    rm -rf "$VERIFY_MOUNT"
+
+    if [ -z "$DMG_BUNDLE_VERSION" ]; then
+        echo "Error: could not read CFBundleShortVersionString from $DMG_PATH"
+        exit 1
+    fi
+    if [ "$DMG_BUNDLE_VERSION" != "$VERSION" ]; then
+        echo "Error: cached DMG version mismatch — $DMG_PATH bundles $DMG_BUNDLE_VERSION, expected $VERSION."
+        echo "       Re-run without SKIP_BUILD=1, or move the stale DMG aside."
+        exit 1
+    fi
+    echo "==> Cached DMG version check passed ($DMG_BUNDLE_VERSION)"
 else
     echo "==> Step 1/3: Building and notarizing artifacts..."
     "$SCRIPT_DIR/release.sh" "$VERSION"
@@ -155,6 +198,54 @@ MINIMUM_SYSTEM_VERSION="$(manifest_value minimum_system_version)"
 PUBDATE="$(date -R)"
 TMPITEM="$(mktemp)"
 
+# Highest build number currently published. Reading it from the appcast
+# (rather than a sidecar file) keeps a single source of truth: the file we
+# actually serve to users. Empty if no prior items exist.
+PREVIOUS_BUILD_NUMBER="$(python3 - "$APPCAST_PATH" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+try:
+    root = ET.parse(sys.argv[1]).getroot()
+except (FileNotFoundError, ET.ParseError):
+    print("")
+    sys.exit(0)
+
+builds = []
+for item in root.findall("./channel/item"):
+    enclosure = item.find("enclosure")
+    raw = ""
+    if enclosure is not None:
+        raw = enclosure.attrib.get(f"{{{NS}}}version", "")
+    if not raw:
+        sib = item.find(f"{{{NS}}}version")
+        raw = sib.text if sib is not None and sib.text else ""
+    try:
+        builds.append(int(raw))
+    except ValueError:
+        continue
+
+print(max(builds) if builds else "")
+PY
+)"
+
+if [ -n "$PREVIOUS_BUILD_NUMBER" ]; then
+    if [ "$BUILD_NUMBER" -le "$PREVIOUS_BUILD_NUMBER" ]; then
+        echo "Error: refusing to publish — build number $BUILD_NUMBER is not greater than previously-published $PREVIOUS_BUILD_NUMBER."
+        echo "       Sparkle would treat this as a downgrade. Bump the build number and retry."
+        exit 1
+    fi
+fi
+
+# minimumAutoupdateVersion = previous shipped build. Stops Sparkle from
+# auto-installing an older signed item even if it ever appears earlier in
+# the feed. Omit on first-ever release.
+MIN_AUTOUPDATE_LINE=""
+if [ -n "$PREVIOUS_BUILD_NUMBER" ]; then
+    MIN_AUTOUPDATE_LINE="      <sparkle:minimumAutoupdateVersion>$PREVIOUS_BUILD_NUMBER</sparkle:minimumAutoupdateVersion>"$'\n'
+fi
+
 cat > "$TMPITEM" <<XMLEOF
     <item>
       <title>Version $VERSION</title>
@@ -162,7 +253,7 @@ cat > "$TMPITEM" <<XMLEOF
       <sparkle:version>$BUILD_NUMBER</sparkle:version>
       <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>$MINIMUM_SYSTEM_VERSION</sparkle:minimumSystemVersion>
-      <description><![CDATA[
+${MIN_AUTOUPDATE_LINE}      <description><![CDATA[
         <h2>What's New</h2>
         <ul>
           <li>See release notes</li>
@@ -218,6 +309,28 @@ echo ""
 echo "==> Validating live appcast after publish..."
 if ! validate_live_appcast_against_manifest; then
     echo "Error: Live appcast validation failed after publish."
+    echo "==> Attempting automatic rollback of the broken release..."
+
+    BROKEN_SHA="$(git -C "$SITE_REPO" rev-parse HEAD)"
+    echo "    broken commit: $BROKEN_SHA"
+
+    if ! git -C "$SITE_REPO" revert HEAD --no-edit; then
+        echo "Error: auto-revert failed. Manual recovery required:"
+        echo "       cd \"$SITE_REPO\" && git revert $BROKEN_SHA && git push"
+        echo "       Or roll forward with a corrected publish."
+        exit 1
+    fi
+
+    if ! git -C "$SITE_REPO" push; then
+        echo "Error: revert commit was created but push failed. Manual recovery:"
+        echo "       cd \"$SITE_REPO\" && git push"
+        echo "       The broken release is still live until the revert is pushed."
+        exit 1
+    fi
+
+    REVERT_SHA="$(git -C "$SITE_REPO" rev-parse HEAD)"
+    echo "==> Rolled back automatically. Revert commit: $REVERT_SHA"
+    echo "    Users on the previous version will not be offered the broken update."
     exit 1
 fi
 
