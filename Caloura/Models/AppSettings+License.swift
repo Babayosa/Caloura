@@ -45,6 +45,11 @@ extension AppSettings {
             if let encrypted = Self.encryptLicenseKey(normalized) {
                 defaults.set(encrypted, forKey: Keys.licenseKey)
                 defaults.set(true, forKey: Keys.licenseKeyMigrated)
+                // Lock plaintext acceptance permanently after the first
+                // encrypted persist. Defense against UserDefaults tampering
+                // that flips `licenseKeyMigrated` back to false to inject
+                // a forged plaintext key.
+                defaults.set(true, forKey: Keys.licenseKeyMigrationLocked)
             } else {
                 licenseLogger.error("Failed to encrypt license key — not persisting")
             }
@@ -78,7 +83,8 @@ extension AppSettings {
 
     nonisolated static func decryptLicenseKey(
         _ stored: Any?,
-        migrated: Bool
+        migrated: Bool,
+        migrationLocked: Bool
     ) -> String? {
         if let data = stored as? Data {
             let decrypted = (
@@ -90,6 +96,13 @@ extension AppSettings {
                 return nil
             }
             return string
+        }
+        if migrationLocked {
+            // Plaintext after the lock is either UserDefaults tampering or
+            // a downgrade attack. Treat as no license rather than trusting
+            // unauthenticated input.
+            licenseLogger.error("license_decrypt_rejected_plaintext reason=migration_locked")
+            return nil
         }
         if migrated { return nil }
         return stored as? String
@@ -220,6 +233,7 @@ extension AppSettings {
         let keyBlob = defaults.object(forKey: Keys.licenseKey)
         let entitlementBlob = defaults.object(forKey: Keys.licenseEntitlement)
         let alreadyMigrated = defaults.bool(forKey: Keys.licenseKeyMigrated)
+        let migrationLocked = defaults.bool(forKey: Keys.licenseKeyMigrationLocked)
         // Capture the legacy activation flag before any mutation — setting
         // licenseKey in the MainActor hop cascades into persistLicenseState,
         // which writes the in-memory (false) `isLicenseActivated` back to
@@ -230,6 +244,10 @@ extension AppSettings {
         // Task also avoids a stale-decrypt race where a test or caller writes
         // to `licenseKey` before the Task's MainActor hop runs.
         if keyBlob == nil, entitlementBlob == nil, !legacyActivated {
+            // Fresh install (or post-reset): nothing to migrate, so lock
+            // plaintext acceptance immediately. Any future plaintext value
+            // appearing in UserDefaults is necessarily injected.
+            defaults.set(true, forKey: Keys.licenseKeyMigrationLocked)
             migrateLegacyLicenseSilentlyIfAvailable()
             syncDerivedLicenseState()
             persistLicenseState()
@@ -238,7 +256,9 @@ extension AppSettings {
 
         licenseReady = Task { [weak self] in
             let decryptedKey = Self.decryptLicenseKey(
-                keyBlob, migrated: alreadyMigrated
+                keyBlob,
+                migrated: alreadyMigrated,
+                migrationLocked: migrationLocked
             ) ?? ""
             let decryptedEntitlement = Self.decryptLicenseEntitlement(entitlementBlob)
             await MainActor.run {
