@@ -18,19 +18,19 @@ final class AppCommandController {
         let showTip: @MainActor (ContextualOnboardingTip) -> Void
 
         static let live = Routing(
-            captureArea: { CapturePipeline.shared.captureArea() },
-            captureWindow: { CapturePipeline.shared.captureWindow() },
-            captureFullscreen: { CapturePipeline.shared.captureFullscreen() },
-            captureRepeat: { CapturePipeline.shared.captureRepeat() },
+            captureArea: { CapturePipeline.shared.entrypointService.captureArea() },
+            captureWindow: { CapturePipeline.shared.entrypointService.captureWindow() },
+            captureFullscreen: { CapturePipeline.shared.entrypointService.captureFullscreen() },
+            captureRepeat: { CapturePipeline.shared.entrypointService.captureRepeat() },
             captureDelayed: { mode, seconds in
-                CapturePipeline.shared.captureDelayed(seconds: seconds, mode: mode)
+                CapturePipeline.shared.entrypointService.captureDelayed(seconds: seconds, mode: mode)
             },
-            cancelDelayedCapture: { CapturePipeline.shared.cancelDelayedCapture() },
-            copyLastImage: { CapturePipeline.shared.copyLastImage() },
-            copyLastAsMarkdown: { CapturePipeline.shared.copyLastAsMarkdown() },
-            copyLastWithCitation: { CapturePipeline.shared.copyLastWithCitation() },
-            copyLastOCRText: { CapturePipeline.shared.copyLastOCRText() },
-            saveLastCapture: { CapturePipeline.shared.saveLastCapture() },
+            cancelDelayedCapture: { CapturePipeline.shared.entrypointService.cancelDelayedCapture() },
+            copyLastImage: { CapturePipeline.shared.distributionService.copyLastImage() },
+            copyLastAsMarkdown: { CapturePipeline.shared.distributionService.copyLastAsMarkdown() },
+            copyLastWithCitation: { CapturePipeline.shared.distributionService.copyLastWithCitation() },
+            copyLastOCRText: { CapturePipeline.shared.distributionService.copyLastOCRText() },
+            saveLastCapture: { CapturePipeline.shared.distributionService.saveLastCapture() },
             showTip: { OnboardingTipsController.shared.showIfNeeded($0) }
         )
     }

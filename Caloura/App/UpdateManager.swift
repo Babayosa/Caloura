@@ -82,14 +82,16 @@ protocol UpdateControlling: AnyObject {
 }
 
 @MainActor
-final class UpdateManager: ObservableObject {
-    private let settings: AppSettings
-    private let controller: any UpdateControlling
-    private var delegateHandler: UpdateDelegateHandler?
-    private var cancellables: Set<AnyCancellable> = []
+@Observable
+final class UpdateManager {
+    @ObservationIgnored private let settings: AppSettings
+    @ObservationIgnored private let controller: any UpdateControlling
+    @ObservationIgnored private var delegateHandler: UpdateDelegateHandler?
+    @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
+    @ObservationIgnored private var settingsObservationTask: Task<Void, Never>?
 
-    @Published var canCheckForUpdates = false
-    @Published private(set) var state: UpdateState = .idle
+    var canCheckForUpdates = false
+    private(set) var state: UpdateState = .idle
 
     var updateAvailable: Bool {
         guard case .updateAvailable = state else { return false }
@@ -122,17 +124,25 @@ final class UpdateManager: ObservableObject {
 
         controller.canCheckForUpdatesPublisher
             .receive(on: DispatchQueue.main)
-            .assign(to: &$canCheckForUpdates)
-
-        settings.$checkForUpdatesAutomatically
-            .removeDuplicates()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] shouldAutomaticallyCheck in
-                self?.controller.automaticallyChecksForUpdates = shouldAutomaticallyCheck
+            .sink { [weak self] value in
+                self?.canCheckForUpdates = value
             }
             .store(in: &cancellables)
 
         controller.automaticallyChecksForUpdates = settings.checkForUpdatesAutomatically
+        observeAutomaticUpdatesSetting()
+    }
+
+    private func observeAutomaticUpdatesSetting() {
+        withObservationTracking {
+            _ = settings.checkForUpdatesAutomatically
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.controller.automaticallyChecksForUpdates = self.settings.checkForUpdatesAutomatically
+                self.observeAutomaticUpdatesSetting()
+            }
+        }
     }
 
     func checkForUpdates() {

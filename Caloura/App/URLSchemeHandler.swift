@@ -10,12 +10,23 @@ import os.log
 /// caloura://capture/window
 /// caloura://capture/repeat
 /// caloura://capture/delayed?seconds=3&mode=area
-/// caloura://copy/markdown
-/// caloura://copy/citation
-/// caloura://copy/ocr
+/// caloura://copy/markdown?token=<authorization-token>
+/// caloura://copy/citation?token=<authorization-token>
+/// caloura://copy/ocr?token=<authorization-token>
 /// caloura://history
 /// caloura://settings
 /// ```
+///
+/// Security: `caloura://copy/*` URLs read sensitive data (OCR text, captured
+/// image, citation context) into the system pasteboard. They require a
+/// per-launch authorization token that is only available to in-process
+/// callers (`URLSchemeHandler.currentCopyAuthorizationToken()`). External
+/// applications cannot obtain this token, so polling-based attacks against
+/// the OCR clipboard cache are rejected at the handler boundary.
+///
+/// Post-capture actions configured via `?then=copy*` on a `capture/*` URL
+/// dispatch through the in-process command router, not back through the URL
+/// scheme — they do not require the token.
 @MainActor
 struct URLSchemeHandler {
     @MainActor
@@ -98,6 +109,18 @@ struct URLSchemeHandler {
     /// Timestamp of the last successfully accepted request.
     private(set) static var lastHandledDate: Date?
 
+    /// Per-launch authorization token gating `caloura://copy/*` URLs.
+    /// Generated lazily on first access, never persisted, never logged.
+    /// Rotates only on app relaunch.
+    private static var copyAuthorizationToken: String = UUID().uuidString
+
+    /// Token that in-process callers must include as `?token=…` on copy URLs.
+    /// External processes cannot read this value, so they cannot construct a
+    /// valid `caloura://copy/*` URL.
+    static func currentCopyAuthorizationToken() -> String {
+        copyAuthorizationToken
+    }
+
     /// Allowed capture modes for the main mode switch.
     private static let allowedCaptureModes: Set<String> = [
         "area", "fullscreen", "window", "repeat", "delayed"
@@ -179,7 +202,7 @@ struct URLSchemeHandler {
         case "capture":
             handleCapture(pathComponents: pathComponents, params: params)
         case "copy":
-            handleCopy(pathComponents: pathComponents)
+            handleCopy(pathComponents: pathComponents, params: params)
         case "history":
             AppCommandRouter.shared.dispatch(.showHistory)
         case "settings":
@@ -274,7 +297,18 @@ struct URLSchemeHandler {
 
     // MARK: - Copy Routes
 
-    private static func handleCopy(pathComponents: [String]) {
+    private static func handleCopy(pathComponents: [String], params: [String: String]) {
+        // Reject any external `caloura://copy/*` invocation that lacks the
+        // per-launch token. The token is unguessable and unavailable to
+        // external processes, so this neutralizes the polling-attack vector
+        // (background app spamming `caloura://copy/ocr` to drain history).
+        let token = params["token"] ?? ""
+        guard !token.isEmpty,
+              constantTimeEquals(token, copyAuthorizationToken) else {
+            logger.warning("copy_url_rejected reason=missing_or_invalid_token")
+            return
+        }
+
         let format = (pathComponents.first ?? "markdown").lowercased()
 
         switch format {
@@ -289,6 +323,20 @@ struct URLSchemeHandler {
         default:
             break
         }
+    }
+
+    /// Length-then-byte comparison without short-circuit. Both sides are
+    /// in-process strings here, but a constant-time check keeps the code
+    /// honest for any future reuse.
+    private static func constantTimeEquals(_ lhs: String, _ rhs: String) -> Bool {
+        let lhsBytes = Array(lhs.utf8)
+        let rhsBytes = Array(rhs.utf8)
+        guard lhsBytes.count == rhsBytes.count else { return false }
+        var diff: UInt8 = 0
+        for index in 0..<lhsBytes.count {
+            diff |= lhsBytes[index] ^ rhsBytes[index]
+        }
+        return diff == 0
     }
 
     // MARK: - Helpers

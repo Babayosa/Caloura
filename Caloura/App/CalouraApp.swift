@@ -44,6 +44,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
     }
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Wire StatusMessageRouter before any Capture/ code can run. The
+        // Capture layer writes status updates to the router; this forwards
+        // them into AppState so the menu-bar UI receives them.
+        StatusMessageRouter.sink = { message in
+            AppState.shared.statusMessage = message
+        }
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         if let captureObserver {
             NotificationCenter.default.removeObserver(captureObserver)

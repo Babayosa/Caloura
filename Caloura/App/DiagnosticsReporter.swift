@@ -69,7 +69,23 @@ final class DiagnosticsReporter: NSObject, MXMetricManagerSubscriber {
 
     private func rotateOldPayloads() async {
         guard let dir = diagnosticsDirectory else { return }
-        let cutoff = Date().addingTimeInterval(-Self.retentionDays * 86_400)
+        Self.rotateOldPayloads(
+            in: dir,
+            retentionDays: Self.retentionDays,
+            now: Date(),
+            fileManager: fileManager
+        )
+    }
+
+    /// Pure rotation routine, exposed for tests. Removes any file in `dir`
+    /// whose contentModificationDate is older than `now - retentionDays`.
+    static func rotateOldPayloads(
+        in dir: URL,
+        retentionDays: Double,
+        now: Date,
+        fileManager: FileManager
+    ) {
+        let cutoff = now.addingTimeInterval(-retentionDays * 86_400)
         guard let contents = try? fileManager.contentsOfDirectory(
             at: dir,
             includingPropertiesForKeys: [.contentModificationDateKey]

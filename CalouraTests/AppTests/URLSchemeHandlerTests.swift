@@ -244,4 +244,71 @@ final class URLSchemeHandlerTests: XCTestCase {
             XCTFail("Expected capture action")
         }
     }
+
+    // MARK: - Copy URL Token Gating
+
+    @MainActor
+    func testHandle_copyURLWithoutToken_isRejected() {
+        // Polling-attack vector: an external app spams `caloura://copy/ocr`
+        // hoping to drain whatever the user just captured. Without the
+        // per-launch token, no copy command must be dispatched.
+        let unexpected = expectation(description: "copy must NOT dispatch")
+        unexpected.isInverted = true
+        let observerID = AppCommandRouter.shared.addHandler { command in
+            switch command {
+            case .copyLastImage, .copyLastAsMarkdown,
+                 .copyLastWithCitation, .copyLastOCRText:
+                unexpected.fulfill()
+            default:
+                break
+            }
+        }
+        defer { AppCommandRouter.shared.removeHandler(observerID) }
+
+        URLSchemeHandler.handle(URL(string: "caloura://copy/ocr")!)
+        wait(for: [unexpected], timeout: 0.5)
+    }
+
+    @MainActor
+    func testHandle_copyURLWithWrongToken_isRejected() {
+        let unexpected = expectation(description: "copy must NOT dispatch")
+        unexpected.isInverted = true
+        let observerID = AppCommandRouter.shared.addHandler { command in
+            if case .copyLastOCRText = command { unexpected.fulfill() }
+        }
+        defer { AppCommandRouter.shared.removeHandler(observerID) }
+
+        let url = URL(string: "caloura://copy/ocr?token=not-a-real-token")!
+        URLSchemeHandler.handle(url)
+        wait(for: [unexpected], timeout: 0.5)
+    }
+
+    @MainActor
+    func testHandle_copyURLWithValidToken_dispatchesCommand() {
+        let token = URLSchemeHandler.currentCopyAuthorizationToken()
+        XCTAssertFalse(token.isEmpty, "token must be generated at first access")
+
+        let expected = expectation(description: "ocr copy dispatched")
+        let observerID = AppCommandRouter.shared.addHandler { command in
+            if case .copyLastOCRText = command { expected.fulfill() }
+        }
+        defer { AppCommandRouter.shared.removeHandler(observerID) }
+
+        let url = URL(string: "caloura://copy/ocr?token=\(token)")!
+        URLSchemeHandler.handle(url)
+        wait(for: [expected], timeout: 1.0)
+    }
+
+    @MainActor
+    func testHandle_copyURLWithEmptyToken_isRejected() {
+        let unexpected = expectation(description: "copy must NOT dispatch")
+        unexpected.isInverted = true
+        let observerID = AppCommandRouter.shared.addHandler { command in
+            if case .copyLastAsMarkdown = command { unexpected.fulfill() }
+        }
+        defer { AppCommandRouter.shared.removeHandler(observerID) }
+
+        URLSchemeHandler.handle(URL(string: "caloura://copy/markdown?token=")!)
+        wait(for: [unexpected], timeout: 0.5)
+    }
 }

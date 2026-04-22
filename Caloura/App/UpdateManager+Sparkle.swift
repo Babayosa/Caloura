@@ -32,36 +32,24 @@ final class SparkleUpdateController: UpdateControlling {
     }
 }
 
+@MainActor
 final class UpdateDelegateHandler: NSObject, SPUUpdaterDelegate, SPUStandardUserDriverDelegate {
-    @MainActor
-    private final class Dispatcher {
-        let onUpdateFound: (String?) -> Void
-        let onNoUpdateFound: (UpdateState) -> Void
-        let onUpdateDismissed: () -> Void
-        let onUpdateFailed: (UpdateState) -> Void
-        let onUpdateCycleFinished: (UpdateState?) -> Void
+    // Closures are stored directly on the instance (no static dispatcher
+    // dictionary). The Sparkle delegate methods are `nonisolated` so they
+    // can be invoked from any thread, but each one captures `self` strongly
+    // into the MainActor Task it dispatches. That keeps the handler alive
+    // until every in-flight callback has been delivered, eliminating the
+    // prior race where a callback scheduled while the delegate was alive
+    // could silently no-op because deinit + a removal-Task ran first. The
+    // owners (see UpdateManager+Shared) capture `[weak box]` inside the
+    // closures, so the strong self-capture creates no retain cycle back
+    // to UpdateManager.
+    private let onUpdateFound: (String?) -> Void
+    private let onNoUpdateFound: (UpdateState) -> Void
+    private let onUpdateDismissed: () -> Void
+    private let onUpdateFailed: (UpdateState) -> Void
+    private let onUpdateCycleFinished: (UpdateState?) -> Void
 
-        init(
-            onUpdateFound: @escaping (String?) -> Void,
-            onNoUpdateFound: @escaping (UpdateState) -> Void,
-            onUpdateDismissed: @escaping () -> Void,
-            onUpdateFailed: @escaping (UpdateState) -> Void,
-            onUpdateCycleFinished: @escaping (UpdateState?) -> Void
-        ) {
-            self.onUpdateFound = onUpdateFound
-            self.onNoUpdateFound = onNoUpdateFound
-            self.onUpdateDismissed = onUpdateDismissed
-            self.onUpdateFailed = onUpdateFailed
-            self.onUpdateCycleFinished = onUpdateCycleFinished
-        }
-    }
-
-    @MainActor
-    private static var dispatchers: [UUID: Dispatcher] = [:]
-
-    private let dispatcherID: UUID
-
-    @MainActor
     init(
         onUpdateFound: @escaping (String?) -> Void,
         onNoUpdateFound: @escaping (UpdateState) -> Void,
@@ -69,22 +57,12 @@ final class UpdateDelegateHandler: NSObject, SPUUpdaterDelegate, SPUStandardUser
         onUpdateFailed: @escaping (UpdateState) -> Void,
         onUpdateCycleFinished: @escaping (UpdateState?) -> Void
     ) {
-        self.dispatcherID = UUID()
+        self.onUpdateFound = onUpdateFound
+        self.onNoUpdateFound = onNoUpdateFound
+        self.onUpdateDismissed = onUpdateDismissed
+        self.onUpdateFailed = onUpdateFailed
+        self.onUpdateCycleFinished = onUpdateCycleFinished
         super.init()
-        Self.dispatchers[dispatcherID] = Dispatcher(
-            onUpdateFound: onUpdateFound,
-            onNoUpdateFound: onNoUpdateFound,
-            onUpdateDismissed: onUpdateDismissed,
-            onUpdateFailed: onUpdateFailed,
-            onUpdateCycleFinished: onUpdateCycleFinished
-        )
-    }
-
-    deinit {
-        let dispatcherID = self.dispatcherID
-        Task { @MainActor [dispatcherID] in
-            Self.dispatchers.removeValue(forKey: dispatcherID)
-        }
     }
 
     nonisolated func updater(
@@ -92,9 +70,8 @@ final class UpdateDelegateHandler: NSObject, SPUUpdaterDelegate, SPUStandardUser
         didFindValidUpdate item: SUAppcastItem
     ) {
         let displayVersion = item.displayVersionString
-        let dispatcherID = self.dispatcherID
-        Task { @MainActor [displayVersion, dispatcherID] in
-            Self.dispatchers[dispatcherID]?.onUpdateFound(displayVersion)
+        Task { @MainActor in
+            self.onUpdateFound(displayVersion)
         }
     }
 
@@ -103,9 +80,8 @@ final class UpdateDelegateHandler: NSObject, SPUUpdaterDelegate, SPUStandardUser
         error: any Error
     ) {
         let state = UpdateStateClassifier.classifyNoUpdate(UpdateErrorSnapshot(error: error))
-        let dispatcherID = self.dispatcherID
-        Task { @MainActor [dispatcherID, state] in
-            Self.dispatchers[dispatcherID]?.onNoUpdateFound(state)
+        Task { @MainActor in
+            self.onNoUpdateFound(state)
         }
     }
 
@@ -114,9 +90,8 @@ final class UpdateDelegateHandler: NSObject, SPUUpdaterDelegate, SPUStandardUser
         didDismissUpdateAlertPermanently permanently: Bool,
         for item: SUAppcastItem
     ) {
-        let dispatcherID = self.dispatcherID
-        Task { @MainActor [dispatcherID] in
-            Self.dispatchers[dispatcherID]?.onUpdateDismissed()
+        Task { @MainActor in
+            self.onUpdateDismissed()
         }
     }
 
@@ -125,9 +100,8 @@ final class UpdateDelegateHandler: NSObject, SPUUpdaterDelegate, SPUStandardUser
         didAbortWithError error: Error
     ) {
         let state = UpdateStateClassifier.classifyFailure(UpdateErrorSnapshot(error: error))
-        let dispatcherID = self.dispatcherID
-        Task { @MainActor [dispatcherID, state] in
-            Self.dispatchers[dispatcherID]?.onUpdateFailed(state)
+        Task { @MainActor in
+            self.onUpdateFailed(state)
         }
     }
 
@@ -139,17 +113,16 @@ final class UpdateDelegateHandler: NSObject, SPUUpdaterDelegate, SPUStandardUser
         let finalState = UpdateStateClassifier.classifyCycleResult(
             error.map(UpdateErrorSnapshot.init(error:))
         )
-        let dispatcherID = self.dispatcherID
-        Task { @MainActor [dispatcherID, finalState] in
-            Self.dispatchers[dispatcherID]?.onUpdateCycleFinished(finalState)
+        Task { @MainActor in
+            self.onUpdateCycleFinished(finalState)
         }
     }
 
-    var supportsGentleScheduledUpdateReminders: Bool {
+    nonisolated var supportsGentleScheduledUpdateReminders: Bool {
         true
     }
 
-    func standardUserDriverShouldHandleShowingScheduledUpdate(
+    nonisolated func standardUserDriverShouldHandleShowingScheduledUpdate(
         _ update: SUAppcastItem,
         andInImmediateFocus immediateFocus: Bool
     ) -> Bool {
