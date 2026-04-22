@@ -73,6 +73,22 @@ xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug
 xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug
 ```
 
+## CI Test Coverage
+
+The GitHub Actions matrix runs `xcodebuild build` and lint on every push.
+A full `xcodebuild test` run is **intentionally omitted** from CI because the
+Caloura test suite includes ScreenCaptureKit-backed integration tests that
+require Screen Recording (TCC) authorization. macOS GitHub runners cannot
+grant TCC privileges to a transient runner-owned binary, so those tests would
+fail on every push without indicating a real regression.
+
+The local hooks in `scripts/lint.sh` and `scripts/test.sh` (invoked via the
+pre-commit hook templates in `~/Downloads/codexsetup/hooks/`) run the full
+suite on developer machines where TCC has been granted to the test bundle.
+The `Release Smoke` workflow exercises the signed packaging path (build,
+codesign, notarize, staple, quarantined launch) end-to-end on every tagged
+release.
+
 ## Release Guard And Publishing
 
 Versioning is gated by `scripts/release.sh`:

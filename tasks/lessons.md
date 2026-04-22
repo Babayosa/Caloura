@@ -36,6 +36,27 @@
 - **Rule**: Every capture mode that shows overlay windows (area, fullscreen, scroll) must pass `sessionState.cursorController` and call `beginCrosshairSession()`/`endCrosshairSession()`. Don't rely on cursor rects alone.
 - **Mistake**: Scroll capture called `CaptureOverlayWindow.showOnAllScreens()` without passing a `cursorController`, relying solely on cursor rects. After scroll capture failed, subsequent area captures lost their crosshair.
 
+### 2026-04-19 — Cursor controller state must be recoverable [domain: swift]
+- **Mistake**: Post-ship 2.4.0 crosshair stopped appearing entirely on a stateful basis — once broken, it stayed broken until app restart. Capture overlay still rendered, selection still worked, but the crosshair cursor was gone.
+- **Root cause**: Two interlocking defects. (1) `CaptureOverlayWindowPool.release()`/`tearDown()` ordered windows out without calling `endCrosshairSession()`, leaving the shared controller's `cursorActive=true` and `pushed=true` after any bypass path (screen reconfiguration teardown inside `acquire()`, abnormal unwind). (2) `beginCrosshairSession()` had `guard !cursorActive else { return }` for double-begin idempotency, which silently trapped the controller in the leaked state forever — every subsequent capture's begin returned early, so no push, no reprime. (3) Compounding this: `AreaCaptureSessionCoordinator.present()` called `makeKeyAndOrderFront(nil)` *before* `beginCrosshairSession()`, so `becomeKey() → primeCrosshair() → scheduleReprime()` fired while `cursorActive` was false and was silently dropped — removing one defensive layer.
+- **Rule**: Add an explicit `resetCursorState()` API to the cursor controller and call it on every coordinator entry (before `beginCrosshairSession`) and inside pool teardown paths as a safety net. Keep `beginCrosshairSession`'s idempotency intact — recovery is a separate, explicit operation. Log every silent no-op (`scheduleReprime`/`handleCursorUpdate` early-return) at debug level so future regressions become observable via `log stream --level=debug --predicate 'subsystem == "com.caloura.app" AND category == "Cursor"'`.
+- **Confidence**: high (root cause for two prior cursor regressions — `b75a47d`, `099d206` — would have been caught earlier with this diagnostic + recovery pattern)
+
+## State Machines / Recovery
+
+### 2026-04-19 — Stateful flags require a recovery API + diagnostic log + defer-based clear [domain: swift]
+- **Mistake**: Across five independent sites in Caloura — `CaptureCursorController.cursorActive`, `PermissionCoordinator.isShowingAlert`, `PermissionCoordinator.inFlightValidation`, `CaptureEnrichmentService` PII scan failure swallowing, `CaptureEntrypointService` empty-screens path — a stateful flag or in-flight slot could leak set-true on an abnormal control flow (cancellation, throw, screen reconfig teardown bypass, empty `screensProvider`) and silently break every subsequent operation. Symptoms surfaced post-ship: crosshair gone forever, no second permission alert ever, PII scan errors invisible, capture path appearing to "succeed" on zero displays.
+- **Root cause**: Three antipatterns compounded.
+  1. **Manual paired clear after the suspending await** — e.g., `isShowingAlert = true; await present(); isShowingAlert = false` — leaks on cancellation/throw because the clear is unreachable.
+  2. **Idempotency guards (`guard !flag else { return }`) with no recovery escape hatch** — once leaked, every future caller returns early; the guard meant to prevent double-arm becomes a permanent trap.
+  3. **Silent swallow of failure** — catching an error and returning a sentinel without (a) a discrete phase the UI can render and (b) a status message and (c) a debug log line. The user sees "nothing happened"; engineers have nothing to grep for.
+- **Rule**: Three-part pattern, applied uniformly:
+  1. **`defer { flag = nil/false }`** immediately after setting any in-flight slot or presentation flag, before any `await`. The cleanup runs on every exit path including cancellation. Applies to: `isShowingAlert`, `inFlightValidation`.
+  2. **Explicit recovery API + diagnostic log** for every stateful guard. `resetCursorState()` for the cursor controller; an `inflight_repair` log line for the permission alert; a `PIIScanOutcome` enum (`.skipped` / `.scanned(_)` / `.failed`) instead of optional-with-silent-fallback for PII; an empty-overlays guard with status message + log + Bool return for `presentAreaCaptureCoordinator`. Recovery is a separate, explicit operation — do NOT remove idempotency from the happy path.
+  3. **Discrete failure phase + status message + log** at every catch site. New `CapturePreviewPhase.piiScanFailed` is the canonical example: the UI gets a state to render, the user gets "PII scan unavailable — capture stored unscanned.", and engineers get a structured log with input dimensions and error.
+- **Diagnostic floor**: every silent early-return logs at `.debug` under `subsystem == "com.caloura.app"`, with a category that names the subsystem (`Cursor`, `Permissions`, `Enrichment`, `CaptureEntry`). Future regressions become observable via `log stream --level=debug --predicate 'subsystem == "com.caloura.app"'` instead of requiring repro and bisection.
+- **Confidence**: high (5 independent sites in one phase; the same pattern would have caught two prior cursor regressions and the post-ship 2.4.0 silent-PII-failure complaints)
+
 ## Permissions / macOS
 
 ### CGWindowList false positive on Sequoia [Graduated]
