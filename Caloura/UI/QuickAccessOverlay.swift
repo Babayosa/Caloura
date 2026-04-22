@@ -106,7 +106,7 @@ final class QuickAccessOverlay {
             dismiss()
             return
         }
-        CapturePipeline.shared.performQuickAction(action, for: screenshot)
+        CapturePipeline.shared.distributionService.performQuickAction(action, for: screenshot)
         dismiss()
     }
 }

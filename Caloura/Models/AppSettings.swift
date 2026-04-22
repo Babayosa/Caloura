@@ -13,19 +13,20 @@ enum ContextualOnboardingTip: String, CaseIterable {
 }
 
 @MainActor
-final class AppSettings: ObservableObject {
+@Observable
+final class AppSettings {
     typealias LegacyLicenseMigration = @Sendable () -> LegacyKeychainReadResult
 
     static let shared = AppSettings()
     nonisolated static let keychainService = Bundle.main.bundleIdentifier ?? "com.caloura.app"
 
-    let defaults: UserDefaults
-    let legacyLicenseMigration: LegacyLicenseMigration
+    @ObservationIgnored let defaults: UserDefaults
+    @ObservationIgnored let legacyLicenseMigration: LegacyLicenseMigration
 
     // Debounce settings saves to avoid hammering UserDefaults.
-    private var saveTask: Task<Void, Never>?
-    private let saveDebounceInterval: UInt64 = 300_000_000 // 300ms
-    var legacyMigrationTask: Task<Void, Never>?
+    @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private let saveDebounceInterval: UInt64 = 300_000_000 // 300ms
+    @ObservationIgnored var legacyMigrationTask: Task<Void, Never>?
 
     enum Keys {
         static let saveDirectory = "saveDirectory"
@@ -46,6 +47,11 @@ final class AppSettings: ObservableObject {
         static let hasSeenWelcome = "hasSeenWelcome"
         static let hasAttemptedLegacyLicenseMigration = "hasAttemptedLegacyLicenseMigration"
         static let licenseKeyMigrated = "licenseKeyMigrated"
+        // Once true, license decrypt MUST refuse plaintext for any reason —
+        // even if `licenseKeyMigrated` is somehow rolled back. Set on the
+        // first successful encrypted persist or, for fresh installs, at
+        // first launch when there is nothing to migrate.
+        static let licenseKeyMigrationLocked = "licenseKeyMigrationLocked"
         static let lastLicenseValidationDate = "lastLicenseValidationDate"
         static let furthestDateSeen = "furthestDateSeen"
         static let autoClearClipboard = "autoClearClipboard"
@@ -57,95 +63,95 @@ final class AppSettings: ObservableObject {
         static let anonymousDiagnosticsEnabled = "anonymousDiagnosticsEnabled"
     }
 
-    @Published var saveDirectory: String {
+    var saveDirectory: String {
         didSet { debouncedSave() }
     }
 
-    @Published var autoCopyToClipboard: Bool {
+    var autoCopyToClipboard: Bool {
         didSet { debouncedSave() }
     }
 
-    @Published var autoSaveToDisk: Bool {
+    var autoSaveToDisk: Bool {
         didSet { debouncedSave() }
     }
 
-    @Published var smartCropEnabled: Bool {
+    var smartCropEnabled: Bool {
         didSet { debouncedSave() }
     }
 
-    @Published var playCaptureSound: Bool {
+    var playCaptureSound: Bool {
         didSet { debouncedSave() }
     }
 
-    @Published var activePreset: String {
+    var activePreset: String {
         didSet { debouncedSave() }
     }
 
-    @Published var hasCompletedOnboarding: Bool {
+    var hasCompletedOnboarding: Bool {
         didSet { debouncedSave() }
     }
 
-    @Published var imageFormat: String {
+    var imageFormat: String {
         didSet { debouncedSave() }
     }
 
-    @Published var autoContextDetection: Bool {
+    var autoContextDetection: Bool {
         didSet { debouncedSave() }
     }
 
-    @Published var launchAtLogin: Bool {
+    var launchAtLogin: Bool {
         didSet { debouncedSave() }
     }
 
-    @Published var checkForUpdatesAutomatically: Bool {
+    var checkForUpdatesAutomatically: Bool {
         didSet { debouncedSave() }
     }
 
-    @Published var firstLaunchDate: Date {
+    var firstLaunchDate: Date {
         didSet { debouncedSave() }
     }
 
-    @Published var licenseKey: String {
+    var licenseKey: String {
         didSet { persistLicenseState() }
     }
 
-    @Published var isLicenseActivated: Bool
+    var isLicenseActivated: Bool
 
     /// Resolves once the license subsystem has finished decrypting persisted
     /// state off the launch thread. Callers that depend on `licenseKey` /
     /// `isLicenseActivated` being authoritative (e.g. trial gating, nag UI)
     /// should `await` this before reading. `nil` means already resolved.
-    var licenseReady: Task<Void, Never>?
+    @ObservationIgnored var licenseReady: Task<Void, Never>?
 
-    @Published var hasSeenWelcome: Bool {
+    var hasSeenWelcome: Bool {
         didSet { debouncedSave() }
     }
 
-    @Published var autoClearClipboard: Bool {
+    var autoClearClipboard: Bool {
         didSet { debouncedSave() }
     }
 
-    @Published var autoDetectPII: Bool {
+    var autoDetectPII: Bool {
         didSet { debouncedSave() }
     }
 
-    @Published var beautifyThemeName: String {
+    var beautifyThemeName: String {
         didSet { debouncedSave() }
     }
 
-    @Published var smartMetadataEnabled: Bool {
+    var smartMetadataEnabled: Bool {
         didSet { debouncedSave() }
     }
 
-    @Published var semanticSearchEnabled: Bool {
+    var semanticSearchEnabled: Bool {
         didSet { debouncedSave() }
     }
 
-    @Published var lowProfileCaptureEnabled: Bool {
+    var lowProfileCaptureEnabled: Bool {
         didSet { debouncedSave() }
     }
 
-    @Published var anonymousDiagnosticsEnabled: Bool {
+    var anonymousDiagnosticsEnabled: Bool {
         didSet { debouncedSave() }
     }
 

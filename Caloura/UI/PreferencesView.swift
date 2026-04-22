@@ -1,6 +1,27 @@
 import ServiceManagement
 import SwiftUI
 import KeyboardShortcuts
+import os.log
+
+private let preferencesLogger = Logger(subsystem: "com.caloura.app", category: "Preferences")
+
+private func launchAtLoginFailureMessage(for error: Error) -> String {
+    let nsError = error as NSError
+    switch nsError.code {
+    case Int(kSMErrorJobNotFound):
+        return "No login item registered yet. Toggle again after launching once from /Applications."
+    case Int(kSMErrorJobPlistNotFound), Int(kSMErrorInvalidPlist), Int(kSMErrorJobMustBeEnabled):
+        return "macOS rejected the login-item registration. Reinstall from /Applications and try again."
+    case Int(kSMErrorAlreadyRegistered):
+        return "Caloura is already registered as a login item. No action needed."
+    case Int(kSMErrorToolNotValid), Int(kSMErrorInvalidSignature):
+        return "The login-item binary isn't signed correctly. Reinstall Caloura from the latest DMG."
+    case Int(kSMErrorAuthorizationFailure), Int(kSMErrorLaunchDeniedByUser):
+        return "macOS blocked login-item registration. Approve in System Settings > General > Login Items."
+    default:
+        return "Couldn't update Launch at Login (\(nsError.localizedDescription))."
+    }
+}
 
 // MARK: - Tab Enum
 
@@ -53,7 +74,7 @@ enum PreferencesTab: String, CaseIterable, Identifiable {
 // MARK: - Preferences View
 
 struct PreferencesView: View {
-    @ObservedObject private var settings = AppSettings.shared
+    @Bindable private var settings = AppSettings.shared
     @State private var selectedTab: PreferencesTab
 
     init(selectedTab: PreferencesTab? = nil) {
@@ -142,7 +163,8 @@ struct PreferencesView: View {
 // MARK: - General Preferences
 
 struct GeneralPreferencesView: View {
-    @ObservedObject private var settings = AppSettings.shared
+    @Bindable private var settings = AppSettings.shared
+    @State private var launchAtLoginError: String?
 
     var body: some View {
         Form {
@@ -155,10 +177,23 @@ struct GeneralPreferencesView: View {
                             } else {
                                 try SMAppService.mainApp.unregister()
                             }
+                            launchAtLoginError = nil
                         } catch {
+                            let nsError = error as NSError
+                            let domain = nsError.domain
+                            let code = nsError.code
+                            preferencesLogger.error(
+                                "launchAtLogin failed domain=\(domain, privacy: .public) code=\(code, privacy: .public)"
+                            )
+                            launchAtLoginError = launchAtLoginFailureMessage(for: error)
                             settings.launchAtLogin = !newValue
                         }
                     }
+                if let launchAtLoginError {
+                    Text(launchAtLoginError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
                 Toggle("Check for Updates Automatically", isOn: $settings.checkForUpdatesAutomatically)
             }
 
@@ -302,7 +337,7 @@ struct ShortcutsPreferencesView: View {
 // MARK: - Presets Preferences
 
 struct PresetsPreferencesView: View {
-    @ObservedObject private var settings = AppSettings.shared
+    @Bindable private var settings = AppSettings.shared
 
     var body: some View {
         Form {

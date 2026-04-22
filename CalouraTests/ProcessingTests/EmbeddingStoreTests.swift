@@ -106,4 +106,50 @@ final class EmbeddingStoreTests: XCTestCase {
         XCTAssertEqual(store.count, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
+
+    // Regression guard: anything an attacker could read off disk (UUID,
+    // text hash, vector floats) must not survive in plaintext. If a future
+    // edit to save() ever writes JSON directly, this test fires.
+    func testSave_writesEncryptedBytesNotPlaintextJSON() throws {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("test-encrypted-bytes-\(UUID().uuidString).enc")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let store = EmbeddingStore(storeURL: url)
+        let screenshotID = UUID()
+        let textHash = "UNIQUE-PLAINTEXT-MARKER-9F3A2B"
+        store.add(screenshotID: screenshotID, vector: [1.0, 2.0, 3.0], textHash: textHash)
+        store.save()
+
+        let bytes = try Data(contentsOf: url)
+        XCTAssertGreaterThan(bytes.count, 0, "encrypted file should not be empty")
+
+        // Plaintext markers MUST NOT appear in the on-disk bytes.
+        let asString = String(data: bytes, encoding: .utf8) ?? ""
+        XCTAssertFalse(
+            asString.contains(textHash),
+            "textHash leaked in plaintext on disk — encryption not applied"
+        )
+        XCTAssertFalse(
+            asString.contains(screenshotID.uuidString),
+            "screenshotID leaked in plaintext on disk"
+        )
+        XCTAssertFalse(
+            asString.contains("schemaVersion"),
+            "JSON envelope leaked in plaintext on disk"
+        )
+        XCTAssertFalse(
+            asString.contains("entries"),
+            "JSON entries leaked in plaintext on disk"
+        )
+
+        // Bytewise check covers the case where the textHash bytes appear
+        // in some non-UTF8 encoding within the ciphertext — the marker is
+        // unique enough that any byte-window match indicates leakage.
+        let marker = Data(textHash.utf8)
+        XCTAssertFalse(
+            bytes.range(of: marker) != nil,
+            "textHash byte sequence leaked in ciphertext envelope"
+        )
+    }
 }

@@ -33,7 +33,7 @@ final class QuickAccessPresentationModelTests: XCTestCase {
             detections: [
                 PIIDetection(
                     type: .email,
-                    text: "user@example.com",
+                    rawMatch: "user@example.com",
                     boundingBox: CGRect(x: 0, y: 0, width: 1, height: 1),
                     confidence: 0.9
                 )

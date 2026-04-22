@@ -4,13 +4,15 @@ import os.log
 let onboardingLogger = Logger(subsystem: "com.caloura.app", category: "Onboarding")
 
 struct OnboardingView: View {
-    @ObservedObject var settings: AppSettings
+    var settings: AppSettings
     var permissionCoordinator = PermissionCoordinator.shared
     @State var flow: OnboardingFlowModel
     @State var installState: AppInstallState
     @State var isCheckingPermission = false
     @State var iconAppeared = false
     @State var shouldResumePendingCapture = false
+    @State var isAutoValidatingAfterSettings = false
+    @State private var autoValidatePollTask: Task<Void, Never>?
 
     private let initialState: OnboardingFlowState
     private let onDismiss: () -> Void
@@ -165,9 +167,41 @@ struct OnboardingView: View {
     }
 
     private func transition(to state: OnboardingFlowState) {
+        if state != .waitingForSettingsReturn {
+            cancelSettingsReturnPolling()
+        }
         withAnimation(.easeInOut(duration: 0.25)) {
             flow.transition(to: state)
         }
+    }
+
+    private func startSettingsReturnPolling() {
+        guard autoValidatePollTask == nil else { return }
+        isAutoValidatingAfterSettings = true
+        onboardingLogger.info("funnel_event=settings_return_auto_poll_started")
+        autoValidatePollTask = Task { @MainActor in
+            defer {
+                isAutoValidatingAfterSettings = false
+                autoValidatePollTask = nil
+            }
+            for _ in 0..<10 {
+                try? await Task.sleep(for: .seconds(3))
+                if Task.isCancelled { return }
+                guard flow.currentState == .waitingForSettingsReturn else { return }
+                let status = await permissionCoordinator.revalidateAfterSettingsReturn()
+                syncPendingCaptureResume(for: status)
+                if status == .working || status == .denied {
+                    handlePermissionStatus(status, launchCaptureOnSuccess: shouldResumePendingCapture)
+                    return
+                }
+            }
+        }
+    }
+
+    private func cancelSettingsReturnPolling() {
+        autoValidatePollTask?.cancel()
+        autoValidatePollTask = nil
+        isAutoValidatingAfterSettings = false
     }
 
     func moveToApplications() {
@@ -258,6 +292,7 @@ struct OnboardingView: View {
             transition(to: .grantScreenRecording)
         case .grantedNeedsValidation:
             if flow.currentState == .waitingForSettingsReturn {
+                startSettingsReturnPolling()
                 return
             }
             if !settings.hasCompletedOnboarding {
@@ -290,6 +325,7 @@ struct OnboardingView: View {
     }
 
     func dismissWindow() {
+        cancelSettingsReturnPolling()
         shouldResumePendingCapture = false
         permissionCoordinator.clearPendingCaptureResume()
         settings.hasSeenWelcome = true

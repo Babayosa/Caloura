@@ -53,11 +53,12 @@ struct CapturePreset: Codable, Identifiable {
 }
 
 @MainActor
-final class PresetManager: ObservableObject {
+@Observable
+final class PresetManager {
     static let shared = PresetManager()
     static let builtInPresetNames = ["Quick Capture", "Lecture Notes", "Code Snippet", "Assignment"]
 
-    @Published var presets: [CapturePreset] = [] {
+    var presets: [CapturePreset] = [] {
         didSet {
             guard !isInitializing else { return }
             savePresets()

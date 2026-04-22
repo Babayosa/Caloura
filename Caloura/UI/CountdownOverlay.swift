@@ -4,8 +4,9 @@ import SwiftUI
 // MARK: - Countdown State
 
 @MainActor
-final class CountdownState: ObservableObject {
-    @Published var count: Int = 0
+@Observable
+final class CountdownState {
+    var count: Int = 0
 }
 
 // MARK: - Countdown Overlay (Singleton)
@@ -101,7 +102,7 @@ private final class CountdownPanel: NSPanel {
 // MARK: - SwiftUI View
 
 private struct CountdownOverlayView: View {
-    @ObservedObject var state: CountdownState
+    var state: CountdownState
 
     var body: some View {
         VStack(spacing: 8) {

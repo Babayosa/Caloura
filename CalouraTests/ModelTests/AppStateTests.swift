@@ -110,11 +110,11 @@ final class AppStateTests: XCTestCase {
         appState.addScreenshot(second)
 
         let firstResult = PIIDetectionResult(
-            detections: [PIIDetection(type: .email, text: "one@example.com", boundingBox: .zero, confidence: 1)],
+            detections: [PIIDetection(type: .email, rawMatch: "one@example.com", boundingBox: .zero, confidence: 1)],
             screenshotID: first.id
         )
         let secondResult = PIIDetectionResult(
-            detections: [PIIDetection(type: .email, text: "two@example.com", boundingBox: .zero, confidence: 1)],
+            detections: [PIIDetection(type: .email, rawMatch: "two@example.com", boundingBox: .zero, confidence: 1)],
             screenshotID: second.id
         )
 
@@ -122,9 +122,9 @@ final class AppStateTests: XCTestCase {
         appState.setPIIResult(secondResult)
 
         XCTAssertEqual(appState.piiResult(for: first.id)?.screenshotID, first.id)
-        XCTAssertEqual(appState.piiResult(for: first.id)?.detections.first?.text, "one@example.com")
+        XCTAssertEqual(appState.piiResult(for: first.id)?.detections.first?.text, "o***@example.com")
         XCTAssertEqual(appState.piiResult(for: second.id)?.screenshotID, second.id)
-        XCTAssertEqual(appState.piiResult(for: second.id)?.detections.first?.text, "two@example.com")
+        XCTAssertEqual(appState.piiResult(for: second.id)?.detections.first?.text, "t***@example.com")
     }
 
     // MARK: - JSON persistence round-trip
@@ -202,7 +202,7 @@ final class AppStateTests: XCTestCase {
         appState.setCapturePreviewPhase(.enrichmentPending, for: item.id)
         appState.setPIIResult(
             PIIDetectionResult(
-                detections: [PIIDetection(type: .email, text: "person@example.com", boundingBox: .zero, confidence: 1)],
+                detections: [PIIDetection(type: .email, rawMatch: "person@example.com", boundingBox: .zero, confidence: 1)],
                 screenshotID: item.id
             )
         )

@@ -2,8 +2,9 @@ import SwiftUI
 import KeyboardShortcuts
 
 @MainActor
-final class GlobalShortcutsWatcher: ObservableObject {
-    @Published private(set) var version = 0
+@Observable
+final class GlobalShortcutsWatcher {
+    private(set) var version = 0
 
     init() {
         let name = Notification.Name("KeyboardShortcuts_shortcutByNameDidChange")
@@ -36,9 +37,9 @@ private func swiftUIShortcut(
 
 struct MenuBarView: View {
     let appState: AppState
-    @ObservedObject var settings: AppSettings
-    @ObservedObject private var updateManager = UpdateManager.shared
-    @StateObject private var shortcutsWatcher = GlobalShortcutsWatcher()
+    var settings: AppSettings
+    @State private var updateManager = UpdateManager.shared
+    @State private var shortcutsWatcher = GlobalShortcutsWatcher()
 
     private static let recentActivityFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -49,18 +50,34 @@ struct MenuBarView: View {
 
     var body: some View {
         // Update banner
-        if updateManager.updateAvailable {
+        switch updateManager.state {
+        case .updateAvailable(let version):
             Button {
                 updateManager.checkForUpdates()
             } label: {
-                let suffix = updateManager.updateVersion
-                    .map { " — v\($0)" } ?? ""
+                let suffix = version.map { " — v\($0)" } ?? ""
                 Label(
                     "Update Available\(suffix)",
                     systemImage: "arrow.down.circle.fill"
                 )
             }
             Divider()
+        case .upToDate:
+            Button {
+                updateManager.recordUpdateDismissed()
+            } label: {
+                Label("Caloura is up to date", systemImage: "checkmark.circle.fill")
+            }
+            Divider()
+        case .failed(let reason):
+            Button {
+                updateManager.checkForUpdates()
+            } label: {
+                Label("Update failed: \(reason)", systemImage: "exclamationmark.triangle.fill")
+            }
+            Divider()
+        case .idle, .checking:
+            EmptyView()
         }
 
         // Capture actions

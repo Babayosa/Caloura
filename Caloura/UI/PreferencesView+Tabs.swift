@@ -3,8 +3,8 @@ import SwiftUI
 // MARK: - License Preferences
 
 struct LicensePreferencesView: View {
-    @ObservedObject private var settings = AppSettings.shared
-    @ObservedObject private var license = LicenseManager.shared
+    @Bindable private var settings = AppSettings.shared
+    private var license = LicenseManager.shared
     @State private var keyInput = ""
     @State private var isActivating = false
 

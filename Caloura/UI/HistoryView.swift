@@ -54,6 +54,7 @@ struct HistoryView: View {
     @State private var searchText = ""
     @State private var selectedItem: ScreenshotItem?
     @State private var itemToDelete: ScreenshotItem?
+    @State private var showClearHistoryConfirm = false
     @State private var semanticResults: Set<UUID> = []
     @State private var semanticSearchTask: Task<Void, Never>?
     @State private var copyImageTask: Task<Void, Never>?
@@ -156,7 +157,7 @@ struct HistoryView: View {
                 Spacer()
                 if !appState.recentScreenshots.isEmpty {
                     Button("Clear History") {
-                        appState.clearHistory()
+                        showClearHistoryConfirm = true
                     }
                     .font(.caption)
                 }
@@ -179,6 +180,19 @@ struct HistoryView: View {
             }
         } message: {
             Text("Are you sure you want to remove this screenshot from history?")
+        }
+        .alert("Clear History", isPresented: $showClearHistoryConfirm) {
+            Button("Clear", role: .destructive) {
+                appState.clearHistory()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            let count = appState.recentScreenshots.count
+            Text(
+                "Clear all history? This will permanently delete "
+                + "\(count) capture\(count == 1 ? "" : "s"), their text content, "
+                + "and saved files. This cannot be undone."
+            )
         }
         .onChange(of: searchText) { _, newValue in
             semanticSearchTask?.cancel()
@@ -212,7 +226,10 @@ struct HistoryView: View {
     }
 
     private func copyImage(_ item: ScreenshotItem) {
-        guard !item.filePath.isEmpty else { return }
+        guard !item.filePath.isEmpty else {
+            appState.setStatusMessage("No image file recorded for this capture.")
+            return
+        }
         let url = URL(fileURLWithPath: item.filePath)
         // Cancel any in-flight copy so rapid double-taps don't race two
         // disk loads into clipboard writes in non-deterministic order.
@@ -221,7 +238,13 @@ struct HistoryView: View {
             let loaded = await Task.detached(priority: .userInitiated) {
                 NSImage(contentsOf: url)
             }.value
-            guard !Task.isCancelled, let image = loaded else { return }
+            guard !Task.isCancelled else { return }
+            guard let image = loaded else {
+                appState.setStatusMessage(
+                    "Image file is missing — it may have been moved or deleted from disk."
+                )
+                return
+            }
             do {
                 try ClipboardManager.copyNSImage(image)
                 appState.setStatusMessage("Copied image")

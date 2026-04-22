@@ -1,4 +1,17 @@
 import SwiftUI
+import KeyboardShortcuts
+
+@MainActor
+private func onboardingShortcutDisplay(
+    for name: KeyboardShortcuts.Name,
+    fallback: String
+) -> String {
+    guard let shortcut = KeyboardShortcuts.getShortcut(for: name) else {
+        return fallback
+    }
+    let description = shortcut.description.trimmingCharacters(in: .whitespaces)
+    return description.isEmpty ? fallback : description
+}
 
 extension OnboardingView {
 
@@ -199,6 +212,9 @@ extension OnboardingView {
     private var permissionBody: String {
         switch flow.currentState {
         case .waitingForSettingsReturn:
+            if isAutoValidatingAfterSettings {
+                return "Validating permission… macOS can take a few seconds to propagate this. Caloura will keep checking — or press Try Again."
+            }
             return "In System Settings, click the \"+\" button, select Caloura, and enable it. Then return here — Caloura will re-check automatically."
         case .repairStalePermissionRecord:
             switch permissionPresentation.detail {
@@ -275,12 +291,12 @@ extension OnboardingView {
         switch flow.currentState {
         case .waitingForSettingsReturn:
             VStack(spacing: 10) {
-                if isCheckingPermission {
-                    ProgressView("Checking Screen Recording…")
+                if isCheckingPermission || isAutoValidatingAfterSettings {
+                    ProgressView(isAutoValidatingAfterSettings ? "Validating permission…" : "Checking Screen Recording…")
                         .controlSize(.small)
                 }
 
-                Button("Check Again") {
+                Button(isAutoValidatingAfterSettings ? "Try Again" : "Check Again") {
                     revalidateAfterSettingsReturn()
                 }
                 .buttonStyle(.borderedProminent)
@@ -378,17 +394,17 @@ extension OnboardingView {
         infoCard {
             VStack(alignment: .leading, spacing: 12) {
                 shortcutRow(
-                    keys: "\u{2318}\u{21E7}4",
+                    keys: onboardingShortcutDisplay(for: .captureArea, fallback: "\u{2303}\u{2325}C"),
                     action: "Capture Area",
                     description: "Select any region"
                 )
                 shortcutRow(
-                    keys: "\u{2318}\u{21E7}5",
+                    keys: onboardingShortcutDisplay(for: .captureWindow, fallback: "\u{2303}\u{2325}W"),
                     action: "Capture Window",
                     description: "Click any window"
                 )
                 shortcutRow(
-                    keys: "\u{2318}\u{21E7}3",
+                    keys: onboardingShortcutDisplay(for: .captureFullscreen, fallback: "\u{2303}\u{2325}F"),
                     action: "Capture Full Screen",
                     description: "Entire display"
                 )

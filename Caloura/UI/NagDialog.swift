@@ -15,7 +15,12 @@ struct NagDialogView: View {
                 .font(.title2)
                 .fontWeight(.bold)
 
-            Text("Caloura is free to keep using, but please consider purchasing a license to support development.")
+            Text(
+                """
+                Caloura keeps all its features — your captures, history, and shortcuts still work. \
+                A license removes this reminder and directly supports continued development.
+                """
+            )
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
