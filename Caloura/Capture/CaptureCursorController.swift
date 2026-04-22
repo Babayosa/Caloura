@@ -1,4 +1,7 @@
 import AppKit
+import os.log
+
+private let cursorLogger = Logger(subsystem: "com.caloura.app", category: "Cursor")
 
 @MainActor
 protocol CaptureCursorControlling: AnyObject {
@@ -6,6 +9,10 @@ protocol CaptureCursorControlling: AnyObject {
     func handleCursorUpdate()
     func scheduleReprime()
     func endCrosshairSession()
+    /// Force-clear any leaked cursor state from a prior session that did not
+    /// reach `endCrosshairSession()`. Safe to call when no session is active.
+    /// Pool teardown and coordinator entry call this as a safety net.
+    func resetCursorState()
 }
 
 @MainActor
@@ -108,22 +115,32 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
     }
 
     func beginCrosshairSession() {
-        guard !cursorActive else { return }
+        guard !cursorActive else {
+            cursorLogger.debug("beginCrosshairSession: already active, no-op (idempotent)")
+            return
+        }
         cursorActive = true
         if !pushed {
             crosshairDriver.pushCrosshair()
             pushed = true
         }
+        cursorLogger.debug("beginCrosshairSession: pushed=true, cursorActive=true")
         scheduleReprime()
     }
 
     func handleCursorUpdate() {
-        guard cursorActive else { return }
+        guard cursorActive else {
+            cursorLogger.debug("handleCursorUpdate: cursorActive=false, dropping .set()")
+            return
+        }
         crosshairDriver.setCrosshair()
     }
 
     func scheduleReprime() {
-        guard cursorActive else { return }
+        guard cursorActive else {
+            cursorLogger.debug("scheduleReprime: cursorActive=false, dropping reprime")
+            return
+        }
         pendingReprime?.cancel()
         pendingReprime = scheduler.schedule { [weak self] in
             guard let self, self.cursorActive else { return }
@@ -146,6 +163,24 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
         if pushed {
             crosshairDriver.popCrosshair()
             pushed = false
+        }
+        cursorLogger.debug("endCrosshairSession: cursorActive=false, pushed=false")
+    }
+
+    func resetCursorState() {
+        let wasActive = cursorActive
+        let wasPushed = pushed
+        pendingReprime?.cancel()
+        pendingReprime = nil
+        cursorActive = false
+        if pushed {
+            crosshairDriver.popCrosshair()
+            pushed = false
+        }
+        if wasActive || wasPushed {
+            cursorLogger.error(
+                "resetCursorState leaked: active=\(wasActive, privacy: .public) pushed=\(wasPushed, privacy: .public)"
+            )
         }
     }
 

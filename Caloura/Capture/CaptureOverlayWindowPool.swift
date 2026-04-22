@@ -4,10 +4,17 @@ import AppKit
 final class CaptureOverlayWindowPool {
     private var windows: [CaptureOverlayWindow] = []
     private var screenFrames: [CGRect] = []
+    private weak var lastCursorController: CaptureCursorControlling?
+    private let screensProvider: @MainActor () -> [NSScreen]
+
+    init(screensProvider: @escaping @MainActor () -> [NSScreen] = { CaptureOverlayWindow.orderedPresentationScreens() }) {
+        self.screensProvider = screensProvider
+    }
 
     func acquire(cursorController: CaptureCursorControlling?) -> [CaptureOverlayWindow] {
-        let screens = CaptureOverlayWindow.orderedPresentationScreens()
+        let screens = screensProvider()
         let currentFrames = screens.map(\.frame)
+        lastCursorController = cursorController
 
         if currentFrames != screenFrames || windows.count != screens.count {
             tearDown()
@@ -22,6 +29,10 @@ final class CaptureOverlayWindowPool {
     }
 
     func release() {
+        // Safety net: coordinator paths normally call endCrosshairSession on
+        // the controller, but bypass paths (screen reconfig teardown, abnormal
+        // unwind) reach the pool directly. resetCursorState is idempotent.
+        lastCursorController?.resetCursorState()
         for window in windows {
             window.orderOut(nil)
             window.tearDownHandlers()
@@ -29,6 +40,7 @@ final class CaptureOverlayWindowPool {
     }
 
     func tearDown() {
+        lastCursorController?.resetCursorState()
         for window in windows { window.close() }
         windows = []
         screenFrames = []

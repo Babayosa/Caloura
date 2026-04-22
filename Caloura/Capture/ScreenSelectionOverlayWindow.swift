@@ -51,10 +51,21 @@ final class ScreenSelectionOverlayWindow: NSPanel {
 
     private func primeCrosshair() {
         guard let contentView else { return }
+        makeFirstResponder(contentView)
         invalidateCursorRects(for: contentView)
         cursorController?.scheduleReprime()
     }
 
+    /// Present a fullscreen-selection overlay on every screen.
+    ///
+    /// **Contract**: callers MUST have already invoked
+    /// `cursorController.beginCrosshairSession()` (preceded by
+    /// `resetCursorState()`) before calling this. `becomeKey()` fires
+    /// synchronously inside `makeKeyAndOrderFront(nil)` below; if
+    /// `cursorActive == false` at that moment, `primeCrosshair()`'s
+    /// `scheduleReprime()` silently no-ops and the crosshair never appears.
+    /// `FullscreenCaptureSessionCoordinator.present()` is the canonical caller
+    /// and enforces this ordering.
     @MainActor
     static func showOnAllScreens(
         cursorController: CaptureCursorControlling? = nil,

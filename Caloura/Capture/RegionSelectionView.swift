@@ -99,6 +99,7 @@ final class RegionSelectionView: NSView {
         isDimmingSuppressed = false
         updateLayerVisibility()
         CATransaction.commit()
+        announceCaptureOverlay()
     }
 
     // MARK: - Layout

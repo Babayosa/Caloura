@@ -80,14 +80,41 @@ final class CaptureOverlayWindowPoolTests: XCTestCase {
 
         pool.tearDown()
     }
+
+    func testReleaseInvokesCursorResetSafetyNet() {
+        let pool = CaptureOverlayWindowPool()
+        let spy = PoolCursorSpy()
+
+        _ = pool.acquire(cursorController: spy)
+        pool.release()
+
+        XCTAssertGreaterThanOrEqual(spy.resetCalls, 1)
+
+        pool.tearDown()
+    }
+
+    func testTearDownInvokesCursorResetSafetyNet() {
+        let pool = CaptureOverlayWindowPool()
+        let spy = PoolCursorSpy()
+
+        _ = pool.acquire(cursorController: spy)
+        pool.tearDown()
+
+        XCTAssertGreaterThanOrEqual(spy.resetCalls, 1)
+    }
 }
 
 // MARK: - Spy
 
 @MainActor
 private final class PoolCursorSpy: CaptureCursorControlling {
+    private(set) var resetCalls = 0
+
     func beginCrosshairSession() {}
     func handleCursorUpdate() {}
     func scheduleReprime() {}
     func endCrosshairSession() {}
+    func resetCursorState() {
+        resetCalls += 1
+    }
 }

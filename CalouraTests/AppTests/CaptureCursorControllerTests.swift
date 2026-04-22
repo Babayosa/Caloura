@@ -125,6 +125,72 @@ final class CaptureCursorControllerTests: XCTestCase {
 
         controller.endCrosshairSession()
     }
+
+    func testResetCursorStateClearsLeakedActiveSessionAndAllowsFreshBegin() {
+        let driver = CaptureCrosshairDriverSpy()
+        let scheduler = CaptureCursorSchedulerSpy()
+        let controller = CaptureCursorController(
+            crosshairDriver: driver,
+            scheduler: scheduler,
+            notificationCenter: NotificationCenter()
+        )
+
+        controller.beginCrosshairSession()
+        XCTAssertEqual(driver.pushCalls, 1)
+        XCTAssertEqual(scheduler.scheduleCalls, 1)
+
+        // Simulate the bypass path: pool tearDown reached without
+        // endCrosshairSession (e.g., screen reconfiguration).
+        controller.resetCursorState()
+
+        XCTAssertEqual(driver.popCalls, 1)
+        XCTAssertEqual(scheduler.cancelledCount, 1)
+
+        // The next begin must produce a fresh push, not silently no-op.
+        // Without reset, the guard !cursorActive in beginCrosshairSession
+        // would trap the controller in a permanently broken state.
+        controller.beginCrosshairSession()
+        XCTAssertEqual(driver.pushCalls, 2)
+        XCTAssertEqual(scheduler.scheduleCalls, 2)
+
+        controller.endCrosshairSession()
+    }
+
+    func testResetCursorStateOnInactiveControllerIsSafeNoOp() {
+        let driver = CaptureCrosshairDriverSpy()
+        let scheduler = CaptureCursorSchedulerSpy()
+        let controller = CaptureCursorController(
+            crosshairDriver: driver,
+            scheduler: scheduler,
+            notificationCenter: NotificationCenter()
+        )
+
+        controller.resetCursorState()
+        controller.resetCursorState()
+
+        XCTAssertEqual(driver.pushCalls, 0)
+        XCTAssertEqual(driver.popCalls, 0)
+        XCTAssertEqual(scheduler.scheduleCalls, 0)
+    }
+
+    func testResetCursorStateAfterEndDoesNotDoublePop() {
+        let driver = CaptureCrosshairDriverSpy()
+        let scheduler = CaptureCursorSchedulerSpy()
+        let controller = CaptureCursorController(
+            crosshairDriver: driver,
+            scheduler: scheduler,
+            notificationCenter: NotificationCenter()
+        )
+
+        controller.beginCrosshairSession()
+        controller.endCrosshairSession()
+        XCTAssertEqual(driver.popCalls, 1)
+
+        controller.resetCursorState()
+
+        // end already cleared pushed=false; reset must not pop again.
+        XCTAssertEqual(driver.popCalls, 1)
+    }
 }
 
 @MainActor

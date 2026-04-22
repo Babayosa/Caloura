@@ -61,6 +61,15 @@ final class AreaCaptureSessionCoordinator {
         frozenImages = [:]
         overlayWindows = windows
 
+        // Cursor session MUST begin before any overlay is ordered front. Otherwise
+        // becomeKey() fires synchronously inside makeKeyAndOrderFront(nil), and
+        // CaptureOverlayWindow.primeCrosshair()'s scheduleReprime() silently
+        // no-ops because cursorActive is still false. resetCursorState() clears
+        // any leaked state from a prior session that bypassed endCrosshairSession
+        // (e.g., screen reconfiguration teardown).
+        cursorController.resetCursorState()
+        cursorController.beginCrosshairSession()
+
         for (index, window) in windows.enumerated() {
             if suppressDimming {
                 window.isDimmingSuppressed = true
@@ -94,8 +103,6 @@ final class AreaCaptureSessionCoordinator {
                 window.orderFrontRegardless()
             }
         }
-
-        cursorController.beginCrosshairSession()
 
         // Force synchronous cursor rect registration on all overlays.
         // On pooled window reuse, becomeKey()/viewDidMoveToWindow may
@@ -187,22 +194,24 @@ final class FullscreenCaptureSessionCoordinator {
     }
 
     func present() {
+        // Reset clears any leaked state from a prior session that bypassed
+        // endCrosshairSession; begin must run before the overlay presenter
+        // calls makeKeyAndOrderFront so primeCrosshair's reprime can take.
+        cursorController.resetCursorState()
         cursorController.beginCrosshairSession()
         overlayWindows = overlayPresenter(
             cursorController,
             { [weak self] screen in
                 guard let self = self else { return }
-                self.cursorController.endCrosshairSession()
                 self.performanceRecorder.mark(.firstInteraction, in: self.session)
-                self.overlayWindows = []
+                self.releaseOverlays()
                 Task { @MainActor in
                     await self.onSelection(screen)
                 }
             },
             { [weak self] in
                 guard let self = self else { return }
-                self.cursorController.endCrosshairSession()
-                self.overlayWindows = []
+                self.releaseOverlays()
                 Task { @MainActor in
                     self.onCancel()
                 }
@@ -213,6 +222,10 @@ final class FullscreenCaptureSessionCoordinator {
     }
 
     func dismiss() {
+        releaseOverlays()
+    }
+
+    private func releaseOverlays() {
         for overlay in overlayWindows {
             overlay.onScreenSelected = nil
             overlay.onCancelled = nil

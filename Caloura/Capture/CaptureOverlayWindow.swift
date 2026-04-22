@@ -87,6 +87,10 @@ final class CaptureOverlayWindow: NSPanel {
 
     private func primeCrosshair() {
         guard let contentView else { return }
+        // Re-assert first responder so mouseMoved keeps firing after the panel
+        // regains key. Pool reuse + Mission Control / Spotlight resignations
+        // can leave the contentView demoted.
+        makeFirstResponder(contentView)
         invalidateCursorRects(for: contentView)
         cursorController?.scheduleReprime()
     }
@@ -103,62 +107,13 @@ final class CaptureOverlayWindow: NSPanel {
         tearDownHandlers()
         self.cursorController = cursorController
         selectionView?.resetForReuse(cursorController: cursorController)
-    }
-
-    static func showOnAllScreens(
-        cursorController: CaptureCursorControlling? = nil,
-        frozenImages: [NSScreen: CGImage]? = nil,
-        suppressDimming: Bool = false,
-        onRegionSelected: @escaping (CGRect, NSScreen) -> Void,
-        onCancelled: @escaping () -> Void,
-        onFirstMouseDown: (() -> Void)? = nil
-    ) -> [CaptureOverlayWindow] {
-        let screens = orderedPresentationScreens()
-        var windows: [CaptureOverlayWindow] = []
-        windows.reserveCapacity(screens.count)
-
-        for (index, screen) in screens.enumerated() {
-            let overlay = CaptureOverlayWindow(
-                for: screen,
-                cursorController: cursorController
-            )
-
-            // Set frozen image for this screen if provided
-            if let frozenImages = frozenImages, let image = frozenImages[screen] {
-                overlay.frozenImage = image
-            }
-
-            if suppressDimming {
-                overlay.isDimmingSuppressed = true
-            }
-
-            let closeAll = {
-                for item in windows {
-                    item.onRegionSelected = nil
-                    item.onCancelled = nil
-                    item.onFirstMouseDown = nil
-                    item.close()
-                }
-            }
-            overlay.onRegionSelected = { rect, screen in
-                closeAll()
-                onRegionSelected(rect, screen)
-            }
-            overlay.onCancelled = {
-                closeAll()
-                onCancelled()
-            }
-            overlay.onFirstMouseDown = onFirstMouseDown
-
-            if index == 0 {
-                overlay.makeKeyAndOrderFront(nil)
-            } else {
-                overlay.orderFrontRegardless()
-            }
-            windows.append(overlay)
+        // viewDidMoveToWindow does not re-fire on pool reuse (the view stayed
+        // in this window). Re-assert first responder + acceptsMouseMovedEvents
+        // so mouseMoved keeps firing across captures.
+        if let selectionView {
+            makeFirstResponder(selectionView)
         }
-
-        return windows
+        acceptsMouseMovedEvents = true
     }
 
     static func orderedPresentationScreens() -> [NSScreen] {

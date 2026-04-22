@@ -279,6 +279,254 @@ final class CaptureSystemTests: XCTestCase {
         XCTAssertEqual(recorder.summary(for: .window, event: .pickerVisibleWarm)?.sampleCount, 5)
     }
 
+    // MARK: - Multi-screen coverage (Phase 3.6)
+
+    func testFullscreenSelectionOnSecondaryOverlayDismissesAllOverlays() async {
+        // Synthesize a 2-screen layout via the injected overlayPresenter so
+        // CI (single physical display) still exercises the multi-overlay
+        // dismiss path: selecting from overlay[1] must close every overlay
+        // and route the selection to the coordinator's onSelection handler.
+        let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 10, reportInterval: 50)
+        let session = recorder.beginSession(mode: .fullscreen)
+        let cursor = CursorSpy()
+        guard let realScreen = NSScreen.main ?? NSScreen.screens.first else {
+            XCTFail("Need at least one screen")
+            return
+        }
+
+        let onSelectionExpectation = expectation(description: "selection delivered")
+        let coordinator = FullscreenCaptureSessionCoordinator(
+            session: session,
+            performanceRecorder: recorder,
+            cursorController: cursor,
+            onSelection: { selectedScreen in
+                XCTAssertEqual(selectedScreen, realScreen)
+                onSelectionExpectation.fulfill()
+            },
+            onCancel: {
+                XCTFail("cancel must not fire when selection is made")
+            },
+            overlayPresenter: { cursorController, onScreenSelected, onCancelled in
+                let overlays = (0..<2).map { _ in
+                    ScreenSelectionOverlayWindow(
+                        for: realScreen,
+                        cursorController: cursorController
+                    )
+                }
+                let closeAll = {
+                    for overlay in overlays {
+                        overlay.onScreenSelected = nil
+                        overlay.onCancelled = nil
+                        overlay.close()
+                    }
+                }
+                for overlay in overlays {
+                    overlay.onScreenSelected = { screen in
+                        closeAll()
+                        onScreenSelected(screen)
+                    }
+                    overlay.onCancelled = {
+                        closeAll()
+                        onCancelled()
+                    }
+                }
+                return overlays
+            }
+        )
+
+        coordinator.present()
+        XCTAssertEqual(coordinator.overlayWindows.count, 2)
+
+        // Trigger selection on the secondary overlay.
+        coordinator.overlayWindows[1].onScreenSelected?(realScreen)
+
+        await fulfillment(of: [onSelectionExpectation], timeout: 1.0)
+
+        XCTAssertEqual(cursor.endCalls, 1, "cursor session must end after selection")
+        XCTAssertTrue(coordinator.overlayWindows.isEmpty, "all overlays must be cleared")
+        recorder.finishSession(session)
+    }
+
+    func testFullscreenCancelOnSecondaryOverlayDismissesAllOverlays() async {
+        let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 10, reportInterval: 50)
+        let session = recorder.beginSession(mode: .fullscreen)
+        let cursor = CursorSpy()
+        guard let realScreen = NSScreen.main ?? NSScreen.screens.first else {
+            XCTFail("Need at least one screen")
+            return
+        }
+
+        let onCancelExpectation = expectation(description: "cancel delivered")
+        let coordinator = FullscreenCaptureSessionCoordinator(
+            session: session,
+            performanceRecorder: recorder,
+            cursorController: cursor,
+            onSelection: { _ in
+                XCTFail("selection must not fire on cancel")
+            },
+            onCancel: {
+                onCancelExpectation.fulfill()
+            },
+            overlayPresenter: { cursorController, onScreenSelected, onCancelled in
+                let overlays = (0..<2).map { _ in
+                    ScreenSelectionOverlayWindow(
+                        for: realScreen,
+                        cursorController: cursorController
+                    )
+                }
+                let closeAll = {
+                    for overlay in overlays {
+                        overlay.onScreenSelected = nil
+                        overlay.onCancelled = nil
+                        overlay.close()
+                    }
+                }
+                for overlay in overlays {
+                    overlay.onScreenSelected = { screen in
+                        closeAll()
+                        onScreenSelected(screen)
+                    }
+                    overlay.onCancelled = {
+                        closeAll()
+                        onCancelled()
+                    }
+                }
+                return overlays
+            }
+        )
+
+        coordinator.present()
+        XCTAssertEqual(coordinator.overlayWindows.count, 2)
+
+        coordinator.overlayWindows[1].onCancelled?()
+
+        await fulfillment(of: [onCancelExpectation], timeout: 1.0)
+
+        XCTAssertEqual(cursor.endCalls, 1, "cursor session must end after cancel")
+        XCTAssertTrue(coordinator.overlayWindows.isEmpty, "all overlays must be cleared")
+        recorder.finishSession(session)
+    }
+
+    func testAreaCaptureCrosshairPersistsAcrossFiveCaptures() {
+        // Regression guard for the post-ship 2.4.0 crosshair-gone-forever defect.
+        // Root cause: pool teardown bypass paths (screen reconfig, abnormal unwind)
+        // left cursorActive=true, and beginCrosshairSession's idempotency guard
+        // then trapped the controller permanently — every subsequent capture's
+        // crosshair silently no-op'd. This test asserts five full present/dismiss
+        // cycles against real overlay windows each produce a balanced
+        // reset + begin + end triple, with no drift.
+        let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 50, reportInterval: 50)
+        let session = recorder.beginSession(mode: .area)
+        let cursor = CursorSpy()
+        let coordinator = AreaCaptureSessionCoordinator(
+            session: session,
+            performanceRecorder: recorder,
+            cursorController: cursor,
+            onSelection: { _, _, _ in },
+            onCancel: { }
+        )
+        let pool = CaptureOverlayWindowPool()
+
+        defer {
+            pool.release()
+            recorder.finishSession(session)
+        }
+
+        for iteration in 0..<5 {
+            let windows = pool.acquire(cursorController: cursor)
+            coordinator.present(windows: windows)
+            XCTAssertFalse(
+                coordinator.overlayWindows.isEmpty,
+                "iteration \(iteration): overlays must present"
+            )
+            coordinator.dismiss()
+        }
+
+        // Each coordinator.present contributes one reset; the first pool.acquire
+        // also triggers tearDown's safety-net reset because screenFrames starts
+        // empty. >= 5 tolerates that implementation detail while still proving
+        // every cycle reset before begin.
+        XCTAssertGreaterThanOrEqual(cursor.resetCalls, 5)
+        XCTAssertEqual(cursor.beginCalls, 5, "each present must begin a cursor session")
+        XCTAssertEqual(cursor.endCalls, 5, "each dismiss must end the cursor session")
+    }
+
+    func testAreaCaptureCrosshairRecoversAfterPoolTeardownBypass() {
+        // D4 regression: simulate the exact bypass path where pool.tearDown()
+        // fires outside coordinator.dismiss() (screen reconfiguration). Without
+        // resetCursorState() on the pool's release/tearDown, the next begin is
+        // trapped by the idempotency guard.
+        let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 10, reportInterval: 50)
+        let session = recorder.beginSession(mode: .area)
+        let cursor = CursorSpy()
+        let coordinator = AreaCaptureSessionCoordinator(
+            session: session,
+            performanceRecorder: recorder,
+            cursorController: cursor,
+            onSelection: { _, _, _ in },
+            onCancel: { }
+        )
+        let pool = CaptureOverlayWindowPool()
+        defer { recorder.finishSession(session) }
+
+        let firstWindows = pool.acquire(cursorController: cursor)
+        coordinator.present(windows: firstWindows)
+        // Bypass the coordinator exit: pool teardown without dismiss(). This is
+        // the precise failure shape the post-ship regression exhibited.
+        pool.tearDown()
+
+        // The next capture must still produce a clean reset + begin.
+        let secondWindows = pool.acquire(cursorController: cursor)
+        coordinator.present(windows: secondWindows)
+        coordinator.dismiss()
+        pool.release()
+
+        // Pool teardown contributes one reset (safety net); coordinator.present
+        // contributes two more (once per session). The second session must reach
+        // begin — if it didn't, the D4 regression would be live again.
+        XCTAssertGreaterThanOrEqual(cursor.resetCalls, 3)
+        XCTAssertEqual(cursor.beginCalls, 2)
+        XCTAssertEqual(cursor.endCalls, 1)
+    }
+
+    func testAreaCaptureMultiOverlayPresentationKeysExactlyOneWindow() {
+        // Even when present(windows:) receives multiple overlays
+        // (multi-screen layout), exactly one becomes key. Other windows
+        // are ordered front via orderFrontRegardless to avoid focus theft.
+        let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 10, reportInterval: 50)
+        let session = recorder.beginSession(mode: .area)
+        let cursor = CursorSpy()
+        guard let realScreen = NSScreen.main ?? NSScreen.screens.first else {
+            XCTFail("Need at least one screen")
+            return
+        }
+        let coordinator = AreaCaptureSessionCoordinator(
+            session: session,
+            performanceRecorder: recorder,
+            cursorController: cursor,
+            onSelection: { _, _, _ in },
+            onCancel: { }
+        )
+        let windows = (0..<3).map { _ in
+            CaptureOverlayWindow(for: realScreen, cursorController: cursor)
+        }
+
+        coordinator.present(windows: windows)
+        defer {
+            coordinator.dismiss()
+            windows.forEach { $0.close() }
+            recorder.finishSession(session)
+        }
+
+        let keyOverlays = coordinator.overlayWindows.filter(\.isKeyWindow)
+        XCTAssertEqual(
+            keyOverlays.count, 1,
+            "exactly one overlay must be key across a multi-screen layout"
+        )
+        XCTAssertEqual(coordinator.overlayWindows.count, 3)
+        XCTAssertEqual(cursor.beginCalls, 1)
+    }
+
     func testQuickAccessOverlayUsesCompactPanelWidth() {
         let image = TestImageFactory.makeTestImage(width: 120, height: 80)
         let screenshot = ProcessedScreenshot(
@@ -327,6 +575,7 @@ private final class CursorSpy: CaptureCursorControlling {
     private(set) var beginCalls = 0
     private(set) var reassertCalls = 0
     private(set) var endCalls = 0
+    private(set) var resetCalls = 0
 
     func beginCrosshairSession() {
         beginCalls += 1
@@ -342,6 +591,10 @@ private final class CursorSpy: CaptureCursorControlling {
 
     func endCrosshairSession() {
         endCalls += 1
+    }
+
+    func resetCursorState() {
+        resetCalls += 1
     }
 }
 
