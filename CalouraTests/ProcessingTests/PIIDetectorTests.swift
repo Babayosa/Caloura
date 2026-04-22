@@ -142,4 +142,52 @@ final class PIIDetectorTests: XCTestCase {
         let results = PIIDetector.detectInText("Hello world, nothing sensitive here")
         XCTAssertTrue(results.isEmpty)
     }
+
+    // MARK: - Raw text never stored on PIIDetection.text
+
+    /// Regression: PIIDetection used to store the raw matched string. Any code
+    /// that read `.text` (logging, exports, future serialization) leaked the
+    /// PII verbatim. Contract is now: `.text` is masked at construction.
+    func testPIIDetectionStoresMaskedTextNotRaw() {
+        let cases: [(PIIType, String)] = [
+            (.email, "user@example.com"),
+            (.phone, "555-123-4567"),
+            (.creditCard, "4111 1111 1111 1111"),
+            (.ssn, "123-45-6789"),
+            (.apiKey, "token-abcdef1234567890abcdef"),
+            (.ipAddress, "192.168.1.42")
+        ]
+        for (type, raw) in cases {
+            let detection = PIIDetection(
+                type: type,
+                rawMatch: raw,
+                boundingBox: .zero,
+                confidence: 1
+            )
+            XCTAssertNotEqual(
+                detection.text,
+                raw,
+                "\(type): .text must not equal raw input — masking failed"
+            )
+            XCTAssertEqual(
+                detection.text,
+                PIIDetector.mask(raw, type: type),
+                "\(type): .text must equal mask(raw, type)"
+            )
+        }
+    }
+
+    /// Stronger guarantee for the most sensitive types: the masked string
+    /// must contain no contiguous run of the raw match's body characters.
+    func testPIIDetectionMaskedTextDoesNotContainRawBody() {
+        let detection = PIIDetection(
+            type: .ssn,
+            rawMatch: "123-45-6789",
+            boundingBox: .zero,
+            confidence: 1
+        )
+        XCTAssertFalse(detection.text.contains("123"), "SSN area number must be masked")
+        XCTAssertFalse(detection.text.contains("45"), "SSN group number must be masked")
+        XCTAssertFalse(detection.text.contains("6789"), "SSN serial must be masked")
+    }
 }

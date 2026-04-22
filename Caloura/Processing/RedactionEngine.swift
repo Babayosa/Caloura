@@ -1,88 +1,65 @@
 import CoreGraphics
-import CoreImage
 
 struct RedactionEngine {
-    private static let ciContext = CIContext()
+    /// Solid fill color used to overwrite redacted pixels.
+    /// 0.15 white = dark gray. Opaque on every channel; no original pixels survive.
+    static let fillColor = CGColor(red: 0.15, green: 0.15, blue: 0.15, alpha: 1.0)
 
-    /// Redact regions by applying Gaussian blur.
+    /// Redact regions by overwriting them with an opaque solid fill.
+    ///
+    /// Pixels under the redaction rectangles are destroyed in the returned image —
+    /// no information about the original content is recoverable from the result.
     /// Regions are in normalized Vision coordinates (origin bottom-left, 0-1 range).
+    ///
+    /// Why solid fill instead of blur: blur is reversible under sufficient compute,
+    /// and the persisted image is what callers store on disk + send to clipboard.
+    /// See plan/security: pixel-zero redaction.
     static func redact(
         cgImage: CGImage,
-        regions: [CGRect],
-        blurRadius: CGFloat = 20
+        regions: [CGRect]
     ) async -> CGImage {
         guard !regions.isEmpty else { return cgImage }
 
         return await Task.detached(priority: .userInitiated) {
-            performRedaction(cgImage: cgImage, regions: regions, blurRadius: blurRadius)
+            performRedaction(cgImage: cgImage, regions: regions)
         }.value
     }
 
     private static func performRedaction(
         cgImage: CGImage,
-        regions: [CGRect],
-        blurRadius: CGFloat
+        regions: [CGRect]
     ) -> CGImage {
         let width = CGFloat(cgImage.width)
         let height = CGFloat(cgImage.height)
+        guard width > 0, height > 0 else { return cgImage }
 
-        let ciImage = CIImage(cgImage: cgImage)
-        let context = ciContext
-
-        // Create fully blurred version
-        guard let blurFilter = CIFilter(name: "CIGaussianBlur") else {
-            return cgImage
-        }
-        blurFilter.setValue(ciImage, forKey: kCIInputImageKey)
-        blurFilter.setValue(blurRadius, forKey: kCIInputRadiusKey)
-        guard let blurredImage = blurFilter.outputImage else {
-            return cgImage
-        }
-
-        // Create mask: white rectangles on black background for redaction regions
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
-        guard let maskContext = CGContext(
+        guard let context = CGContext(
             data: nil,
-            width: Int(width),
-            height: Int(height),
+            width: cgImage.width,
+            height: cgImage.height,
             bitsPerComponent: 8,
-            bytesPerRow: Int(width) * 4,
+            bytesPerRow: cgImage.width * 4,
             space: colorSpace,
             bitmapInfo: bitmapInfo.rawValue
         ) else { return cgImage }
 
-        // Black background (keep original)
-        maskContext.setFillColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
-        maskContext.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let imageRect = CGRect(x: 0, y: 0, width: width, height: height)
+        context.draw(cgImage, in: imageRect)
 
-        // White regions (apply blur)
-        maskContext.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        for region in regions {
-            let pixelRect = pixelRect(for: region, imageWidth: width, imageHeight: height)
-            guard !pixelRect.isEmpty else { continue }
-            maskContext.fill(pixelRect)
-        }
+        // Union overlapping regions before fill so seams cannot leak between
+        // adjacent draws and so we never overdraw a pixel twice.
+        let pixelRects = regions
+            .map { pixelRect(for: $0, imageWidth: width, imageHeight: height) }
+            .filter { !$0.isEmpty }
+        let unioned = unionRects(pixelRects)
+        guard !unioned.isEmpty else { return cgImage }
 
-        guard let maskCGImage = maskContext.makeImage() else { return cgImage }
-        let maskImage = CIImage(cgImage: maskCGImage)
+        context.setFillColor(fillColor)
+        context.fill(unioned)
 
-        // Blend: use mask to combine original + blurred
-        guard let blendFilter = CIFilter(name: "CIBlendWithMask") else {
-            return cgImage
-        }
-        blendFilter.setValue(blurredImage, forKey: kCIInputImageKey)
-        blendFilter.setValue(ciImage, forKey: kCIInputBackgroundImageKey)
-        blendFilter.setValue(maskImage, forKey: kCIInputMaskImageKey)
-
-        guard let output = blendFilter.outputImage else { return cgImage }
-
-        let renderRect = CGRect(x: 0, y: 0, width: width, height: height)
-        guard let resultCG = context.createCGImage(output, from: renderRect) else {
-            return cgImage
-        }
-
-        return resultCG
+        return context.makeImage() ?? cgImage
     }
 
     static func pixelRect(
@@ -110,5 +87,26 @@ struct RedactionEngine {
         let inflated = rect.insetBy(dx: -padding, dy: -padding)
         let bounds = CGRect(x: 0, y: 0, width: imageWidth, height: imageHeight)
         return inflated.intersection(bounds)
+    }
+
+    /// Merge overlapping rectangles into a minimal covering set.
+    /// Repeated passes until no further merges occur — handles transitive overlap.
+    static func unionRects(_ rects: [CGRect]) -> [CGRect] {
+        var current = rects.filter { !$0.isEmpty }
+        var changed = true
+        while changed {
+            changed = false
+            var merged: [CGRect] = []
+            for rect in current {
+                if let index = merged.firstIndex(where: { $0.intersects(rect) }) {
+                    merged[index] = merged[index].union(rect)
+                    changed = true
+                } else {
+                    merged.append(rect)
+                }
+            }
+            current = merged
+        }
+        return current
     }
 }

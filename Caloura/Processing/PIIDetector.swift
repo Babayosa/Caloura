@@ -8,9 +8,20 @@ enum PIIType: String, CaseIterable, Codable {
 
 struct PIIDetection {
     let type: PIIType
+    /// Always masked. Raw matched text is dropped at construction so it cannot
+    /// accidentally land in logs, exports, or in-memory state. Callers that
+    /// genuinely need the raw value must re-derive it from the source string +
+    /// reported `boundingBox` — an explicit, deliberate access.
     let text: String
     let boundingBox: CGRect
     let confidence: Float
+
+    init(type: PIIType, rawMatch: String, boundingBox: CGRect, confidence: Float) {
+        self.type = type
+        self.text = PIIDetector.mask(rawMatch, type: type)
+        self.boundingBox = boundingBox
+        self.confidence = confidence
+    }
 }
 
 struct PIIDetectorObservation {
@@ -84,7 +95,7 @@ struct PIIDetector {
                         seenMatches.insert(dedupeKey)
                         detections.append(PIIDetection(
                             type: type,
-                            text: matchedText,
+                            rawMatch: matchedText,
                             boundingBox: clampNormalizedRect(matchBox),
                             confidence: observation.confidence
                         ))

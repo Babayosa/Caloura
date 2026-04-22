@@ -72,7 +72,7 @@ struct RedactionReviewView: View {
                                 )) {
                                     HStack(spacing: 6) {
                                         piiTypeBadge(detection.type)
-                                        Text(PIIDetector.mask(detection.text, type: detection.type))
+                                        Text(detection.text)
                                             .font(.system(.body, design: .monospaced))
                                             .lineLimit(1)
                                     }
