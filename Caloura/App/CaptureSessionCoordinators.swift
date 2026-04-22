@@ -292,17 +292,15 @@ final class WindowCaptureSessionCoordinator {
     /// Run prewarm with a short hard cap. If shareable-content enumeration
     /// is slow or hangs, fall through to the picker cold rather than making
     /// the user wait. The system picker fetches fresh content on its own.
+    /// `SCShareableContent.current` does not honor Swift Task cancellation,
+    /// so race the prewarm against a sleeper via `withTimeout` — on timeout,
+    /// the prewarm task is abandoned and the picker proceeds cold.
     private func runPrewarmWithTimeout() async {
         let prewarm = prewarmContent
-        let task = Task { @MainActor in
+        _ = try? await withTimeout(seconds: 3) { () -> Void? in
             await prewarm()
+            return ()
         }
-        let timeoutTask = Task {
-            try? await Task.sleep(for: .seconds(3))
-            task.cancel()
-        }
-        await task.value
-        timeoutTask.cancel()
     }
 }
 

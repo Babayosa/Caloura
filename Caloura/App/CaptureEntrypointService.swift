@@ -151,7 +151,6 @@ final class CaptureEntrypointService {
     func captureWindow() {
         guard !settings.lowProfileCaptureEnabled else {
             appState.statusMessage = "Window capture unavailable in low-profile mode"
-            appState.isCapturing = false
             return
         }
         guard beginCaptureIfIdle() else { return }

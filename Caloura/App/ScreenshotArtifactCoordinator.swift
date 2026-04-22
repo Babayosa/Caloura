@@ -33,7 +33,7 @@ final class ScreenshotArtifactCoordinator {
         }
         self.promptForSaveURL = { suggestedName in
             let panel = NSSavePanel()
-            panel.allowedContentTypes = [.png, .jpeg, .tiff]
+            panel.allowedContentTypes = [.png, .jpeg, .tiff, .heic]
             panel.nameFieldStringValue = suggestedName
             guard panel.runModal() == .OK else { return nil }
             return panel.url

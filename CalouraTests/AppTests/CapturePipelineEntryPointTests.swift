@@ -471,6 +471,37 @@ extension CapturePipelineTests {
         )
     }
 
+    func testCaptureWindow_lowProfileGuardDoesNotClearIsCapturingDuringActiveCapture() async {
+        // Regression: the low-profile early-return in captureWindow() must
+        // not reset isCapturing — only the owner that acquired the flag via
+        // beginCaptureIfIdle() may clear it. Otherwise a window-capture
+        // hotkey press mid-capture silently admits a concurrent capture.
+        let fakeSession = FakeWindowCaptureSession(result: .selected {
+            TestImageFactory.makeTestImage(width: 100, height: 100)
+        })
+        let settings = AppSettings(defaults: UserDefaults(suiteName: "test-\(#function)-\(UUID().uuidString)")!)
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            settings: settings,
+            makeWindowCaptureSession: { _, _, _ in fakeSession }
+        )
+
+        pipeline.appState.isCapturing = true
+        settings.lowProfileCaptureEnabled = true
+
+        pipeline.entrypointService.captureWindow()
+
+        XCTAssertTrue(
+            pipeline.appState.isCapturing,
+            "low-profile early-return must not clear isCapturing owned by another capture"
+        )
+        XCTAssertEqual(fakeSession.pickCalls, 0, "window picker must not run in low-profile mode")
+        XCTAssertEqual(
+            pipeline.appState.statusMessage,
+            "Window capture unavailable in low-profile mode"
+        )
+    }
+
     func testCancelDelayedCapture_clearsCountdownState() async {
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function
