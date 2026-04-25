@@ -120,6 +120,7 @@ final class RegionSelectionView: NSView {
         if let window = window {
             window.makeFirstResponder(self)
             window.acceptsMouseMovedEvents = true
+            cursorController?.handleCursorUpdate()
             cursorController?.scheduleReprime()
             applyBackingScale(window.backingScaleFactor)
         }
@@ -141,7 +142,7 @@ final class RegionSelectionView: NSView {
 
         addTrackingArea(NSTrackingArea(
             rect: .zero,
-            options: [.cursorUpdate, .activeInKeyWindow, .inVisibleRect, .enabledDuringMouseDrag],
+            options: [.cursorUpdate, .activeAlways, .inVisibleRect, .enabledDuringMouseDrag],
             owner: self,
             userInfo: nil
         ))

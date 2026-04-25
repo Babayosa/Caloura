@@ -92,6 +92,7 @@ final class CaptureOverlayWindow: NSPanel {
         // can leave the contentView demoted.
         makeFirstResponder(contentView)
         invalidateCursorRects(for: contentView)
+        cursorController?.handleCursorUpdate()
         cursorController?.scheduleReprime()
     }
 
@@ -114,6 +115,7 @@ final class CaptureOverlayWindow: NSPanel {
             makeFirstResponder(selectionView)
         }
         acceptsMouseMovedEvents = true
+        cursorController?.handleCursorUpdate()
     }
 
     static func orderedPresentationScreens() -> [NSScreen] {

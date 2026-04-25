@@ -61,6 +61,27 @@ final class ReleaseScriptTests: XCTestCase {
         XCTAssertTrue(releaseScript.contains("$APP_NAME-$VERSION.zip"))
     }
 
+    func testReleaseScriptVerifiesStapledAppAndFinalSparkleZipSignature() throws {
+        let releaseScript = try String(
+            contentsOf: repoRoot.appendingPathComponent("scripts/release.sh"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(releaseScript.contains("codesign --verify --deep --strict \"$app_path\""))
+        XCTAssertTrue(releaseScript.contains("codesign --verify --deep --strict \"$ZIP_VERIFY_DIR/$APP_NAME.app\""))
+        XCTAssertTrue(releaseScript.contains("xcrun stapler validate \"$ZIP_VERIFY_DIR/$APP_NAME.app\""))
+    }
+
+    func testReleaseBuildDoesNotEmbedFalseSandboxEntitlement() throws {
+        let project = try String(
+            contentsOf: repoRoot.appendingPathComponent("project.yml"),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(project.contains("CODE_SIGN_ENTITLEMENTS"))
+        XCTAssertFalse(project.contains("Caloura.entitlements"))
+    }
+
     func testReleaseReadinessAndCoverageGatesDoNotReferenceRemovedScrollCaptureFiles() throws {
         let releaseReady = try String(
             contentsOf: repoRoot.appendingPathComponent("scripts/release_ready.sh"),

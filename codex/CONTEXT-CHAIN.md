@@ -638,4 +638,31 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 22: Release updater + capture cursor investigation
+**Status:** Complete
+**Branch:** task-22-release-capture-investigation
+**Changes:**
+- Reproduced the persistent Sparkle install failure against the live `2.4.2` ZIP: the public artifact matched the local ZIP byte-for-byte but the extracted `Caloura.app` failed `codesign --verify --deep --strict`.
+- Identified the root cause as an embedded false sandbox entitlement (`com.apple.security.app-sandbox = false`), confirmed by re-signing a temporary copy without entitlements and seeing strict code-signature validation pass.
+- Removed `CODE_SIGN_ENTITLEMENTS` from [project.yml](/Users/b/Caloura/project.yml), regenerated [Caloura.xcodeproj](/Users/b/Caloura/Caloura.xcodeproj/project.pbxproj), and kept Caloura non-sandboxed for Sparkle.
+- Hardened [release.sh](/Users/b/Caloura/scripts/release.sh) so it validates the post-staple app and the final extracted Sparkle ZIP app with strict code-signature checks before declaring a release complete.
+- Strengthened area-capture cursor priming in [CaptureOverlayWindow.swift](/Users/b/Caloura/Caloura/Capture/CaptureOverlayWindow.swift) and [RegionSelectionView.swift](/Users/b/Caloura/Caloura/Capture/RegionSelectionView.swift) so crosshair updates do not depend on key-window cursor-update timing.
+- Added regression checks in [ReleaseScriptTests.swift](/Users/b/Caloura/CalouraTests/InfraTests/ReleaseScriptTests.swift) for the final ZIP signature gate and for not embedding the false sandbox entitlement.
+- Ran the full [release.sh](/Users/b/Caloura/scripts/release.sh) path for `2.4.3`; archive, export, Developer ID signing, app notarization, post-staple validation, final ZIP validation, DMG signing/notarization, and manifest generation all passed.
+
+**Validation:**
+- `swift build`
+- `swiftlint lint --quiet` (passed with existing warning-level debt)
+- `swift test` (662 tests, 0 failures)
+- `RELEASE_TAG=v2.4.3 ./scripts/release.sh 2.4.3`
+- `codesign --verify --deep --strict --verbose=4 build/export/Caloura.app`
+- `codesign --verify --deep --strict --verbose=4 /tmp/caloura-zip-inspect-2-4-3/Caloura.app`
+
+**Decisions Made:**
+- Treat `2.4.3` as the required roll-forward artifact because the live `2.4.2` appcast entry already points at a broken package and Sparkle needs a strictly newer build number to recover cleanly.
+- Keep the app non-sandboxed instead of enabling Sparkle sandbox installer services, because Caloura does not need app sandboxing and Sparkle documents those services as sandbox-only integration.
+- Leave the macOS `26.0` minimum version unchanged in this task; it is visible in every recent appcast item and should be revisited separately only if Caloura is intended to support older macOS versions.
+
+---
+
 <!-- Add new task entries above this line -->

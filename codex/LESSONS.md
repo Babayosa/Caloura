@@ -67,6 +67,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: Timestamped build numbers make manifests, appcast validation, and post-release comparisons drift for reasons that have nothing to do with the release contents.
 - **Example**: `scripts/release.sh` now derives `CURRENT_PROJECT_VERSION` from the requested semantic release version with a stable numeric mapping instead of `date +%Y%m%d%H%M%S` or a stale project build setting.
 
+### Final Sparkle artifacts need extracted-app signature validation
+- **Rule**: After stapling and rebuilding the Sparkle ZIP, extract the ZIP and run strict code-signature validation on the contained `.app`; validating only the pre-staple or pre-ZIP app can miss updater-breaking artifacts.
+- **Context**: A release ZIP downloaded from the live appcast passed size/signature metadata checks but contained an app that failed `codesign --verify --deep --strict`, causing Sparkle to download the update and then fail during installation.
+- **Example**: `scripts/release.sh` now verifies the stapled app and the final extracted ZIP app with `codesign --verify --deep --strict`, and the project no longer embeds a false `com.apple.security.app-sandbox = false` entitlement.
+
 ### Live appcast validation belongs in publish, not pre-release gating
 - **Rule**: Keep local appcast/manifest validation in pre-release checks, but validate the live feed only after the publish step updates the site repo.
 - **Context**: Pre-release gates should not depend on GitHub Pages propagation or a feed that has not been published yet; those checks belong to the publish path where the live artifact actually exists.
@@ -176,6 +181,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Rule**: Use `SCScreenshotManager.captureImage(in:)` for area/fullscreen capture and reserve `SCShareableContent` fetches for window-specific workflows.
 - **Context**: Area/fullscreen capture already has a concrete display-space rect. Pulling `SCShareableContent` into that path adds unnecessary warm/cold latency and more failure surface.
 - **Example**: `ScreenCaptureManager.sckCaptureArea` and `sckCaptureFullScreen` now convert to display-space rects and capture directly, while window picker prewarm remains the only shareable-content cache path.
+
+### Selection cursor updates should not depend on key-window state
+- **Rule**: Area-selection cursor tracking should stay active even if AppKit has not yet made the nonactivating overlay key, and overlay presentation should explicitly set the crosshair during view/window priming.
+- **Context**: Nonactivating panels can briefly miss key-window cursor-update delivery, which makes the selection overlay visible while the cursor remains an arrow until another event re-primes it.
+- **Example**: `RegionSelectionView` now uses an `.activeAlways` cursor-update tracking area, and overlay/window reuse paths call `handleCursorUpdate()` before scheduling deferred re-prime.
 
 ## Capture / Scroll
 

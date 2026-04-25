@@ -315,6 +315,8 @@ verify_gatekeeper_and_notarization() {
     local spctl_output
     spctl_output="$(mktemp)"
 
+    codesign --verify --deep --strict "$app_path"
+
     if ! spctl -a -vv "$app_path" >"$spctl_output" 2>&1; then
         cat "$spctl_output"
         rm -f "$spctl_output"
@@ -619,6 +621,9 @@ cleanup_zip_verify() {
 trap cleanup_zip_verify EXIT
 ditto -x -k "$ZIP_PATH" "$ZIP_VERIFY_DIR"
 check_bundle_version_matches_release "$ZIP_VERIFY_DIR/$APP_NAME.app/Contents/Info.plist" "Final zip artifact"
+codesign --verify --deep --strict "$ZIP_VERIFY_DIR/$APP_NAME.app"
+xcrun stapler validate "$ZIP_VERIFY_DIR/$APP_NAME.app"
+echo "    Final zip signature and notarization validation passed"
 
 echo "==> Creating branded DMG..."
 create_branded_dmg
