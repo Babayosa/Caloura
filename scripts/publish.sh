@@ -302,8 +302,12 @@ validate_appcast_against_manifest
 echo ""
 echo "==> Step 3/3: Committing and pushing site changes..."
 git -C "$SITE_REPO" add "releases/$ZIP_NAME" "releases/$DMG_NAME" appcast.xml index.html
-git -C "$SITE_REPO" commit -m "Release v$VERSION"
-git -C "$SITE_REPO" push
+if git -C "$SITE_REPO" diff --cached --quiet; then
+    echo "No site changes to commit; continuing with live validation."
+else
+    git -C "$SITE_REPO" commit -m "Release v$VERSION"
+    git -C "$SITE_REPO" push
+fi
 
 echo ""
 echo "==> Validating live appcast after publish..."

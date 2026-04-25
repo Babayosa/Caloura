@@ -696,6 +696,18 @@ Running log of completed tasks. Read this to understand what changed before your
 **Decisions Made:**
 - Treated the stable `/Applications` executable path as the release contract, while allowing the expected Gatekeeper first-process translocation handoff.
 
+## Task 25: Idempotent publish rerun
+**Status:** Complete
+**Branch:** task-25-idempotent-publish-rerun
+**Changes:**
+- Updated [publish.sh](/Users/b/Caloura/scripts/publish.sh) so reruns skip the site commit/push when the release files are already staged with no diff, then continue to live appcast validation and public-download QA.
+
+**Validation:**
+- Change is shell-only; validated by rerunning `SKIP_BUILD=1 ./scripts/publish.sh 2.4.4` after the previous run had already pushed the site release commit.
+
+**Decisions Made:**
+- Made publish reruns safe instead of requiring manual site-repo mutation after a post-publish QA failure.
+
 ---
 
 <!-- Add new task entries above this line -->

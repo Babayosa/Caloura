@@ -271,6 +271,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: Gatekeeper can start the first process from a translocated path even after the app-side fix is present; the correctness property is that the app clears quarantine and converges to `/Applications`, not that the first PID is already stable.
 - **Example**: `public_download_qa.sh` now polls process executable paths until every `Caloura` PID is `/Applications/Caloura.app/Contents/MacOS/Caloura`, then fails if convergence never happens.
 
+### Publish reruns must be idempotent after site push
+- **Rule**: Publishing should continue to live validation and public-download QA when release files are already committed to the site repo.
+- **Context**: A publish can push appcast/artifact changes and then fail in post-publish QA. The next run must validate and finish the same release instead of failing on an empty site commit.
+- **Example**: `scripts/publish.sh` now skips the site commit/push when the staged site diff is empty and continues with live appcast plus public-download QA.
+
 ### Permission diagnostics should separate installed-app logs from XCTest hosts
 - **Rule**: Operational Screen Recording diagnostics must report installed-app logs separately from `xctest` logs so failure-path tests do not look like live permission regressions.
 - **Context**: `scripts/permission_diagnose.sh` originally tailed all matching subsystem logs together, which made a healthy installed app appear denied immediately after permission tests ran.
