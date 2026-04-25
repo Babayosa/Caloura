@@ -266,6 +266,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: A quarantined installed app can launch through Gatekeeper's randomized AppTranslocation mount. Treating that path as "not installed" makes the in-app move flow try to replace `/Applications/Caloura.app` from a synthetic read-only source; however, a newer manual DMG must still be allowed to replace an older installed app.
 - **Example**: `AppMover` now compares source and installed bundle version/build before choosing relaunch vs replacement; `public_download_qa.sh` fails if the launched executable path is still under AppTranslocation.
 
+### Public download QA should poll AppTranslocation convergence
+- **Rule**: When validating a quarantined installed launch, allow a short bounded poll for Caloura to self-relaunch from AppTranslocation into `/Applications` before failing.
+- **Context**: Gatekeeper can start the first process from a translocated path even after the app-side fix is present; the correctness property is that the app clears quarantine and converges to `/Applications`, not that the first PID is already stable.
+- **Example**: `public_download_qa.sh` now polls process executable paths until every `Caloura` PID is `/Applications/Caloura.app/Contents/MacOS/Caloura`, then fails if convergence never happens.
+
 ### Permission diagnostics should separate installed-app logs from XCTest hosts
 - **Rule**: Operational Screen Recording diagnostics must report installed-app logs separately from `xctest` logs so failure-path tests do not look like live permission regressions.
 - **Context**: `scripts/permission_diagnose.sh` originally tailed all matching subsystem logs together, which made a healthy installed app appear denied immediately after permission tests ran.

@@ -97,24 +97,42 @@ executable_path_for_pid() {
   ps -p "$pid" -o comm= 2>/dev/null | sed 's/^[[:space:]]*//'
 }
 
-verify_stable_applications_launch() {
-  local launched_pids="$1"
+wait_for_stable_applications_launch() {
+  local attempts="${STABLE_LAUNCH_ATTEMPTS:-20}"
+  local attempt=1
+  local launched_pids
   local pid
   local executable_path
+  local all_stable
 
-  for pid in $launched_pids; do
-    executable_path="$(executable_path_for_pid "$pid")"
-    echo "  pid ${pid}: ${executable_path:-unknown executable path}"
-    if [[ "$executable_path" == *"/AppTranslocation/"* ]]; then
-      echo "ERROR: $APP_NAME launched from AppTranslocation instead of /Applications."
-      echo "       The installed copy likely still has quarantine attached."
-      exit 1
+  while [[ "$attempt" -le "$attempts" ]]; do
+    launched_pids="$(pgrep -x "$APP_NAME" || true)"
+    all_stable=1
+
+    if [[ -n "$launched_pids" ]]; then
+      echo "Running processes (attempt ${attempt}/${attempts}):"
+      for pid in $launched_pids; do
+        executable_path="$(executable_path_for_pid "$pid")"
+        echo "  pid ${pid}: ${executable_path:-unknown executable path}"
+        if [[ "$executable_path" != "$INSTALL_PATH/Contents/MacOS/$APP_NAME" ]]; then
+          all_stable=0
+        fi
+      done
+
+      if [[ "$all_stable" = "1" ]]; then
+        return
+      fi
     fi
-    if [[ "$executable_path" != "$INSTALL_PATH/Contents/MacOS/$APP_NAME" ]]; then
-      echo "ERROR: $APP_NAME launched from an unexpected path: ${executable_path:-unknown}"
-      exit 1
-    fi
+
+    sleep 1
+    attempt=$((attempt + 1))
   done
+
+  echo "ERROR: $APP_NAME did not converge to the stable /Applications launch path."
+  echo "       A quarantined launch may briefly start in AppTranslocation, but it must relaunch from:"
+  echo "       $INSTALL_PATH/Contents/MacOS/$APP_NAME"
+  pgrep -fl "$APP_NAME" || true
+  exit 1
 }
 
 verify_public_artifacts() {
@@ -271,17 +289,7 @@ launch_public_app() {
 
   ensure_app_not_running
   open -a "$INSTALL_PATH"
-  sleep 3
-
-  local launched_pids
-  launched_pids="$(pgrep -x "$APP_NAME" || true)"
-  echo "Running processes:"
-  if [[ -z "$launched_pids" ]]; then
-    echo "ERROR: $APP_NAME did not remain running after launch"
-    exit 1
-  fi
-  pgrep -fl "$APP_NAME"
-  verify_stable_applications_launch "$launched_pids"
+  wait_for_stable_applications_launch
 
   print_storage_snapshot
 }

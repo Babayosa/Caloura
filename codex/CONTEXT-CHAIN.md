@@ -683,6 +683,19 @@ Running log of completed tasks. Read this to understand what changed before your
 - Kept the DMG cleanup fix inside the existing QA path rather than changing release artifacts; the live `2.4.3` appcast and downloads were already published and validated before the cleanup failure.
 - Treated AppTranslocation as a release correctness failure, not a harmless launch detail, because it breaks the install-first/TCC identity model.
 
+## Task 24: Public download QA stable launch polling
+**Status:** Complete
+**Branch:** task-24-public-qa-stable-launch
+**Changes:**
+- Fixed [public_download_qa.sh](/Users/b/Caloura/scripts/public_download_qa.sh) so launch validation polls for Caloura to converge from a transient AppTranslocation PID to `/Applications/Caloura.app/Contents/MacOS/Caloura`.
+- Preserved the strict failure condition: public-download QA still fails if any remaining Caloura process is outside the stable `/Applications` path after the bounded wait.
+
+**Validation:**
+- Discovered during `SKIP_BUILD=1 ./scripts/publish.sh 2.4.4`: the app-side fix successfully removed quarantine and relaunched from `/Applications`, but the QA script failed too early on the first transient AppTranslocation PID.
+
+**Decisions Made:**
+- Treated the stable `/Applications` executable path as the release contract, while allowing the expected Gatekeeper first-process translocation handoff.
+
 ---
 
 <!-- Add new task entries above this line -->
