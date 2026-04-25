@@ -708,6 +708,18 @@ Running log of completed tasks. Read this to understand what changed before your
 **Decisions Made:**
 - Made publish reruns safe instead of requiring manual site-repo mutation after a post-publish QA failure.
 
+## Task 26: Idempotent publish build guard
+**Status:** Complete
+**Branch:** task-26-idempotent-build-guard
+**Changes:**
+- Updated [publish.sh](/Users/b/Caloura/scripts/publish.sh) so an equal already-published build number is allowed only when the local appcast already matches the release manifest, then the script skips appcast/index rewriting and continues to live validation plus public-download QA.
+
+**Validation:**
+- Change is shell-only; validated by rerunning `SKIP_BUILD=1 ./scripts/publish.sh 2.4.4` after `2.4.4` was already live.
+
+**Decisions Made:**
+- Kept downgrade protection strict for lower build numbers and mismatched equal-build appcasts; only exact manifest-matching reruns are treated as safe.
+
 ---
 
 <!-- Add new task entries above this line -->

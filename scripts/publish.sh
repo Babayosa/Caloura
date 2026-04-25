@@ -197,6 +197,7 @@ BUILD_NUMBER="$(manifest_value build_number)"
 MINIMUM_SYSTEM_VERSION="$(manifest_value minimum_system_version)"
 PUBDATE="$(date -R)"
 TMPITEM="$(mktemp)"
+IDEMPOTENT_PUBLISH_RERUN=0
 
 # Highest build number currently published. Reading it from the appcast
 # (rather than a sidecar file) keeps a single source of truth: the file we
@@ -231,10 +232,22 @@ PY
 )"
 
 if [ -n "$PREVIOUS_BUILD_NUMBER" ]; then
-    if [ "$BUILD_NUMBER" -le "$PREVIOUS_BUILD_NUMBER" ]; then
+    if [ "$BUILD_NUMBER" -lt "$PREVIOUS_BUILD_NUMBER" ]; then
         echo "Error: refusing to publish — build number $BUILD_NUMBER is not greater than previously-published $PREVIOUS_BUILD_NUMBER."
         echo "       Sparkle would treat this as a downgrade. Bump the build number and retry."
         exit 1
+    fi
+
+    if [ "$BUILD_NUMBER" -eq "$PREVIOUS_BUILD_NUMBER" ]; then
+        echo "==> Build number $BUILD_NUMBER is already published; checking for an idempotent rerun..."
+        if validate_appcast_against_manifest; then
+            echo "==> Local appcast already matches manifest; continuing with live validation and QA."
+            IDEMPOTENT_PUBLISH_RERUN=1
+        else
+            echo "Error: build number $BUILD_NUMBER is already published, but the local appcast does not match this manifest."
+            echo "       Bump the build number for a new release, or repair the site repo before retrying."
+            exit 1
+        fi
     fi
 fi
 
@@ -246,7 +259,8 @@ if [ -n "$PREVIOUS_BUILD_NUMBER" ]; then
     MIN_AUTOUPDATE_LINE="      <sparkle:minimumAutoupdateVersion>$PREVIOUS_BUILD_NUMBER</sparkle:minimumAutoupdateVersion>"$'\n'
 fi
 
-cat > "$TMPITEM" <<XMLEOF
+if [ "$IDEMPOTENT_PUBLISH_RERUN" != "1" ]; then
+    cat > "$TMPITEM" <<XMLEOF
     <item>
       <title>Version $VERSION</title>
       <pubDate>$PUBDATE</pubDate>
@@ -271,9 +285,9 @@ ${MIN_AUTOUPDATE_LINE}      <description><![CDATA[
     </item>
 XMLEOF
 
-# Remove any existing appcast entry with the same shortVersionString
-# to prevent duplicate entries with conflicting signatures.
-python3 - "$APPCAST_PATH" "$VERSION" <<'DEDUP'
+    # Remove any existing appcast entry with the same shortVersionString
+    # to prevent duplicate entries with conflicting signatures.
+    python3 - "$APPCAST_PATH" "$VERSION" <<'DEDUP'
 import re
 import sys
 
@@ -292,10 +306,13 @@ with open(path, "w", encoding="utf-8") as f:
     f.write(content)
 DEDUP
 
-sed -i '' "/<language>en<\/language>/r $TMPITEM" "$APPCAST_PATH"
+    sed -i '' "/<language>en<\/language>/r $TMPITEM" "$APPCAST_PATH"
+fi
 rm -f "$TMPITEM"
 
-sed -i '' -E "s#releases/Caloura-[0-9][0-9.]*(\.zip|\.dmg)#releases/$DMG_NAME#g" "$INDEX_PATH"
+if [ "$IDEMPOTENT_PUBLISH_RERUN" != "1" ]; then
+    sed -i '' -E "s#releases/Caloura-[0-9][0-9.]*(\.zip|\.dmg)#releases/$DMG_NAME#g" "$INDEX_PATH"
+fi
 
 validate_appcast_against_manifest
 

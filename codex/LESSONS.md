@@ -273,8 +273,8 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 
 ### Publish reruns must be idempotent after site push
 - **Rule**: Publishing should continue to live validation and public-download QA when release files are already committed to the site repo.
-- **Context**: A publish can push appcast/artifact changes and then fail in post-publish QA. The next run must validate and finish the same release instead of failing on an empty site commit.
-- **Example**: `scripts/publish.sh` now skips the site commit/push when the staged site diff is empty and continues with live appcast plus public-download QA.
+- **Context**: A publish can push appcast/artifact changes and then fail in post-publish QA. The next run must validate and finish the same release instead of failing on an already-published build number or empty site commit.
+- **Example**: `scripts/publish.sh` now treats an equal build number as an idempotent rerun only when the local appcast already matches the manifest, then skips no-op site commits and continues with live appcast plus public-download QA.
 
 ### Permission diagnostics should separate installed-app logs from XCTest hosts
 - **Rule**: Operational Screen Recording diagnostics must report installed-app logs separately from `xctest` logs so failure-path tests do not look like live permission regressions.
