@@ -8,6 +8,30 @@ private let logger = Logger(
 )
 
 extension ScreenCaptureManager {
+    private final class ProcessBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var process: Process?
+
+        func set(_ process: Process) {
+            lock.lock()
+            self.process = process
+            lock.unlock()
+        }
+
+        func clear() {
+            lock.lock()
+            process = nil
+            lock.unlock()
+        }
+
+        func terminate() {
+            lock.lock()
+            let process = process
+            lock.unlock()
+            guard process?.isRunning == true else { return }
+            process?.terminate()
+        }
+    }
 
     // MARK: - screencapture CLI Fallback
 
@@ -32,22 +56,36 @@ extension ScreenCaptureManager {
 
         let fullArgs = args + ["-x", "-t", "png", tempPath]
 
-        // Run process off main thread to avoid blocking UI
-        try await Task.detached {
-            let process = Process()
-            process.executableURL = URL(
-                fileURLWithPath: "/usr/sbin/screencapture"
-            )
-            process.arguments = fullArgs
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else {
-                throw CaptureError.captureFailed(
-                    "screencapture exited with status "
-                    + "\(process.terminationStatus)"
-                )
+        let processBox = ProcessBox()
+        do {
+            _ = try await withTimeout(seconds: 15.0) { () -> Void? in
+                try await withTaskCancellationHandler {
+                    try await Task.detached {
+                        let process = Process()
+                        process.executableURL = URL(
+                            fileURLWithPath: "/usr/sbin/screencapture"
+                        )
+                        process.arguments = fullArgs
+                        processBox.set(process)
+                        defer { processBox.clear() }
+                        try process.run()
+                        process.waitUntilExit()
+                        guard process.terminationStatus == 0 else {
+                            throw CaptureError.captureFailed(
+                                "screencapture exited with status "
+                                + "\(process.terminationStatus)"
+                            )
+                        }
+                    }.value
+                } onCancel: {
+                    processBox.terminate()
+                }
+                return ()
             }
-        }.value
+        } catch is TimeoutError {
+            processBox.terminate()
+            throw CaptureError.timeout(operation: "screencapture")
+        }
 
         // Decode off main thread to avoid UI stalls.
         return try await Task.detached {

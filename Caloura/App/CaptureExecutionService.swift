@@ -103,6 +103,7 @@ final class CaptureExecutionService {
             }
 
             appState.isCapturing = false
+            appState.currentCaptureRequestID = nil
         } catch CaptureError.noPermission {
             await handlePermissionDenied(
                 mode: mode,
@@ -115,6 +116,7 @@ final class CaptureExecutionService {
         if appState.isCapturing {
             appState.isCapturing = false
         }
+        appState.currentCaptureRequestID = nil
     }
 
     func enqueueEnrichment(for processed: ProcessedScreenshot) {
@@ -222,7 +224,11 @@ final class CaptureExecutionService {
             )
             capturePerformanceRecorder.mark(.rawPreviewVisible, in: performanceSession)
         }
-        postNotification(.captureCompleted)
+        var userInfo: [AnyHashable: Any] = [:]
+        if let requestID = appState.currentCaptureRequestID {
+            userInfo[AppNotificationUserInfoKey.captureRequestID] = requestID
+        }
+        postNotification(.captureCompleted, userInfo)
     }
 
     private func scheduleDeferredSaveAndEnrichment(

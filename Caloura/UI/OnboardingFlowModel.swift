@@ -31,7 +31,7 @@ func onboardingFlowState(
         return .grantScreenRecording
     case .grantedNeedsValidation:
         return hasCompletedOnboarding ? .repairStalePermissionRecord : .readyForFirstCapture
-    case .needsRelaunch, .staleRecord, .repairing:
+    case .needsRelaunch, .staleRecord, .repairing, .configurationFailed:
         return .repairStalePermissionRecord
     case .working:
         return hasCompletedOnboarding ? .completed : .readyForFirstCapture

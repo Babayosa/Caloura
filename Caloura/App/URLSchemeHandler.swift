@@ -17,16 +17,12 @@ import os.log
 /// caloura://settings
 /// ```
 ///
-/// Security: `caloura://copy/*` URLs read sensitive data (OCR text, captured
-/// image, citation context) into the system pasteboard. They require a
+/// Security: `caloura://copy/*` URLs and `capture/*?then=copy*,save`
+/// post-capture actions can expose sensitive data. They require a
 /// per-launch authorization token that is only available to in-process
 /// callers (`URLSchemeHandler.currentCopyAuthorizationToken()`). External
 /// applications cannot obtain this token, so polling-based attacks against
 /// the OCR clipboard cache are rejected at the handler boundary.
-///
-/// Post-capture actions configured via `?then=copy*` on a `capture/*` URL
-/// dispatch through the in-process command router, not back through the URL
-/// scheme — they do not require the token.
 @MainActor
 struct URLSchemeHandler {
     @MainActor
@@ -34,14 +30,17 @@ struct URLSchemeHandler {
         let id = UUID()
         private let notificationCenter: NotificationCenter
         private let actions: [String]
+        private let captureRequestID: UUID
         private var token: NSObjectProtocol?
         private var timeoutTask: Task<Void, Never>?
 
         init(
             actions: [String],
+            captureRequestID: UUID,
             notificationCenter: NotificationCenter = .default
         ) {
             self.actions = actions
+            self.captureRequestID = captureRequestID
             self.notificationCenter = notificationCenter
         }
 
@@ -51,7 +50,12 @@ struct URLSchemeHandler {
                 forName: .captureCompleted,
                 object: nil,
                 queue: .main
-            ) { _ in
+            ) { notification in
+                guard notification.userInfo?[
+                    AppNotificationUserInfoKey.captureRequestID
+                ] as? UUID == self.captureRequestID else {
+                    return
+                }
                 MainActor.assumeIsolated {
                     URLSchemeHandler.handlePostCaptureNotification(id: observerID)
                 }
@@ -226,14 +230,20 @@ struct URLSchemeHandler {
             return
         }
 
+        let validActions = authorizedPostCaptureActions(params: params)
+        guard !AppState.shared.isCapturing else {
+            logger.warning("capture_url_rejected reason=capture_already_active")
+            return
+        }
+
         applyPresetIfSpecified(params: params)
         let captureInitiated = dispatchCapture(mode: mode, params: params)
 
-        if captureInitiated, let thenParam = params["then"] {
-            let validActions = filterPostCaptureActions(thenParam)
-            if !validActions.isEmpty {
-                schedulePostCaptureActions(validActions)
-            }
+        if captureInitiated,
+           AppState.shared.isCapturing,
+           let captureRequestID = AppState.shared.currentCaptureRequestID,
+           !validActions.isEmpty {
+            schedulePostCaptureActions(validActions, captureRequestID: captureRequestID)
         }
     }
 
@@ -293,6 +303,17 @@ struct URLSchemeHandler {
                 logger.warning("\(msg, privacy: .public)")
                 return false
             }
+    }
+
+    private static func authorizedPostCaptureActions(params: [String: String]) -> [String] {
+        guard let thenParam = params["then"] else { return [] }
+        let token = params["token"] ?? ""
+        guard !token.isEmpty,
+              constantTimeEquals(token, copyAuthorizationToken) else {
+            logger.warning("post_capture_actions_rejected reason=missing_or_invalid_token")
+            return []
+        }
+        return filterPostCaptureActions(thenParam)
     }
 
     // MARK: - Copy Routes
@@ -363,8 +384,11 @@ struct URLSchemeHandler {
 
     /// Schedule post-capture actions to run after the capture completes.
     /// The observer auto-removes after firing or after a 30-second timeout.
-    private static func schedulePostCaptureActions(_ actions: [String]) {
-        let observer = PostCaptureActionObserver(actions: actions)
+    private static func schedulePostCaptureActions(_ actions: [String], captureRequestID: UUID) {
+        let observer = PostCaptureActionObserver(
+            actions: actions,
+            captureRequestID: captureRequestID
+        )
         postCaptureObservers[observer.id] = observer
         observer.start()
     }

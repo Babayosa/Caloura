@@ -84,10 +84,10 @@ extension ScreenCaptureManager {
     }
 
     /// Reset TCC entry so the system re-prompts on next request.
-    func resetTCCEntry() async {
+    func resetTCCEntry() async -> Bool {
         guard let bundleID = Bundle.main.bundleIdentifier else {
             logger.warning("Cannot reset TCC: bundle identifier unavailable")
-            return
+            return false
         }
         logger.info("Resetting TCC ScreenCapture entry for \(bundleID)")
         do {
@@ -95,9 +95,11 @@ extension ScreenCaptureManager {
                 URL(filePath: "/usr/bin/tccutil"),
                 ["reset", "ScreenCapture", bundleID]
             )
+            return true
         } catch {
             let desc = error.localizedDescription
             logger.warning("TCC reset failed: \(desc)")
+            return false
         }
     }
 
@@ -166,20 +168,25 @@ extension ScreenCaptureManager {
         switch result {
         case .authorized:
             logger.info("SCK probe: authorized")
-            setSCKFailed(false)
+            setSCKFailed(false, reason: nil)
             sckFailureCount = 0
         case .userDeclined:
             logger.info("SCK probe: user declined")
             if updatingFailureState {
-                setSCKFailed(true)
+                setSCKFailed(true, reason: .permissionDenied)
                 logger.error("SCK permanently disabled (user declined)")
+            }
+        case .configurationFailure:
+            logger.error("SCK probe: configuration failure")
+            if updatingFailureState {
+                setSCKFailed(true, reason: .missingEntitlements)
             }
         case .transientFailure:
             logger.info("SCK probe: transient failure")
             if updatingFailureState {
                 sckFailureCount += 1
                 if sckFailureCount >= maxTransientFailures {
-                    setSCKFailed(true)
+                    setSCKFailed(true, reason: .transientFailures)
                     logger.warning(
                         "SCK disabled after \(self.maxTransientFailures) consecutive transient failures"
                     )
@@ -236,6 +243,9 @@ extension ScreenCaptureManager {
                 if let code = SCStreamError.Code(rawValue: rawCode),
                    code == .userDeclined {
                     return .userDeclined
+                } else if let code = SCStreamError.Code(rawValue: rawCode),
+                          code == .missingEntitlements {
+                    return .configurationFailure
                 }
             }
             return .transientFailure

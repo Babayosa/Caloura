@@ -68,6 +68,7 @@ final class PermissionCoordinatorRepairFlowTests: XCTestCase {
             repairSCKAccess: { .transientFailure },
             resetTCCEntry: {
                 XCTFail("TCC reset must not run when the user declines")
+                return true
             },
             relaunchApp: {
                 XCTFail("Relaunch must not happen without user approval")
@@ -105,7 +106,10 @@ final class PermissionCoordinatorRepairFlowTests: XCTestCase {
             statusMessageSink: { _ in },
             now: { Date(timeIntervalSince1970: 23_000) },
             repairSCKAccess: { .transientFailure },
-            resetTCCEntry: { tccResetCount += 1 },
+            resetTCCEntry: {
+                tccResetCount += 1
+                return true
+            },
             relaunchApp: { relaunchCount += 1 }
         )
 
@@ -113,6 +117,40 @@ final class PermissionCoordinatorRepairFlowTests: XCTestCase {
 
         XCTAssertEqual(tccResetCount, 1, "TCC reset should run exactly once after approval")
         XCTAssertEqual(relaunchCount, 1, "Relaunch should run exactly once after approval")
+    }
+
+    func testAutoRepairRelaunchFailedTCCResetDoesNotRemainRepairing() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        let identity = PermissionTestHelpers.makeIdentity("failed-reset-repair")
+        var approvalEmitted = false
+        var relaunchCount = 0
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: { false },
+            primeCheck: { .transientFailure },
+            interactiveCheck: { .transientFailure },
+            alertPresenter: { state in
+                if state == .confirmRepairRelaunch {
+                    approvalEmitted = true
+                }
+            },
+            alertRequestedRelaunch: { approvalEmitted },
+            permissionRequester: { true },
+            identityProvider: { identity },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 23_500) },
+            repairSCKAccess: { .transientFailure },
+            resetTCCEntry: { false },
+            relaunchApp: { relaunchCount += 1 }
+        )
+
+        coordinator.armPendingCaptureResume(mode: .area)
+        await coordinator.handleCapturePermissionFailure()
+
+        XCTAssertEqual(coordinator.permissionUIModel.status, .needsRelaunch)
+        XCTAssertEqual(relaunchCount, 0, "Relaunch must not run after a failed TCC reset")
+        XCTAssertNil(coordinator.takePendingCaptureResumeIfFresh())
     }
 
     // MARK: - Fix 3 regression: no repair on single transient capture failure
@@ -140,7 +178,10 @@ final class PermissionCoordinatorRepairFlowTests: XCTestCase {
             statusMessageSink: { statusMessage = $0 },
             now: { Date(timeIntervalSince1970: 24_000) },
             repairSCKAccess: { .transientFailure },
-            resetTCCEntry: { tccResetCount += 1 },
+            resetTCCEntry: {
+                tccResetCount += 1
+                return true
+            },
             relaunchApp: { relaunchCount += 1 }
         )
 

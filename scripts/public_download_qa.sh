@@ -27,7 +27,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 DMG_DOWNLOAD_URL="https://caloura.app/releases/Caloura-${VERSION}.dmg"
-ZIP_DOWNLOAD_URL="https://caloura.app/releases/Caloura-${VERSION}.zip"
 DMG_PATH="${TMPDIR:-/tmp}/Caloura-${VERSION}.dmg"
 DMG_MOUNT="${TMPDIR:-/tmp}/Caloura-public-${VERSION}-mount"
 
@@ -95,15 +94,51 @@ verify_public_artifacts() {
   print_header "Phase 1: Verify Public Artifact + Appcast"
   echo "Version under test: ${VERSION}"
   echo "Manual download HEAD:"
-  curl -I "$DMG_DOWNLOAD_URL"
+  curl -fI "$DMG_DOWNLOAD_URL"
+
+  local sparkle_url
+  sparkle_url="$(sparkle_artifact_url_for_version "$VERSION")"
+  echo ""
+  echo "Sparkle artifact HEAD: $sparkle_url"
+  curl -fI "$sparkle_url"
 
   echo ""
-  echo "Sparkle artifact HEAD:"
-  curl -I "$ZIP_DOWNLOAD_URL"
+  echo "Appcast matches (version + artifact URL + sparkle versions):"
+  curl -fsSL "$APPCAST_URL" | grep -n "Version ${VERSION}\\|$(basename "$sparkle_url")\\|sparkle:version\\|sparkle:shortVersionString\\|sparkle:minimumSystemVersion"
+}
 
-  echo ""
-  echo "Appcast matches (version + ZIP URL + sparkle versions):"
-  curl -s "$APPCAST_URL" | grep -n "Version ${VERSION}\\|Caloura-${VERSION}\\.zip\\|sparkle:version\\|sparkle:shortVersionString\\|sparkle:minimumSystemVersion"
+sparkle_artifact_url_for_version() {
+  local version="$1"
+  python3 - "$APPCAST_URL" "$version" <<'PY'
+import sys
+import urllib.request
+import xml.etree.ElementTree as ET
+
+sparkle_ns = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+appcast_url = sys.argv[1]
+target_version = sys.argv[2]
+
+with urllib.request.urlopen(appcast_url) as response:
+    root = ET.fromstring(response.read())
+
+channel = root.find("channel")
+if channel is None:
+    raise SystemExit("Appcast missing <channel>")
+
+for item in channel.findall("item"):
+    enclosure = item.find("enclosure")
+    if enclosure is None:
+        continue
+    short_version = enclosure.attrib.get(f"{{{sparkle_ns}}}shortVersionString", "")
+    if short_version == target_version:
+        url = enclosure.attrib.get("url", "")
+        if not url:
+            raise SystemExit(f"Appcast item for {target_version} has no enclosure URL")
+        print(url)
+        raise SystemExit(0)
+
+raise SystemExit(f"Appcast has no item for version {target_version}")
+PY
 }
 
 install_public_app() {
@@ -242,13 +277,15 @@ trial_baseline() {
 }
 
 trial_day4() {
-  print_header "Phase 5: Simulate Day 4 (2026-01-31)"
+  local launch_date
+  launch_date="$(date -u -v-3d '+%Y-%m-%d 10:00:00 +0000')"
+  print_header "Phase 5: Simulate Day 4 (${launch_date%% *})"
   require_version "trial-day4"
   if [ ! -d "$INSTALL_PATH" ]; then
     echo "ERROR: $INSTALL_PATH not found. Run install step first."
     exit 1
   fi
-  defaults write "$BUNDLE_ID" firstLaunchDate -date "2026-01-31 10:00:00 +0000"
+  defaults write "$BUNDLE_ID" firstLaunchDate -date "$launch_date"
   defaults write "$BUNDLE_ID" isLicenseActivated -bool false
   pkill -x "$APP_NAME" || true
   open -a "$INSTALL_PATH"
@@ -259,13 +296,15 @@ trial_day4() {
 }
 
 trial_expired() {
-  print_header "Phase 5: Simulate Expired Trial (2026-01-27)"
+  local launch_date
+  launch_date="$(date -u -v-8d '+%Y-%m-%d 10:00:00 +0000')"
+  print_header "Phase 5: Simulate Expired Trial (${launch_date%% *})"
   require_version "trial-expired"
   if [ ! -d "$INSTALL_PATH" ]; then
     echo "ERROR: $INSTALL_PATH not found. Run install step first."
     exit 1
   fi
-  defaults write "$BUNDLE_ID" firstLaunchDate -date "2026-01-27 10:00:00 +0000"
+  defaults write "$BUNDLE_ID" firstLaunchDate -date "$launch_date"
   defaults write "$BUNDLE_ID" isLicenseActivated -bool false
   pkill -x "$APP_NAME" || true
   open -a "$INSTALL_PATH"

@@ -25,7 +25,7 @@ enum PermissionStatusCore {
                 : .denied
         }
         if context.isKnownWorkingIdentity {
-            return .working
+            return .grantedNeedsValidation
         }
         if let diagnosedFailureStatus = context.diagnosedFailureStatus {
             return diagnosedFailureStatus
@@ -71,6 +71,8 @@ enum PermissionStatusCore {
             return "macOS still needs Caloura to relaunch before capture is available."
         case .grantedNeedsValidation, .repairing:
             return "Screen Recording is still initializing. Try again in a moment."
+        case .configurationFailed:
+            return "Screen capture is unavailable for this build. Launch the signed Caloura app or reinstall it."
         case .working:
             return "Screen Recording is ready."
         }
@@ -106,6 +108,9 @@ enum PermissionStatusCore {
                 return "Restarting Caloura so macOS can finish applying Screen Recording."
             }
             return "Restarting screen recording service."
+        case .configurationFailed:
+            return "This Caloura build is missing the configuration needed for ScreenCaptureKit. "
+                + "Launch the signed app from /Applications or reinstall Caloura."
         case .working:
             return nil
         }

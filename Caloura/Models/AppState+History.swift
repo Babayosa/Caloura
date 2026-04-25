@@ -113,8 +113,9 @@ extension AppState {
         encryptedDefaultsData: Data?,
         legacyDefaultsData: Data?
     ) -> HistoryLoadResult? {
-        if let encryptedFileData = try? Data(contentsOf: fileURL) {
+        if FileManager.default.fileExists(atPath: fileURL.path) {
             do {
+                let encryptedFileData = try Data(contentsOf: fileURL)
                 let decrypted = try HistoryCrypto.decrypt(encryptedFileData)
                 if let decoded = decodeHistoryData(decrypted, source: "file") {
                     return HistoryLoadResult(
@@ -129,6 +130,7 @@ extension AppState {
                     "Failed to decrypt file-backed screenshot history: \(description)"
                 )
             }
+            return nil
         }
 
         if let encryptedDefaultsData {

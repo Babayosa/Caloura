@@ -71,21 +71,33 @@ struct LicenseEntitlementVerifier: Sendable {
                 return .ambiguousResponse
             }
 
-            guard httpResponse.statusCode == 200,
-                  let envelope = try? JSONDecoder().decode(
-                    SignedEntitlementEnvelope.self,
-                    from: data
-                  ),
-                  let entitlement = Self.decodeSignedEntitlement(
-                    envelope.token,
-                    expectedProductID: Self.gumroadProductID,
-                    publicKeyBase64: publicKeyBase64,
-                    validatedAt: now()
-                  ) else {
-                return .invalid(reason: "Invalid license key.")
+            guard httpResponse.statusCode == 200 else {
+                if (400...499).contains(httpResponse.statusCode) {
+                    return .invalid(reason: "Invalid license key.")
+                }
+                return .ambiguousResponse
             }
 
-            return .valid(entitlement)
+            guard let envelope = try? JSONDecoder().decode(
+                SignedEntitlementEnvelope.self,
+                from: data
+            ) else {
+                return .ambiguousResponse
+            }
+
+            switch Self.decodeSignedEntitlement(
+                envelope.token,
+                expectedProductID: Self.gumroadProductID,
+                publicKeyBase64: publicKeyBase64,
+                validatedAt: now()
+            ) {
+            case .valid(let entitlement):
+                return .valid(entitlement)
+            case .invalidClaims:
+                return .invalid(reason: "Invalid license key.")
+            case .malformed, .invalidSignature:
+                return .ambiguousResponse
+            }
         } catch {
             return .networkError(error.localizedDescription)
         }
@@ -174,40 +186,50 @@ struct LicenseEntitlementVerifier: Sendable {
         return existingEntitlement?.claims.featureFlags ?? [:]
     }
 
+    private enum SignedEntitlementDecodeResult {
+        case valid(LicenseEntitlement)
+        case invalidClaims
+        case invalidSignature
+        case malformed
+    }
+
     private static func decodeSignedEntitlement(
         _ token: String,
         expectedProductID: String,
         publicKeyBase64: String,
         validatedAt: Date
-    ) -> LicenseEntitlement? {
+    ) -> SignedEntitlementDecodeResult {
         let parts = token.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 2,
               let payloadData = base64URLDecode(String(parts[0])),
               let signature = base64URLDecode(String(parts[1])),
               let publicKeyData = Data(base64Encoded: publicKeyBase64),
               let claims = try? JSONDecoder().decode(LicenseEntitlementClaims.self, from: payloadData) else {
-            return nil
+            return .malformed
         }
 
-        guard let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: publicKeyData),
-              publicKey.isValidSignature(signature, for: payloadData) else {
-            return nil
+        guard let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: publicKeyData) else {
+            return .malformed
+        }
+
+        guard publicKey.isValidSignature(signature, for: payloadData) else {
+            return .invalidSignature
         }
 
         guard claims.productID == expectedProductID,
               claims.issuedAt <= claims.refreshAfter,
               claims.refreshAfter <= claims.expiresAt,
               claims.expiresAt > validatedAt else {
-            return nil
+            return .invalidClaims
         }
 
-        return LicenseEntitlement(
+        return .valid(LicenseEntitlement(
             claims: claims,
             source: .signedBackend,
             token: token,
             signature: signature,
             validatedAt: validatedAt
-        )
+        ))
     }
 
     private static func base64URLDecode(_ value: String) -> Data? {

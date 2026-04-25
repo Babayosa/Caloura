@@ -11,9 +11,9 @@ TEST_LOG="$OUTPUT_DIR/xcodebuild-test-$TIMESTAMP.log"
 RESULT_BUNDLE_PATH="$OUTPUT_DIR/xcodebuild-test-$TIMESTAMP.xcresult"
 UI_TEST_LOG="$OUTPUT_DIR/xcodebuild-ui-test-$TIMESTAMP.log"
 UI_RESULT_BUNDLE_PATH="$OUTPUT_DIR/xcodebuild-ui-test-$TIMESTAMP.xcresult"
-SCROLL_REPEAT_DERIVED_DATA_PATH="$PROJECT_DIR/.build/DerivedData-scroll-repeat"
+CAPTURE_REPEAT_DERIVED_DATA_PATH="$PROJECT_DIR/.build/DerivedData-capture-repeat"
 PERF_MINUTES=30
-SCROLL_STABILITY_RUNS="${SCROLL_STABILITY_RUNS:-10}"
+CAPTURE_STABILITY_RUNS="${CAPTURE_STABILITY_RUNS:-10}"
 VERSION=""
 SKIP_PERFORMANCE=0
 GUARD_ONLY=0
@@ -120,6 +120,12 @@ run_step "swift test"
 run_step "xcodegen generate"
 (cd "$PROJECT_DIR" && xcodegen generate)
 
+run_step "Xcode project drift check"
+(
+  cd "$PROJECT_DIR"
+  git diff --exit-code -- Caloura.xcodeproj
+)
+
 run_step "xcodebuild build"
 (
   cd "$PROJECT_DIR"
@@ -149,21 +155,21 @@ run_step "xcodebuild test"
 )
 check_log_for_warnings "$TEST_LOG"
 
-run_step "ScrollCaptureEngine Xcode stability loop (${SCROLL_STABILITY_RUNS}x)"
-for run in $(seq 1 "$SCROLL_STABILITY_RUNS"); do
-  scroll_log="$OUTPUT_DIR/xcodebuild-scroll-repeat-$TIMESTAMP-$run.log"
+run_step "Capture entrypoint Xcode stability loop (${CAPTURE_STABILITY_RUNS}x)"
+for run in $(seq 1 "$CAPTURE_STABILITY_RUNS"); do
+  capture_log="$OUTPUT_DIR/xcodebuild-capture-repeat-$TIMESTAMP-$run.log"
   (
     cd "$PROJECT_DIR"
     xcodebuild test \
       -project Caloura.xcodeproj \
       -scheme Caloura \
       -configuration Debug \
-      -derivedDataPath "$SCROLL_REPEAT_DERIVED_DATA_PATH" \
-      -only-testing:CalouraTests/ScrollCaptureEngineTests \
+      -derivedDataPath "$CAPTURE_REPEAT_DERIVED_DATA_PATH" \
+      -only-testing:CalouraTests/CapturePipelineEntryPointTests \
       -destination 'platform=macOS,arch=arm64' \
-      >"$scroll_log" 2>&1
+      >"$capture_log" 2>&1
   )
-  check_log_for_warnings "$scroll_log"
+  check_log_for_warnings "$capture_log"
 done
 
 run_step "Coverage gate"

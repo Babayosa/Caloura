@@ -116,4 +116,98 @@ final class PermissionCoordinatorPendingResumeTests: XCTestCase {
         XCTAssertTrue(relaunchCalled)
         XCTAssertEqual(coordinator.takePendingCaptureResumeIfFresh(), .window)
     }
+
+    func testSettingsReturnFailedTCCResetClearsPendingResumeAndDoesNotRelaunch() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        let identity = PermissionTestHelpers.makeIdentity("pending-reset-failure")
+        var relaunchCalled = false
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: { false },
+            interactiveCheck: { .transientFailure },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { identity },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 6_150) },
+            resetTCCEntry: { false },
+            relaunchApp: { relaunchCalled = true }
+        )
+
+        coordinator.armPendingCaptureResume(mode: .window)
+        XCTAssertTrue(coordinator.requestPermissionFromSystem())
+
+        let status = await coordinator.revalidateAfterSettingsReturn(
+            timeoutSeconds: 0,
+            pollIntervalNanoseconds: 1,
+            sckRetryDelayNanoseconds: 1,
+            maxSCKRetries: 1
+        )
+
+        XCTAssertEqual(status, .needsRelaunch)
+        XCTAssertFalse(relaunchCalled)
+        XCTAssertNil(coordinator.takePendingCaptureResumeIfFresh())
+    }
+
+    func testSettingsReturnAutoRelaunchWithoutPendingCaptureDoesNotArmDefaultArea() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        let identity = PermissionTestHelpers.makeIdentity("pending-none")
+        var relaunchCalled = false
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: { false },
+            interactiveCheck: { .transientFailure },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { identity },
+            statusMessageSink: { _ in },
+            now: { Date(timeIntervalSince1970: 6_200) },
+            relaunchApp: { relaunchCalled = true }
+        )
+
+        XCTAssertTrue(coordinator.requestPermissionFromSystem())
+
+        let status = await coordinator.revalidateAfterSettingsReturn(
+            timeoutSeconds: 0,
+            pollIntervalNanoseconds: 1,
+            sckRetryDelayNanoseconds: 1,
+            maxSCKRetries: 1
+        )
+
+        XCTAssertEqual(status, .repairing)
+        XCTAssertTrue(relaunchCalled)
+        XCTAssertNil(coordinator.takePendingCaptureResumeIfFresh())
+    }
+
+    func testPerformTCCResetFailureClearsPendingResumeAndDoesNotRelaunch() async {
+        let defaults = PermissionTestHelpers.makeDefaults(#function)
+        var relaunchCalled = false
+        var statusMessage: String?
+
+        let coordinator = PermissionCoordinator(
+            defaults: defaults,
+            passiveCheck: { true },
+            interactiveCheck: { .authorized },
+            alertPresenter: { _ in },
+            permissionRequester: { true },
+            identityProvider: { PermissionTestHelpers.makeIdentity("pending-reset-direct") },
+            statusMessageSink: { statusMessage = $0 },
+            now: { Date(timeIntervalSince1970: 6_250) },
+            resetTCCEntry: { false },
+            relaunchApp: { relaunchCalled = true }
+        )
+
+        coordinator.armPendingCaptureResume(mode: .fullscreen)
+        let didRelaunch = await coordinator.performTCCResetAndRelaunch()
+
+        XCTAssertFalse(didRelaunch)
+        XCTAssertFalse(relaunchCalled)
+        XCTAssertEqual(
+            statusMessage,
+            "Screen Recording reset failed. Restart Caloura and try again."
+        )
+        XCTAssertNil(coordinator.takePendingCaptureResumeIfFresh())
+    }
 }

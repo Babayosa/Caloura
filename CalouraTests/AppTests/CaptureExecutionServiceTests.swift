@@ -213,7 +213,7 @@ final class CaptureExecutionServiceTests: XCTestCase {
             },
             handlePermissionFailure: handlePermissionFailure ?? { _ in },
             showQuickAccess: showQuickAccess ?? { _ in },
-            postNotification: postNotification ?? { _ in },
+            postNotification: postNotification ?? { _, _ in },
             metricsRecorder: CaptureMetricsRecorder()
         )
         return Harness(
@@ -243,6 +243,17 @@ final class CaptureExecutionServiceTests: XCTestCase {
             appState: appState,
             settings: settings,
             recognizeText: recognizeText ?? { _ in "" },
+            recognizeTextObservations: { image in
+                let text = try await (recognizeText ?? { _ in "" })(image)
+                guard !text.isEmpty else { return [] }
+                return [
+                    OCRObservation(
+                        text: text,
+                        boundingBox: CGRect(x: 0, y: 0, width: 1, height: 1),
+                        confidence: 1
+                    )
+                ]
+            },
             enrichmentCoordinator: CaptureEnrichmentCoordinator()
         )
     }

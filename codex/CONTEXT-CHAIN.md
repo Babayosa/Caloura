@@ -612,4 +612,30 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 21: Production hardening implementation
+**Status:** Complete
+**Branch:** task-21-production-hardening
+**Changes:**
+- Hardened release automation by removing stale scroll-capture gates, gating current capture entry/execution files, enforcing Xcode project drift checks, using deterministic release build metadata, and moving guard-only release checks before credential verification.
+- Strengthened public download QA by failing on missing public artifacts, resolving the Sparkle ZIP URL from the live appcast, and replacing stale fixed trial dates with relative trial simulations.
+- Closed licensing fail-open paths by treating signed-backend 5xx/malformed responses as ambiguous, failing activation when secure persistence cannot be verified, deferring revalidation persistence failures instead of revoking, and refusing to mint entitlements from mutable defaults-only legacy state.
+- Hardened Screen Recording/TCC handling by separating configuration failures from permission denial, requiring live validation before `.working`, preserving pending capture only for real relaunch flows, and avoiding release TCC collisions from Debug builds by using `com.caloura.app.debug`.
+- Tightened capture reliability by making non-cooperative timeouts return on deadline, terminating timed-out CLI `screencapture` processes, preventing CLI fallback after permanent SCK failures, and preserving transient SCK fallback behavior.
+- Secured URL-scheme post-capture automation by requiring per-launch tokens for `capture/*?then=...`, rejecting concurrent capture automation, and matching completion callbacks to the initiating capture request ID.
+- Reduced data/privacy risk by disabling diagnostics subscription unless opted in, writing diagnostics with restricted permissions, preventing corrupt encrypted history files from falling back to stale defaults, and reusing one OCR observation pass for text plus PII detection.
+- Added/updated regression coverage across release scripts, licensing, permission flow, SCK failure classification, URL scheme request matching, history fallback, enrichment, and timeout behavior; split `PermissionIdentity` out of `PermissionCoordinator` to keep lint under the hard file-length threshold.
+- Closed final auditor gaps by rolling back failed license revalidation persistence to the prior entitlement, clearing pending capture replay on failed TCC reset, avoiding false `.repairing` state when reset fails, and deriving release build numbers from the requested semantic version.
+
+**Validation:**
+- `swift build`
+- `swiftlint lint --quiet` (passed with existing warning-level debt)
+- `swift test` (660 tests, 0 failures)
+
+**Decisions Made:**
+- Treated historical Screen Recording “known working” identity as stale-record suppression only, not proof of current live capture permission.
+- Preserved existing release/public-QA script deletion commands instead of rewriting all legacy shell cleanup in this task; no new deletion command path was introduced for this hardening work.
+- Kept public network artifact QA in the dedicated QA script, not the local release-ready gate, so local pre-release validation remains independent of GitHub Pages propagation.
+
+---
+
 <!-- Add new task entries above this line -->

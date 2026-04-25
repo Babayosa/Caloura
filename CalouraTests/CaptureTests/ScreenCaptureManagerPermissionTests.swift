@@ -213,8 +213,9 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
             permissionDependencies: makeDependencies(box: box)
         )
 
-        await manager.resetTCCEntry()
+        let result = await manager.resetTCCEntry()
 
+        XCTAssertTrue(result)
         XCTAssertEqual(box.runRepairToolCalls.count, 1)
         XCTAssertEqual(box.runRepairToolCalls.first?.0.lastPathComponent, "tccutil")
     }
@@ -234,8 +235,9 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
             )
         )
 
-        await manager.resetTCCEntry()
+        let result = await manager.resetTCCEntry()
 
+        XCTAssertFalse(result)
         XCTAssertEqual(box.runRepairToolCalls.count, 0)
     }
 
@@ -434,6 +436,23 @@ final class ScreenCaptureManagerPermissionTests: XCTestCase {
         )
         manager.handleSCKFailure(error)
         XCTAssertTrue(manager.sckFailed)
+        XCTAssertEqual(manager.sckDisableReason, .missingEntitlements)
+    }
+
+    func testMinimalSCKProbeMissingEntitlementsReturnsConfigurationFailure() async {
+        let result = await ScreenCaptureManager.probeSCKAccessViaMinimalScreenshot(
+            displayBoundsProvider: {
+                CGRect(x: 0, y: 0, width: 20, height: 20)
+            },
+            screenshotProbe: { _ in
+                throw NSError(
+                    domain: SCStreamError.errorDomain,
+                    code: SCStreamError.Code.missingEntitlements.rawValue
+                )
+            }
+        )
+
+        XCTAssertEqual(result, .configurationFailure)
     }
 
     func testHandleSCKFailure_systemStoppedDoesNotDisable() {

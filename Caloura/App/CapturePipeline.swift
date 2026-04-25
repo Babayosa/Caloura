@@ -34,7 +34,7 @@ final class CapturePipeline {
     typealias HandlePermissionFailureFn = @MainActor (CaptureMode) async -> Void
     typealias ShowQuickAccessFn = (ProcessedScreenshot) -> Void
     typealias PlaySoundFn = () -> Void
-    typealias PostNotificationFn = (Notification.Name) -> Void
+    typealias PostNotificationFn = (Notification.Name, [AnyHashable: Any]?) -> Void
     typealias PresetForCategoryFn = (AppCategory) -> CapturePreset?
     typealias PresetByNameFn = (String) -> CapturePreset?
     typealias SelectWindowCaptureFn = @MainActor (
@@ -127,8 +127,12 @@ final class CapturePipeline {
         let playSoundAction: PlaySoundFn = {
             NSSound(named: "Tink")?.play()
         }
-        self.postNotification = { name in
-            NotificationCenter.default.post(name: name, object: nil)
+        self.postNotification = { name, userInfo in
+            NotificationCenter.default.post(
+                name: name,
+                object: nil,
+                userInfo: userInfo
+            )
         }
         let detectContext: DetectContextFn = { ContextDetector.detectContext() }
         let presetForCategory: PresetForCategoryFn = { category in

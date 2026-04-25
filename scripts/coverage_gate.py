@@ -6,11 +6,11 @@ from pathlib import Path
 
 
 DEFAULT_THRESHOLDS = {
-    "Caloura/App/CapturePipeline+EntryPoints.swift": 80.0,
+    "Caloura/App/CaptureEntrypointService.swift": 80.0,
+    "Caloura/App/CaptureExecutionService.swift": 80.0,
     "Caloura/Capture/WindowPickerManager.swift": 85.0,
     "Caloura/Capture/ScreenCaptureManager+Permission.swift": 85.0,
     "Caloura/App/UpdateManager.swift": 85.0,
-    "Caloura/Capture/ScrollCaptureEngine.swift": 80.0,
     "Caloura/App/LicenseManager.swift": 90.0,
 }
 

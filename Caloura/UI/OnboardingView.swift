@@ -190,7 +190,7 @@ struct OnboardingView: View {
                 guard flow.currentState == .waitingForSettingsReturn else { return }
                 let status = await permissionCoordinator.revalidateAfterSettingsReturn()
                 syncPendingCaptureResume(for: status)
-                if status == .working || status == .denied {
+                if status != .grantedNeedsValidation {
                     handlePermissionStatus(status, launchCaptureOnSuccess: shouldResumePendingCapture)
                     return
                 }
@@ -228,7 +228,7 @@ struct OnboardingView: View {
                 runUserInitiatedValidation(launchCaptureOnSuccess: true)
             case .working:
                 launchFirstCapture()
-            case .needsRelaunch, .staleRecord, .repairing:
+            case .needsRelaunch, .staleRecord, .repairing, .configurationFailed:
                 handlePermissionStatus(passiveStatus)
             }
         }
@@ -300,7 +300,7 @@ struct OnboardingView: View {
             } else if flow.currentState != .repairStalePermissionRecord {
                 transition(to: .repairStalePermissionRecord)
             }
-        case .needsRelaunch, .staleRecord, .repairing:
+        case .needsRelaunch, .staleRecord, .repairing, .configurationFailed:
             transition(to: .repairStalePermissionRecord)
         }
     }

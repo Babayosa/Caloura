@@ -21,6 +21,7 @@ final class AppState {
         didSet { resetLastScreenshotTimer() }
     }
     var isCapturing: Bool = false
+    var currentCaptureRequestID: UUID?
     var hasScreenRecordingPermission: Bool = false
     var statusMessage: String = "" {
         didSet {

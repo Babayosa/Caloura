@@ -142,7 +142,7 @@ final class AppCommandController {
             let currentStatus = PermissionCoordinator.shared.permissionUIModel.status
             let status: ScreenRecordingState
             switch currentStatus {
-            case .needsRelaunch, .staleRecord, .repairing:
+            case .needsRelaunch, .staleRecord, .repairing, .configurationFailed:
                 status = currentStatus
             case .denied, .grantedNeedsValidation, .working:
                 status = await PermissionCoordinator.shared.refreshPassiveStatus()

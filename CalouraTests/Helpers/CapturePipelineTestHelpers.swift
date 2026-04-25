@@ -103,7 +103,7 @@ enum CapturePipelineTestHelpers {
             handlePermissionFailure: handlePermissionFailure ?? { @MainActor _ in },
             showQuickAccess: showQuickAccess ?? { _ in },
             playSoundAction: playSoundAction ?? { },
-            postNotification: postNotification ?? { _ in },
+            postNotification: postNotification ?? { _, _ in },
             presetForCategory: presetForCategory ?? { _ in nil },
             presetByName: presetByName ?? { _ in nil },
             selectWindowCapture: selectWindowCapture ?? { _ in .cancelled },

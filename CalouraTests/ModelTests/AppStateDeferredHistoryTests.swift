@@ -120,6 +120,22 @@ final class AppStateDeferredHistoryTests: XCTestCase {
         XCTAssertNil(defaults.object(forKey: "screenshotHistory"))
     }
 
+    func testCorruptFileBackedHistoryDoesNotFallbackToDefaultsBackup() async throws {
+        let defaults = makeDefaults(#function)
+        try Data("not encrypted history".utf8).write(to: historyFileURL, options: .atomic)
+
+        let defaultsItem = makeItem("stale-defaults.png")
+        let defaultsJSON = try JSONEncoder().encode([defaultsItem])
+        let defaultsBlob = try HistoryCrypto.encrypt(defaultsJSON)
+        defaults.set(defaultsBlob, forKey: "screenshotHistoryEncrypted")
+
+        let state = AppState(defaults: defaults, historyStoreURL: historyFileURL)
+        await state.loadPersistedState()
+
+        XCTAssertTrue(state.recentScreenshots.isEmpty)
+        XCTAssertNotNil(defaults.object(forKey: "screenshotHistoryEncrypted"))
+    }
+
     func testSaveHistoryNow_persistsLatestSnapshot() async throws {
         let defaults = makeDefaults(#function)
         let state = AppState(defaults: defaults, historyStoreURL: historyFileURL)

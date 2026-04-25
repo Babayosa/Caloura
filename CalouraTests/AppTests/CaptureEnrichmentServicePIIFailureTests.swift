@@ -24,6 +24,15 @@ final class CaptureEnrichmentServicePIIFailureTests: XCTestCase {
             appState: appState,
             settings: settings,
             recognizeText: { _ in "non-empty so PII branch executes" },
+            recognizeTextObservations: { _ in
+                [
+                    OCRObservation(
+                        text: "non-empty so PII branch executes",
+                        boundingBox: CGRect(x: 0, y: 0, width: 1, height: 1),
+                        confidence: 1
+                    )
+                ]
+            },
             detectPII: { _ in throw StubError() },
             enrichmentCoordinator: CaptureEnrichmentCoordinator()
         )
@@ -60,6 +69,15 @@ final class CaptureEnrichmentServicePIIFailureTests: XCTestCase {
             appState: appState,
             settings: settings,
             recognizeText: { _ in "ocr text" },
+            recognizeTextObservations: { _ in
+                [
+                    OCRObservation(
+                        text: "ocr text",
+                        boundingBox: CGRect(x: 0, y: 0, width: 1, height: 1),
+                        confidence: 1
+                    )
+                ]
+            },
             detectPII: { _ in throw StubError() },
             enrichmentCoordinator: CaptureEnrichmentCoordinator()
         )

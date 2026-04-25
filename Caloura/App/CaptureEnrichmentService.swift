@@ -5,12 +5,14 @@ import os.log
 
 final class CaptureEnrichmentService {
     typealias RecognizeTextFn = @Sendable (CGImage) async throws -> String
-    typealias DetectPIIFn = @Sendable (CGImage) async throws -> [PIIDetection]
+    typealias RecognizeTextObservationsFn = @Sendable (CGImage) async throws -> [OCRObservation]
+    typealias DetectPIIFn = @Sendable ([OCRObservation]) async throws -> [PIIDetection]
     typealias EmbedTextFn = @Sendable (String) async -> [Double]?
     typealias GenerateMetadataFn = @Sendable (String, String?, String?) async -> ScreenshotMetadata?
 
     private struct Dependencies: Sendable {
         let recognizeText: RecognizeTextFn
+        let recognizeTextObservations: RecognizeTextObservationsFn
         let detectPII: DetectPIIFn
         let embedText: EmbedTextFn
         let generateMetadata: GenerateMetadataFn
@@ -36,6 +38,7 @@ final class CaptureEnrichmentService {
     private let appState: AppState
     private let settings: AppSettings
     private let recognizeText: RecognizeTextFn
+    private let recognizeTextObservations: RecognizeTextObservationsFn
     private let detectPII: DetectPIIFn
     private let embedText: EmbedTextFn
     private let generateMetadata: GenerateMetadataFn
@@ -46,7 +49,21 @@ final class CaptureEnrichmentService {
         appState: AppState,
         settings: AppSettings,
         recognizeText: @escaping RecognizeTextFn,
-        detectPII: @escaping DetectPIIFn = { try await PIIDetector.detect(in: $0) },
+        recognizeTextObservations: @escaping RecognizeTextObservationsFn = {
+            try await OCREngine.recognizeTextWithBoundingBoxes(in: $0)
+        },
+        detectPII: @escaping DetectPIIFn = { observations in
+            PIIDetector.detect(
+                in: observations.map {
+                    PIIDetectorObservation(
+                        text: $0.text,
+                        boundingBox: $0.boundingBox,
+                        confidence: $0.confidence,
+                        matchBoundingBox: { _ in nil }
+                    )
+                }
+            )
+        },
         embedText: @escaping EmbedTextFn = { text in
             await EmbeddingEngine.embed(text)
         },
@@ -62,6 +79,7 @@ final class CaptureEnrichmentService {
         self.appState = appState
         self.settings = settings
         self.recognizeText = recognizeText
+        self.recognizeTextObservations = recognizeTextObservations
         self.detectPII = detectPII
         self.embedText = embedText
         self.generateMetadata = generateMetadata
@@ -92,6 +110,7 @@ final class CaptureEnrichmentService {
         let appState = appState
         let settings = settings
         let recognizeText = recognizeText
+        let recognizeTextObservations = recognizeTextObservations
         let detectPII = detectPII
         let embedText = embedText
         let generateMetadata = generateMetadata
@@ -99,6 +118,7 @@ final class CaptureEnrichmentService {
 
         return Dependencies(
             recognizeText: recognizeText,
+            recognizeTextObservations: recognizeTextObservations,
             detectPII: detectPII,
             embedText: embedText,
             generateMetadata: generateMetadata,
@@ -170,29 +190,31 @@ final class CaptureEnrichmentService {
         dependencies: Dependencies
     ) async {
         do {
-            async let piiOutcome = detectPIIIfEnabled(
-                cgImage: cgImage,
-                screenshotID: screenshotID,
-                dependencies: dependencies
-            )
-
-            if Task.isCancelled {
-                await dependencies.setStatusMessage("Capture saved — enrichment cancelled.")
-                await dependencies.setPreviewPhase(.enrichmentFailed, screenshotID)
-                return
-            }
-            let text = try await dependencies.recognizeText(cgImage)
-            if Task.isCancelled {
-                await dependencies.setStatusMessage("Capture saved — enrichment cancelled.")
-                await dependencies.setPreviewPhase(.enrichmentFailed, screenshotID)
-                return
-            }
-
+            let piiEnabled = await dependencies.piiDetectionEnabled()
+            let text: String
             let outcome: PIIScanOutcome
+            if piiEnabled {
+                let observations = try await dependencies.recognizeTextObservations(cgImage)
+                text = observations.map(\.text).joined(separator: "\n")
+                outcome = await detectPII(
+                    observations: observations,
+                    screenshotID: screenshotID,
+                    imageSize: CGSize(width: cgImage.width, height: cgImage.height),
+                    dependencies: dependencies
+                )
+            } else {
+                text = try await dependencies.recognizeText(cgImage)
+                outcome = .skipped
+            }
+            if Task.isCancelled {
+                await dependencies.setStatusMessage("Capture saved — enrichment cancelled.")
+                await dependencies.setPreviewPhase(.enrichmentFailed, screenshotID)
+                return
+            }
+
             if !text.isEmpty {
                 await dependencies.updateOCRText(screenshotID, text)
 
-                outcome = await piiOutcome
                 if case .scanned(let result?) = outcome {
                     await dependencies.setPIIResult(result)
                 }
@@ -207,8 +229,6 @@ final class CaptureEnrichmentService {
                     screenshotID: screenshotID,
                     dependencies: dependencies
                 )
-            } else {
-                outcome = await piiOutcome
             }
 
             switch outcome {
@@ -225,16 +245,14 @@ final class CaptureEnrichmentService {
         }
     }
 
-    private static func detectPIIIfEnabled(
-        cgImage: CGImage,
+    private static func detectPII(
+        observations: [OCRObservation],
         screenshotID: UUID,
+        imageSize: CGSize,
         dependencies: Dependencies
     ) async -> PIIScanOutcome {
-        let enabled = await dependencies.piiDetectionEnabled()
-        guard enabled else { return .skipped }
-
         do {
-            let detections = try await dependencies.detectPII(cgImage)
+            let detections = try await dependencies.detectPII(observations)
             guard !detections.isEmpty else { return .scanned(nil) }
             return .scanned(PIIDetectionResult(
                 detections: detections,
@@ -245,7 +263,7 @@ final class CaptureEnrichmentService {
             // capture went through unscanned, and the user had no signal.
             // Log + status + dedicated phase make this observable.
             let description = error.localizedDescription
-            let dimensions = "\(cgImage.width)x\(cgImage.height)"
+            let dimensions = "\(Int(imageSize.width))x\(Int(imageSize.height))"
             dependencies.logger.error(
                 "PII scan failed: \(description, privacy: .public) image=\(dimensions, privacy: .public)"
             )

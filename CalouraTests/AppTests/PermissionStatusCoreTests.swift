@@ -20,6 +20,15 @@ final class PermissionStatusCoreTests: XCTestCase {
         XCTAssertEqual(status, .grantedNeedsValidation)
     }
 
+    func testPassiveStatusKnownWorkingStillNeedsLiveValidation() {
+        let status = PermissionStatusCore.passiveStatus(
+            cgGranted: true,
+            context: makeContext(isKnownWorkingIdentity: true)
+        )
+
+        XCTAssertEqual(status, .grantedNeedsValidation)
+    }
+
     func testExplicitFailureStatusTriesValidationForSamePathMismatch() {
         let status: ScreenRecordingState = PermissionStatusCore.explicitFailureStatus(
             for: makeContext(

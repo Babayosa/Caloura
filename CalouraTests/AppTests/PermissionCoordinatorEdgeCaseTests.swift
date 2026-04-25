@@ -48,7 +48,7 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         XCTAssertEqual(coordinator.permissionUIModel.status, .denied)
     }
 
-    func testRefreshPassiveStatusReturnsKnownWorkingForCurrentFingerprint() async {
+    func testRefreshPassiveStatusRequiresValidationForKnownWorkingFingerprint() async {
         let defaults = PermissionTestHelpers.makeDefaults(#function)
         let identity = PermissionTestHelpers.makeIdentity("granted")
         defaults.set(identity.fingerprint, forKey: "permissionLastWorkingIdentityFingerprint")
@@ -65,7 +65,8 @@ final class PermissionCoordinatorEdgeCaseTests: XCTestCase {
         )
 
         let status = await coordinator.refreshPassiveStatus()
-        XCTAssertEqual(status, .working)
+        XCTAssertEqual(status, .grantedNeedsValidation)
+        XCTAssertFalse(coordinator.permissionUIModel.shouldShowStaleRecordBanner)
     }
 
     func testUIModelConsistencyAfterRepeatedRefreshCalls() async {

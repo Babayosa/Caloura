@@ -50,7 +50,6 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
-  BUILD_TIMESTAMP="$(date +%Y%m%d%H%M%S)"
 APP_NAME="Caloura"
 SCHEME="Caloura"
 TEAM_ID="NG4ML6Q47T"
@@ -61,7 +60,7 @@ BUILD_DIR="$PROJECT_DIR/build"
 ARCHIVE_PATH="$BUILD_DIR/$APP_NAME.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
 APP_PATH="$EXPORT_PATH/$APP_NAME.app"
-ZIP_PATH="$BUILD_DIR/$APP_NAME-$VERSION-$BUILD_TIMESTAMP.zip"
+ZIP_PATH="$BUILD_DIR/$APP_NAME-$VERSION.zip"
 DMG_PATH="$BUILD_DIR/$APP_NAME-$VERSION.dmg"
 MANIFEST_PATH="$BUILD_DIR/release-manifest-$VERSION.json"
 NOTARY_PROFILE="${NOTARY_PROFILE:-Caloura-Notarize}"
@@ -78,6 +77,33 @@ normalize_version() {
     echo "$raw"
 }
 
+release_build_number() {
+    local version="$1"
+    python3 - "$version" <<'PY'
+import re
+import sys
+
+version = sys.argv[1]
+match = re.fullmatch(r"([0-9]+)\.([0-9]+)\.([0-9]+)", version)
+if not match:
+    raise SystemExit(f"Release version must be numeric major.minor.patch: {version}")
+
+major, minor, patch = (int(part) for part in match.groups())
+if minor > 999 or patch > 999:
+    raise SystemExit(f"Release version components must fit 3 digits: {version}")
+
+# Keep deterministic semantic-version ordering while staying above legacy
+# timestamp-style build numbers such as 20260417000000.
+print(
+    (major * 100_000_000_000_000)
+    + (minor * 10_000_000_000)
+    + (patch * 1_000_000)
+)
+PY
+}
+
+BUILD_NUMBER="$(release_build_number "$(normalize_version "$VERSION")")"
+
 fail_release() {
     echo "ERROR: $1" >&2
     exit 1
@@ -91,19 +117,25 @@ build_setting_value() {
         return
     fi
 
-    if [ ! -f "$BUILD_SETTINGS_CACHE" ]; then
+    if [ ! -f "$BUILD_SETTINGS_CACHE" ] || ! grep -Eq "^[[:space:]]*$key =" "$BUILD_SETTINGS_CACHE"; then
         mkdir -p "$BUILD_DIR"
+        local cache_tmp="$BUILD_SETTINGS_CACHE.tmp"
         xcodebuild -showBuildSettings \
             -project "$PROJECT_DIR/$APP_NAME.xcodeproj" \
             -scheme "$SCHEME" \
             -configuration Release \
             -destination "$BUILD_DESTINATION" \
-            > "$BUILD_SETTINGS_CACHE"
+            > "$cache_tmp"
+        mv "$cache_tmp" "$BUILD_SETTINGS_CACHE"
     fi
 
     local value
     value="$(awk -F' = ' -v needle="$key" '$1 ~ ("^[[:space:]]*" needle "$") {print $2; exit}' "$BUILD_SETTINGS_CACHE")"
-    echo "$value" | sed 's/[[:space:]]*$//'
+    value="$(echo "$value" | sed 's/[[:space:]]*$//')"
+    if [ -z "$value" ]; then
+        fail_release "Could not resolve build setting $key from Release configuration."
+    fi
+    echo "$value"
 }
 
 check_release_tag_alignment() {
@@ -469,8 +501,7 @@ generate_source_release_manifest() {
 
     bundle_identifier="$(build_setting_value "PRODUCT_BUNDLE_IDENTIFIER")"
     marketing_version="$(build_setting_value "MARKETING_VERSION")"
-    # Use the requested release version as the canonical build number.
-    build_number="$BUILD_TIMESTAMP"
+    build_number="$BUILD_NUMBER"
     minimum_system_version="$(build_setting_value "MACOSX_DEPLOYMENT_TARGET")"
     release_channel="$(build_setting_value "CALOURA_RELEASE_CHANNEL")"
     requires_signed="$(build_setting_value "CALOURA_REQUIRE_SIGNED_ENTITLEMENT")"
@@ -502,13 +533,14 @@ check_version_placeholders
 check_minimum_system_version_alignment
 check_sparkle_release_metadata
 check_release_license_configuration
-verify_release_environment
 
 if [ "${RELEASE_GUARD_ONLY:-0}" = "1" ]; then
     generate_source_release_manifest
     echo "==> Guard-only mode: release tag and version placeholder checks passed."
     exit 0
 fi
+
+verify_release_environment
 
 # Clean previous build
 rm -rf "$BUILD_DIR"
@@ -523,8 +555,7 @@ xcodegen generate
 echo "==> Archiving (Release configuration)..."
 ARCHIVE_OVERRIDES=(
     MARKETING_VERSION="$VERSION"
-    # Keep the release build number stable for a given release version.
-    CURRENT_PROJECT_VERSION="$BUILD_TIMESTAMP"
+    CURRENT_PROJECT_VERSION="$BUILD_NUMBER"
 )
 [ -n "${CALOURA_REQUIRE_SIGNED_ENTITLEMENT:-}" ] && ARCHIVE_OVERRIDES+=(CALOURA_REQUIRE_SIGNED_ENTITLEMENT="$CALOURA_REQUIRE_SIGNED_ENTITLEMENT")
 [ -n "${CALOURA_LICENSE_ENTITLEMENT_URL:-}" ] && ARCHIVE_OVERRIDES+=(CALOURA_LICENSE_ENTITLEMENT_URL="$CALOURA_LICENSE_ENTITLEMENT_URL")

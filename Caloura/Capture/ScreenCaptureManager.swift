@@ -30,6 +30,7 @@ enum ScreenCapturePermissionAlertAction: Sendable {
 enum ScreenCaptureAccessProbeResult: Sendable, Equatable {
     case authorized
     case userDeclined
+    case configurationFailure
     case transientFailure
 }
 
@@ -124,9 +125,33 @@ struct ScreenCapturePermissionDependencies: Sendable {
 final class ScreenCaptureManager: ScreenCaptureManaging {
     static let shared = ScreenCaptureManager()
 
-    /// Once SCK fails permanently (e.g. user denied permission), skip it on
-    /// subsequent captures to avoid repeated system prompts and latency.
-    private(set) var sckFailed: Bool = false
+    enum SCKDisableReason: Sendable, Equatable {
+        case permissionDenied
+        case missingEntitlements
+        case transientFailures
+
+        var captureError: CaptureError? {
+            switch self {
+            case .permissionDenied:
+                return .noPermission
+            case .missingEntitlements:
+                return .configurationFailed(
+                    "ScreenCaptureKit is unavailable for this build"
+                )
+            case .transientFailures:
+                return nil
+            }
+        }
+    }
+
+    /// Once SCK fails permanently (e.g. user denied permission), remember why
+    /// so later fallback decisions do not turn configuration failures into
+    /// permission repair loops.
+    private(set) var sckDisableReason: SCKDisableReason?
+
+    var sckFailed: Bool {
+        sckDisableReason != nil
+    }
 
     /// Consecutive transient SCK failure count. After
     /// `maxTransientFailures` consecutive transient failures, `sckFailed`
@@ -165,7 +190,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     /// reset. Wipes the shareable-content cache as well because permission
     /// changes can invalidate the filter list.
     func resetSCKState() {
-        setSCKFailed(false)
+        setSCKFailed(false, reason: nil)
         sckFailureCount = 0
         cachedContent = nil
         logger.info("SCK failure flag reset")
@@ -176,7 +201,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     /// retries SCK, but preserves the shareable-content cache — TTL handles
     /// genuine staleness (wake from sleep, hot-plug, long idle).
     private func refreshSCKFailureState() {
-        setSCKFailed(false)
+        setSCKFailed(false, reason: nil)
         sckFailureCount = 0
         logger.debug("SCK failure flag refreshed (cache preserved)")
     }
@@ -316,11 +341,14 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     ) {
         let kind = classifySCKError(error)
         switch kind {
-        case .permissionDenied, .missingEntitlements:
-            setSCKFailed(true)
+        case .permissionDenied:
+            setSCKFailed(true, reason: .permissionDenied)
             sckFailureCount = 0
-            let label = kind == .permissionDenied ? "user declined" : "missing entitlements"
-            logger.warning("SCK permanently disabled (\(label))")
+            logger.warning("SCK permanently disabled (user declined)")
+        case .missingEntitlements:
+            setSCKFailed(true, reason: .missingEntitlements)
+            sckFailureCount = 0
+            logger.warning("SCK permanently disabled (missing entitlements)")
         case .systemStopped:
             logger.info("SCK system stopped stream — will retry on next capture")
         case .transient:
@@ -339,7 +367,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                 "SCK transient failure \(count)/\(self.maxTransientFailures)"
             )
             if sckFailureCount >= maxTransientFailures {
-                setSCKFailed(true)
+                setSCKFailed(true, reason: .transientFailures)
                 let desc = error.localizedDescription
                 logger.warning(
                     "SCK disabled after \(count) transient failures: \(desc)"
@@ -455,13 +483,17 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         }
     }
 
-    func setSCKFailed(_ failed: Bool) {
-        sckFailed = failed
+    func setSCKFailed(_ failed: Bool, reason: SCKDisableReason?) {
+        sckDisableReason = failed ? (reason ?? .transientFailures) : nil
     }
 
     #if DEBUG
     func setSCKFailedForTesting(_ failed: Bool) {
-        setSCKFailed(failed)
+        setSCKFailed(failed, reason: failed ? .transientFailures : nil)
+    }
+
+    func setSCKDisableReasonForTesting(_ reason: SCKDisableReason?) {
+        sckDisableReason = reason
     }
     #endif
 
@@ -519,9 +551,15 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         sckOperation: () async throws -> CGImage,
         cliOperation: () async throws -> CGImage
     ) async throws -> CGImage {
-        if !sckFailed {
+        if let captureError = sckDisableReason?.captureError {
+            throw captureError
+        }
+
+        if sckDisableReason == nil {
             do {
-                return try await sckOperation()
+                let image = try await sckOperation()
+                recordSCKSuccess()
+                return image
             } catch {
                 logger.warning(
                     "SCK \(label, privacy: .public) failed: \(error.localizedDescription)"
@@ -536,7 +574,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
             logger.info("Trying screencapture CLI for \(label, privacy: .public)")
             return try await cliOperation()
         } catch {
-            if sckFailed || shouldTreatCoreGraphicsStateAsPermissionDenied() {
+            if shouldTreatCoreGraphicsStateAsPermissionDenied() {
                 throw CaptureError.noPermission
             }
             throw error
@@ -582,10 +620,12 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
             contentRect: contentRect,
             pointPixelScale: pointPixelScale
         )
-        return try await captureFilteredScreenshot(
+        let image = try await captureFilteredScreenshot(
             contentFilter: filter,
             configuration: config
         )
+        recordSCKSuccess()
+        return image
     }
 
     func makeWindowCaptureConfiguration(
@@ -641,6 +681,13 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
         }
 
         return Int(rounded)
+    }
+
+    func recordSCKSuccess() {
+        sckFailureCount = 0
+        if sckDisableReason == .transientFailures {
+            sckDisableReason = nil
+        }
     }
 
     // MARK: - Permission Alert Presentation

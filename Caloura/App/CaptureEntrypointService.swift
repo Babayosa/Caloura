@@ -248,6 +248,7 @@ final class CaptureEntrypointService {
         appState.isCountingDown = false
         appState.countdownRemaining = 0
         appState.isCapturing = false
+        appState.currentCaptureRequestID = nil
         appState.statusMessage = "Countdown cancelled"
         CountdownOverlay.shared.dismiss()
     }
@@ -255,6 +256,9 @@ final class CaptureEntrypointService {
     private func beginCaptureIfIdle() -> Bool {
         guard !appState.isCapturing else { return false }
         appState.isCapturing = true
+        if appState.currentCaptureRequestID == nil {
+            appState.currentCaptureRequestID = UUID()
+        }
         return true
     }
 
@@ -262,6 +266,7 @@ final class CaptureEntrypointService {
         _ performanceSession: CapturePerformanceRecorder.Session
     ) {
         appState.isCapturing = false
+        appState.currentCaptureRequestID = nil
         capturePerformanceRecorder.finishSession(performanceSession)
     }
 

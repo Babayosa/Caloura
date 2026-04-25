@@ -33,7 +33,7 @@ final class AppSettingsDeferredKeychainTests: XCTestCase {
         XCTAssertEqual(defaults.bool(forKey: "isLicenseActivated"), false)
     }
 
-    func testSkipsMigrationWhenLocalKeyAlreadyExists() async {
+    func testLocalDefaultsActivationFlagDoesNotCreateEntitlement() async {
         let defaults = makeDefaults(#function)
         defaults.set("LOCAL-KEY-9999", forKey: "licenseKey")
         defaults.set(true, forKey: "isLicenseActivated")
@@ -49,7 +49,8 @@ final class AppSettingsDeferredKeychainTests: XCTestCase {
         await settings.waitForLegacyLicenseMigrationForTesting()
 
         XCTAssertEqual(settings.licenseKey, "LOCAL-KEY-9999")
-        XCTAssertTrue(settings.isLicenseActivated)
+        XCTAssertFalse(settings.isLicenseActivated)
+        XCTAssertNil(settings.currentLicenseEntitlement)
         XCTAssertEqual(migrationCounter.value, 0)
     }
 

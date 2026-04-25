@@ -35,6 +35,21 @@ extension AppSettings {
         isLicenseActivated = licenseEntitlement?.isCurrentlyValid(at: referenceDate) ?? false
     }
 
+    func licenseStatePersistenceMatchesMemory() -> Bool {
+        let normalized = licenseKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let persistedKey = Self.decryptLicenseKey(
+            defaults.object(forKey: Keys.licenseKey),
+            migrated: defaults.bool(forKey: Keys.licenseKeyMigrated),
+            migrationLocked: defaults.bool(forKey: Keys.licenseKeyMigrationLocked)
+        ) ?? ""
+        guard persistedKey == normalized else { return false }
+
+        let persistedEntitlement = Self.decryptLicenseEntitlement(
+            defaults.object(forKey: Keys.licenseEntitlement)
+        )
+        return persistedEntitlement == licenseEntitlement
+    }
+
     // MARK: - Persistence
 
     func persistLicenseState() {
@@ -127,23 +142,10 @@ extension AppSettings {
         let normalized = licenseKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return }
 
-        let validatedAt = lastLicenseValidationDate ?? Date()
-        let now = Date()
-        let effectiveValidation = max(validatedAt, now)
-        licenseEntitlement = LicenseEntitlement(
-            claims: LicenseEntitlementClaims(
-                productID: Bundle.main.bundleIdentifier ?? "com.caloura.app",
-                licenseID: normalized,
-                issuedAt: validatedAt,
-                refreshAfter: validatedAt,
-                expiresAt: effectiveValidation.addingTimeInterval(7 * 86_400),
-                featureFlags: [:]
-            ),
-            source: .legacyMigration,
-            token: nil,
-            signature: nil,
-            validatedAt: validatedAt
+        licenseLogger.info(
+            "legacy_activation_ignored reason=unverified_defaults"
         )
+        syncDerivedLicenseState()
     }
 
     // MARK: - Legacy keychain migration

@@ -106,9 +106,9 @@ final class PermissionIdentityTrustedSigningKeyTests: XCTestCase {
 
         let status = await coordinator.refreshPassiveStatus()
 
-        // With the trusted-signing-key relaxation, Debug iteration returns
-        // .working without a stale-record alert.
-        XCTAssertEqual(status, .working)
+        // The trusted-signing-key relaxation suppresses stale-record UI, but
+        // passive history still cannot replace a live validation.
+        XCTAssertEqual(status, .grantedNeedsValidation)
         XCTAssertFalse(coordinator.permissionUIModel.shouldShowStaleRecordBanner)
     }
 

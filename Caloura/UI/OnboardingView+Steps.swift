@@ -275,6 +275,13 @@ extension OnboardingView {
             Text(permissionPresentation.statusMessage)
                 .font(.callout)
                 .foregroundStyle(.secondary)
+        case .configurationFailed:
+            Label(permissionPresentation.statusHeadline, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+            Text(permissionPresentation.statusMessage)
+                .font(.callout)
+                .foregroundStyle(.red)
+                .multilineTextAlignment(.center)
         }
     }
 

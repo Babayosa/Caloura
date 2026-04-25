@@ -86,6 +86,17 @@ final class CaptureEnrichmentServiceTests: XCTestCase {
             appState: appState,
             settings: settings,
             recognizeText: recognizeText,
+            recognizeTextObservations: { image in
+                let text = try await recognizeText(image)
+                guard !text.isEmpty else { return [] }
+                return [
+                    OCRObservation(
+                        text: text,
+                        boundingBox: CGRect(x: 0, y: 0, width: 1, height: 1),
+                        confidence: 1
+                    )
+                ]
+            },
             detectPII: { _ in
                 recorder.recordDetectPII()
                 if detectPIIThrows { throw StubError() }

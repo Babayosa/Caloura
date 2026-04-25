@@ -7,6 +7,7 @@ enum PermissionDetail: Equatable {
     case notGranted
     case staleRecord
     case repairing
+    case configurationFailed
 }
 
 struct OnboardingPermissionPresentation: Equatable {
@@ -32,6 +33,8 @@ struct OnboardingPermissionPresentation: Equatable {
             detail = .staleRecord
         case .repairing:
             detail = .repairing
+        case .configurationFailed:
+            detail = .configurationFailed
         case .denied:
             detail = .notGranted
         }
@@ -84,6 +87,13 @@ struct OnboardingPermissionPresentation: Equatable {
             statusMessage = uiModel.guidanceText ?? "Restarting the screen recording service."
             showsGrantButton = false
             showsCheckAgainButton = false
+            showsRepairButton = false
+            showsResetRelaunchButton = false
+        case .configurationFailed:
+            statusHeadline = "Screen capture unavailable"
+            statusMessage = uiModel.guidanceText ?? "Launch the signed Caloura app or reinstall it."
+            showsGrantButton = false
+            showsCheckAgainButton = true
             showsRepairButton = false
             showsResetRelaunchButton = false
         }

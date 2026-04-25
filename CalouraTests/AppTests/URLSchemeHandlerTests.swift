@@ -5,28 +5,40 @@ import XCTest
 final class URLSchemeHandlerTests: XCTestCase {
     nonisolated(unsafe) private var originalActivePreset = ""
     nonisolated(unsafe) private var originalLastHandledDate: Date?
+    nonisolated(unsafe) private var originalIsCapturing = false
+    nonisolated(unsafe) private var originalCaptureRequestID: UUID?
 
     override nonisolated func setUp() {
         super.setUp()
         let snapshot = MainActor.assumeIsolated {
             (
                 AppSettings.shared.activePreset,
-                URLSchemeHandler.lastHandledDate
+                URLSchemeHandler.lastHandledDate,
+                AppState.shared.isCapturing,
+                AppState.shared.currentCaptureRequestID
             )
         }
         originalActivePreset = snapshot.0
         originalLastHandledDate = snapshot.1
+        originalIsCapturing = snapshot.2
+        originalCaptureRequestID = snapshot.3
         MainActor.assumeIsolated {
             URLSchemeHandler.resetThrottleForTesting()
+            AppState.shared.isCapturing = false
+            AppState.shared.currentCaptureRequestID = nil
         }
     }
 
     override nonisolated func tearDown() {
         let restoredActivePreset = originalActivePreset
         let restoredLastHandledDate = originalLastHandledDate
+        let restoredIsCapturing = originalIsCapturing
+        let restoredCaptureRequestID = originalCaptureRequestID
         MainActor.assumeIsolated {
             AppSettings.shared.activePreset = restoredActivePreset
             URLSchemeHandler.setLastHandledDateForTesting(restoredLastHandledDate)
+            AppState.shared.isCapturing = restoredIsCapturing
+            AppState.shared.currentCaptureRequestID = restoredCaptureRequestID
         }
         super.tearDown()
     }
@@ -310,5 +322,72 @@ final class URLSchemeHandlerTests: XCTestCase {
 
         URLSchemeHandler.handle(URL(string: "caloura://copy/markdown?token=")!)
         wait(for: [unexpected], timeout: 0.5)
+    }
+
+    @MainActor
+    func testHandle_captureThenWithoutTokenDoesNotDispatchPostCaptureAction() {
+        let unexpected = expectation(description: "post-capture copy must NOT dispatch")
+        unexpected.isInverted = true
+        let observerID = AppCommandRouter.shared.addHandler { command in
+            switch command {
+            case .captureArea:
+                AppState.shared.isCapturing = true
+                AppState.shared.currentCaptureRequestID = UUID()
+            case .copyLastImage:
+                unexpected.fulfill()
+            default:
+                break
+            }
+        }
+        defer { AppCommandRouter.shared.removeHandler(observerID) }
+
+        URLSchemeHandler.handle(URL(string: "caloura://capture/area?then=copy")!)
+        if let requestID = AppState.shared.currentCaptureRequestID {
+            NotificationCenter.default.post(
+                name: .captureCompleted,
+                object: nil,
+                userInfo: [AppNotificationUserInfoKey.captureRequestID: requestID]
+            )
+        }
+
+        wait(for: [unexpected], timeout: 0.5)
+    }
+
+    @MainActor
+    func testHandle_captureThenWithTokenRunsOnlyForMatchingCaptureRequest() {
+        let token = URLSchemeHandler.currentCopyAuthorizationToken()
+        let mismatched = UUID()
+        var acceptedRequestID: UUID?
+        let expected = expectation(description: "matching post-capture copy dispatched")
+        let observerID = AppCommandRouter.shared.addHandler { command in
+            switch command {
+            case .captureArea:
+                let requestID = UUID()
+                acceptedRequestID = requestID
+                AppState.shared.isCapturing = true
+                AppState.shared.currentCaptureRequestID = requestID
+            case .copyLastImage:
+                expected.fulfill()
+            default:
+                break
+            }
+        }
+        defer { AppCommandRouter.shared.removeHandler(observerID) }
+
+        URLSchemeHandler.handle(URL(string: "caloura://capture/area?then=copy&token=\(token)")!)
+        NotificationCenter.default.post(
+            name: .captureCompleted,
+            object: nil,
+            userInfo: [AppNotificationUserInfoKey.captureRequestID: mismatched]
+        )
+        if let acceptedRequestID {
+            NotificationCenter.default.post(
+                name: .captureCompleted,
+                object: nil,
+                userInfo: [AppNotificationUserInfoKey.captureRequestID: acceptedRequestID]
+            )
+        }
+
+        wait(for: [expected], timeout: 1.0)
     }
 }

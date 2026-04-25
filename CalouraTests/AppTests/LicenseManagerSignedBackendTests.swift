@@ -85,6 +85,28 @@ final class LicenseManagerSignedBackendTests: XCTestCase {
         super.tearDown()
     }
 
+    private func makeExistingEntitlement(
+        now: Date,
+        refreshAfter: Date? = nil,
+        expiresAt: Date? = nil
+    ) -> LicenseEntitlement {
+        let validatedAt = now.addingTimeInterval(-2 * 86_400)
+        return LicenseEntitlement(
+            claims: LicenseEntitlementClaims(
+                productID: "bmokl",
+                licenseID: "existing-signed-license",
+                issuedAt: validatedAt,
+                refreshAfter: refreshAfter ?? validatedAt,
+                expiresAt: expiresAt ?? now.addingTimeInterval(86_400),
+                featureFlags: [:]
+            ),
+            source: .signedBackend,
+            token: "existing.token",
+            signature: Data([0x01]),
+            validatedAt: validatedAt
+        )
+    }
+
     @MainActor
     func testActivate_signedEntitlementSuccess_setsLicensed() async throws {
         let now = Date()
@@ -278,5 +300,136 @@ final class LicenseManagerSignedBackendTests: XCTestCase {
             return XCTFail("Expected activationFailed, got \(manager.activationState)")
         }
         XCTAssertFalse(settings.isLicenseActivated)
+    }
+
+    @MainActor
+    func testRevalidation_signedBackendHTTP500DoesNotRevokeExistingEntitlement() async {
+        let now = Date()
+        settings.licenseKey = "SIGNED-KEY"
+        settings.updateLicenseEntitlement(makeExistingEntitlement(now: now))
+        var requestCount = 0
+        SignedEntitlementURLProtocol.requestHandler = { request in
+            requestCount += 1
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 500,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data("server unavailable".utf8))
+        }
+
+        let manager = LicenseManager(
+            settings: settings,
+            session: makeSignedSession(),
+            now: { now },
+            verificationConfiguration: LicenseVerificationConfiguration(
+                entitlementServiceURL: URL(string: "https://license.caloura.test/verify")!,
+                entitlementPublicKeyBase64: Curve25519.Signing.PrivateKey()
+                    .publicKey.rawRepresentation.base64EncodedString(),
+                requiresSignedEntitlement: true,
+                allowGumroadFallback: false
+            )
+        )
+
+        manager.refreshState(settings: settings)
+
+        await pollUntil(timeout: 1.0) { requestCount > 0 }
+        XCTAssertTrue(settings.isLicenseActivated)
+        XCTAssertEqual(manager.activationState, .licensed)
+        XCTAssertNotNil(settings.currentLicenseEntitlement)
+    }
+
+    @MainActor
+    func testRevalidation_signedBackendMalformedEnvelopeDoesNotRevokeExistingEntitlement() async {
+        let now = Date()
+        settings.licenseKey = "SIGNED-KEY"
+        settings.updateLicenseEntitlement(makeExistingEntitlement(now: now))
+        var requestCount = 0
+        SignedEntitlementURLProtocol.requestHandler = { request in
+            requestCount += 1
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data("{\"unexpected\":true}".utf8))
+        }
+
+        let manager = LicenseManager(
+            settings: settings,
+            session: makeSignedSession(),
+            now: { now },
+            verificationConfiguration: LicenseVerificationConfiguration(
+                entitlementServiceURL: URL(string: "https://license.caloura.test/verify")!,
+                entitlementPublicKeyBase64: Curve25519.Signing.PrivateKey()
+                    .publicKey.rawRepresentation.base64EncodedString(),
+                requiresSignedEntitlement: true,
+                allowGumroadFallback: false
+            )
+        )
+
+        manager.refreshState(settings: settings)
+
+        await pollUntil(timeout: 1.0) { requestCount > 0 }
+        XCTAssertTrue(settings.isLicenseActivated)
+        XCTAssertEqual(manager.activationState, .licensed)
+        XCTAssertNotNil(settings.currentLicenseEntitlement)
+    }
+
+    @MainActor
+    func testRevalidation_persistenceFailureDoesNotKeepNewEntitlementInMemory() async throws {
+        let now = Date()
+        let privateKey = Curve25519.Signing.PrivateKey()
+        let expiredExisting = makeExistingEntitlement(
+            now: now,
+            refreshAfter: now.addingTimeInterval(-120),
+            expiresAt: now.addingTimeInterval(-60)
+        )
+        settings.firstLaunchDate = now.addingTimeInterval(-8 * 86_400)
+        settings.licenseKey = "SIGNED-KEY"
+        settings.updateLicenseEntitlement(expiredExisting)
+
+        let claims = LicenseEntitlementClaims(
+            productID: "bmokl",
+            licenseID: "new-signed-license",
+            issuedAt: now.addingTimeInterval(-60),
+            refreshAfter: now.addingTimeInterval(3_600),
+            expiresAt: now.addingTimeInterval(86_400),
+            featureFlags: [:]
+        )
+        var requestCount = 0
+        SignedEntitlementURLProtocol.requestHandler = { request in
+            requestCount += 1
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, try makeEntitlementEnvelope(claims: claims, privateKey: privateKey))
+        }
+
+        let manager = LicenseManager(
+            settings: settings,
+            session: makeSignedSession(),
+            now: { now },
+            verificationConfiguration: LicenseVerificationConfiguration(
+                entitlementServiceURL: URL(string: "https://license.caloura.test/verify")!,
+                entitlementPublicKeyBase64: privateKey.publicKey.rawRepresentation.base64EncodedString(),
+                requiresSignedEntitlement: true,
+                allowGumroadFallback: false
+            ),
+            licensePersistenceMatchesMemory: { _ in false }
+        )
+
+        await pollUntil(timeout: 1.0) {
+            requestCount > 0 && self.settings.currentLicenseEntitlement == nil
+        }
+
+        XCTAssertFalse(settings.isLicenseActivated)
+        XCTAssertNotEqual(manager.activationState, .licensed)
+        XCTAssertNil(settings.currentLicenseEntitlement)
     }
 }

@@ -1,29 +1,6 @@
-import CryptoKit
 import Foundation
 import Observation
 import os.log
-import Security
-
-private struct SecRequirementHandle {
-    let requirement: SecRequirement
-
-    init?(rawValue: Any) {
-        let requirementRef = rawValue as CFTypeRef
-        guard CFGetTypeID(requirementRef) == SecRequirementGetTypeID() else {
-            return nil
-        }
-        self.requirement = unsafeDowncast(requirementRef as AnyObject, to: SecRequirement.self)
-    }
-
-    func stringValue() -> String? {
-        var requirementCFString: CFString?
-        let status = SecRequirementCopyString(requirement, SecCSFlags(), &requirementCFString)
-        guard status == errSecSuccess else {
-            return nil
-        }
-        return requirementCFString as String?
-    }
-}
 
 enum ScreenRecordingState: Equatable {
     case denied
@@ -32,6 +9,7 @@ enum ScreenRecordingState: Equatable {
     case needsRelaunch
     case staleRecord
     case repairing
+    case configurationFailed
 }
 
 struct PermissionUIModel: Equatable {
@@ -39,143 +17,6 @@ struct PermissionUIModel: Equatable {
     var guidanceText: String?
     var shouldShowStaleRecordBanner: Bool = false
     var isAlertCooldownActive: Bool = false
-}
-
-struct PermissionIdentity: Equatable {
-    let bundleIdentifier: String
-    let executablePath: String
-    let teamIdentifier: String
-    let signingIdentityType: String
-    let designatedRequirementHash: String
-
-    /// A combined string uniquely identifying this app's signing and location attributes.
-    var fingerprint: String {
-        [
-            bundleIdentifier,
-            executablePath,
-            teamIdentifier,
-            signingIdentityType,
-            designatedRequirementHash
-        ].joined(separator: "|")
-    }
-
-    /// Identity key used when deciding whether the macOS Screen Recording
-    /// grant on disk actually applies to *this* copy of the app. Excludes
-    /// `executablePath` so iterative Debug builds (which write to a new
-    /// DerivedData path each time) do not appear as a different Caloura
-    /// and trigger stale-record alerts. The designated-requirement hash
-    /// still catches different-team or re-signed copies.
-    var trustedSigningKey: String {
-        [
-            bundleIdentifier,
-            teamIdentifier,
-            signingIdentityType,
-            designatedRequirementHash
-        ].joined(separator: "|")
-    }
-
-    /// Recover the trusted signing key from a previously-stored fingerprint
-    /// without needing a new UserDefaults key. The fingerprint layout above
-    /// has the executablePath at column 1; this drops that column.
-    static func trustedSigningKey(fromStoredFingerprint fingerprint: String) -> String? {
-        let parts = fingerprint.split(separator: "|", omittingEmptySubsequences: false)
-        guard parts.count == 5 else { return nil }
-        return [parts[0], parts[2], parts[3], parts[4]].joined(separator: "|")
-    }
-
-    /// Build the identity for the currently running app bundle.
-    static func current(bundle: Bundle = .main) -> PermissionIdentity {
-        let bundleID = bundle.bundleIdentifier ?? "unknown.bundle"
-        let executablePath = bundle.executableURL?.path ?? bundle.bundleURL.path
-
-        let signingInfo = SigningInfo.load(for: bundle.bundleURL)
-        let teamIdentifier = signingInfo.teamIdentifier ?? "unknown.team"
-        let signingType = signingInfo.signingIdentityType ?? inferSigningType(from: executablePath)
-        let requirementSeed = signingInfo.designatedRequirementString
-            ?? fallbackRequirementSeed(
-                bundleID: bundleID,
-                executablePath: executablePath,
-                teamIdentifier: teamIdentifier
-            )
-        let requirementHash = SHA256Hex.encode(requirementSeed)
-
-        return PermissionIdentity(
-            bundleIdentifier: bundleID,
-            executablePath: executablePath,
-            teamIdentifier: teamIdentifier,
-            signingIdentityType: signingType,
-            designatedRequirementHash: requirementHash
-        )
-    }
-
-    private static func inferSigningType(from path: String) -> String {
-        if path.contains("/DerivedData/") {
-            return "apple-development"
-        }
-        if path.hasPrefix("/Applications/") {
-            return "developer-id-or-release"
-        }
-        return "unknown"
-    }
-
-    private static func fallbackRequirementSeed(
-        bundleID: String,
-        executablePath: String,
-        teamIdentifier: String
-    ) -> String {
-        "\(bundleID)|\(teamIdentifier)|\(executablePath)"
-    }
-
-    private struct SigningInfo {
-        let designatedRequirementString: String?
-        let teamIdentifier: String?
-        let signingIdentityType: String?
-
-        static func load(for bundleURL: URL) -> SigningInfo {
-            var staticCode: SecStaticCode?
-            let createStatus = SecStaticCodeCreateWithPath(bundleURL as CFURL, SecCSFlags(), &staticCode)
-            guard createStatus == errSecSuccess, let staticCode else {
-                return SigningInfo(designatedRequirementString: nil, teamIdentifier: nil, signingIdentityType: nil)
-            }
-
-            var rawInfo: CFDictionary?
-            let infoStatus = SecCodeCopySigningInformation(
-                staticCode,
-                SecCSFlags(rawValue: kSecCSSigningInformation),
-                &rawInfo
-            )
-            guard infoStatus == errSecSuccess, let info = rawInfo as? [String: Any] else {
-                return SigningInfo(designatedRequirementString: nil, teamIdentifier: nil, signingIdentityType: nil)
-            }
-
-            let teamID = info[kSecCodeInfoTeamIdentifier as String] as? String
-            let requirementString: String? = {
-                guard let requirementValue = info[kSecCodeInfoDesignatedRequirement as String] else {
-                    return nil
-                }
-                return SecRequirementHandle(rawValue: requirementValue)?.stringValue()
-            }()
-
-            let signingType: String? = {
-                guard let certificates = info[kSecCodeInfoCertificates as String] as? [SecCertificate],
-                      let leaf = certificates.first else { return nil }
-                let summary = SecCertificateCopySubjectSummary(leaf) as String? ?? ""
-                if summary.contains("Developer ID") {
-                    return "developer-id"
-                }
-                if summary.contains("Apple Development") {
-                    return "apple-development"
-                }
-                return "other"
-            }()
-
-            return SigningInfo(
-                designatedRequirementString: requirementString,
-                teamIdentifier: teamID,
-                signingIdentityType: signingType
-            )
-        }
-    }
 }
 
 @Observable @MainActor
@@ -192,7 +33,7 @@ final class PermissionCoordinator {
     typealias StatusMessageSink = (String) -> Void
     typealias NowProvider = () -> Date
     typealias RepairCheck = () async -> ScreenCaptureAccessProbeResult
-    typealias TCCReset = () async -> Void
+    typealias TCCReset = () async -> Bool
     typealias Relauncher = () -> Void
     typealias SCKStateResetter = () -> Void
 
@@ -286,7 +127,7 @@ final class PermissionCoordinator {
         statusMessageSink: @escaping StatusMessageSink,
         now: @escaping NowProvider,
         repairSCKAccess: @escaping RepairCheck = { .transientFailure },
-        resetTCCEntry: @escaping TCCReset = { },
+        resetTCCEntry: @escaping TCCReset = { true },
         relaunchApp: @escaping Relauncher = { },
         sckStateResetter: @escaping SCKStateResetter = { }
     ) {
@@ -399,10 +240,6 @@ final class PermissionCoordinator {
             return publishDenied(identity)
         }
 
-        if isKnownWorkingIdentity(identity) {
-            return publishStatus(.working, identity: identity)
-        }
-
         let probeResult = await primeCheck()
         logger.info(
             "prime_validation_result result=\(String(describing: probeResult), privacy: .public)"
@@ -410,6 +247,9 @@ final class PermissionCoordinator {
 
         if probeResult == .authorized {
             return publishWorkingValidated(identity)
+        }
+        if probeResult == .configurationFailure {
+            return publishStatus(.configurationFailed, identity: identity)
         }
 
         return publishStatus(.grantedNeedsValidation, identity: identity)
@@ -444,6 +284,9 @@ final class PermissionCoordinator {
         if validationResult == .authorized {
             return publishWorkingValidated(identity)
         }
+        if validationResult == .configurationFailure {
+            return publishStatus(.configurationFailed, identity: identity)
+        }
 
         // SCK failed — attempt auto-repair via replayd restart (best-effort on Tahoe)
         _ = publishStatus(.repairing, identity: identity)
@@ -459,6 +302,9 @@ final class PermissionCoordinator {
 
         if repairResult == .userDeclined {
             return publishDenied(identity, clearPermissionRequest: true)
+        }
+        if repairResult == .configurationFailure {
+            return publishStatus(.configurationFailed, identity: identity)
         }
 
         return publishExplicitFailure(for: identity)
@@ -528,6 +374,8 @@ final class PermissionCoordinator {
                     return publishWorkingValidated(identity)
                 case .userDeclined:
                     return publishDenied(identity, clearPermissionRequest: true)
+                case .configurationFailure:
+                    return publishStatus(.configurationFailed, identity: identity)
                 case .transientFailure:
                     _ = publishStatus(.grantedNeedsValidation, identity: identity)
 
@@ -545,6 +393,8 @@ final class PermissionCoordinator {
                             return publishWorkingValidated(identity)
                         case .userDeclined:
                             return publishDenied(identity, clearPermissionRequest: true)
+                        case .configurationFailure:
+                            return publishStatus(.configurationFailed, identity: identity)
                         case .transientFailure:
                             _ = publishStatus(.grantedNeedsValidation, identity: identity)
                         }
@@ -560,11 +410,16 @@ final class PermissionCoordinator {
         }
 
         if canAutoRelaunchAfterSettingsReturn(at: now()) {
-            armPendingCaptureResume(mode: pendingCaptureResumeMode() ?? .area)
+            if let pendingMode = pendingCaptureResumeMode() {
+                armPendingCaptureResume(mode: pendingMode)
+            }
             markAutoRelaunchIssued()
             _ = publishStatus(.repairing, identity: identity)
             logger.info("settings_return_auto_relaunch with TCC reset")
-            await resetTCCEntry()
+            guard await resetTCCEntry() else {
+                clearPendingCaptureResume()
+                return publishExplicitFailure(for: identity, clearPermissionRequest: true)
+            }
             relaunchApp()
             return .repairing
         }
@@ -588,6 +443,12 @@ final class PermissionCoordinator {
         // If CG is granted, attempt silent repair before showing any alert.
         // Repair is best-effort — on Tahoe, replayd restart may be blocked by SIP.
         if status != .denied {
+            if status == .configurationFailed {
+                clearPendingCaptureResume()
+                statusMessageSink(nonBlockingMessage(for: status))
+                updateCooldownInModel(cooldownActive: false)
+                return status
+            }
             logger.info("silent_repair_attempt best_effort=true")
             let repairResult = await repairSCKAccess()
             if repairResult == .authorized {
@@ -622,6 +483,13 @@ final class PermissionCoordinator {
         if interactiveResult == .authorized {
             return publishWorkingValidated(identity)
         }
+        if interactiveResult == .configurationFailure {
+            let configurationStatus = publishStatus(.configurationFailed, identity: identity)
+            clearPendingCaptureResume()
+            statusMessageSink(nonBlockingMessage(for: configurationStatus))
+            updateCooldownInModel(cooldownActive: false)
+            return configurationStatus
+        }
 
         if interactiveResult == .transientFailure,
            cooldownPolicy.canAttemptAutoRepairRelaunch(),
@@ -640,8 +508,10 @@ final class PermissionCoordinator {
             await alertPresenter(.confirmRepairRelaunch)
             if alertRequestedRelaunch() {
                 logger.info("user_approved_repair_relaunch — TCC reset + relaunch")
-                await performTCCResetAndRelaunch()
-                return .repairing
+                if await performTCCResetAndRelaunch() {
+                    return .repairing
+                }
+                return publishExplicitFailure(for: identity, clearPermissionRequest: true)
             }
             // User declined the destructive repair. Do NOT fall through
             // to a second modal alert — that's two blocking prompts
@@ -695,11 +565,17 @@ final class PermissionCoordinator {
 
     /// Reset the TCC entry, restart replayd to clear its approval cache,
     /// then relaunch so the system re-prompts for permission.
-    func performTCCResetAndRelaunch() async {
-        await resetTCCEntry()
+    @discardableResult
+    func performTCCResetAndRelaunch() async -> Bool {
+        guard await resetTCCEntry() else {
+            statusMessageSink("Screen Recording reset failed. Restart Caloura and try again.")
+            clearPendingCaptureResume()
+            return false
+        }
         _ = await repairSCKAccess()
         pendingCaptureResumeRequiresRelaunch = true
         relaunchApp()
+        return true
     }
 
 }
@@ -788,7 +664,11 @@ private extension PermissionCoordinator {
         switch status {
         case .working, .denied:
             clearDiagnosedFailure()
-        case .grantedNeedsValidation, .needsRelaunch, .staleRecord, .repairing:
+        case .grantedNeedsValidation,
+             .needsRelaunch,
+             .staleRecord,
+             .repairing,
+             .configurationFailed:
             break
         }
         updateUIModel(status: status, identity: identity)
@@ -819,7 +699,8 @@ private extension PermissionCoordinator {
              .needsRelaunch,
              .grantedNeedsValidation,
              .working,
-             .repairing:
+             .repairing,
+             .configurationFailed:
             return .grantedButFailing
         }
     }

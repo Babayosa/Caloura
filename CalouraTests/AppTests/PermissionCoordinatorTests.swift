@@ -257,7 +257,10 @@ final class PermissionCoordinatorTests: XCTestCase {
             identityProvider: { PermissionTestHelpers.makeIdentity("tcc-reset") },
             statusMessageSink: { _ in },
             now: { Date(timeIntervalSince1970: 8_000) },
-            resetTCCEntry: { resetCalled = true },
+            resetTCCEntry: {
+                resetCalled = true
+                return true
+            },
             relaunchApp: { relaunchCalled = true }
         )
 

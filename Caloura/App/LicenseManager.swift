@@ -119,6 +119,7 @@ final class LicenseManager {
     @ObservationIgnored private static let logger = Logger(subsystem: "com.caloura.app", category: "License")
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private let verifier: LicenseEntitlementVerifier
+    @ObservationIgnored private let licensePersistenceMatchesMemory: @MainActor (AppSettings) -> Bool
 
     private(set) var activationState: ActivationState = .checking
 
@@ -128,9 +129,13 @@ final class LicenseManager {
         settings: AppSettings,
         session: URLSession = .shared,
         now: @escaping @Sendable () -> Date = Date.init,
-        verificationConfiguration: LicenseVerificationConfiguration = .bundleDefault()
+        verificationConfiguration: LicenseVerificationConfiguration = .bundleDefault(),
+        licensePersistenceMatchesMemory: @escaping @MainActor (AppSettings) -> Bool = {
+            $0.licenseStatePersistenceMatchesMemory()
+        }
     ) {
         self.now = now
+        self.licensePersistenceMatchesMemory = licensePersistenceMatchesMemory
         self.verifier = LicenseEntitlementVerifier(
             session: session,
             now: now,
@@ -183,6 +188,13 @@ final class LicenseManager {
         case .valid(let entitlement):
             settings.licenseKey = normalizedKey
             settings.updateLicenseEntitlement(entitlement)
+            guard licensePersistenceMatchesMemory(settings) else {
+                settings.licenseKey = ""
+                settings.updateLicenseEntitlement(nil)
+                activationState = .activationFailed("License could not be saved securely.")
+                Self.logger.error("License activation failed: secure persistence verification failed.")
+                return
+            }
             activationState = .licensed
             scheduleRevalidationIfNeeded(settings: settings)
             Self.logger.info("License activated successfully.")
@@ -278,6 +290,17 @@ final class LicenseManager {
         switch await verifier.verify(key: key, existingEntitlement: existingEntitlement) {
         case .valid(let entitlement):
             settings.updateLicenseEntitlement(entitlement)
+            guard licensePersistenceMatchesMemory(settings) else {
+                Self.logger.error("License re-validation failed: secure persistence verification failed.")
+                settings.updateLicenseEntitlement(existingEntitlement)
+                handleDeferredRevalidationFailure(
+                    key: key,
+                    settings: settings,
+                    reason: "secure persistence failure",
+                    entitlementForDeferral: existingEntitlement
+                )
+                return
+            }
             activationState = .licensed
             scheduleRevalidationIfNeeded(settings: settings)
             Self.logger.info("License re-validation succeeded.")
@@ -303,10 +326,11 @@ final class LicenseManager {
     private func handleDeferredRevalidationFailure(
         key: String,
         settings: AppSettings,
-        reason: String
+        reason: String,
+        entitlementForDeferral: LicenseEntitlement? = nil
     ) {
         let now = now()
-        if let entitlement = settings.currentLicenseEntitlement,
+        if let entitlement = entitlementForDeferral ?? settings.currentLicenseEntitlement,
            entitlement.isCurrentlyValid(at: now) {
             activationState = .licensed
             Self.logger.info("License re-validation deferred: \(reason, privacy: .public)")

@@ -65,7 +65,7 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 ### Release build numbers should come from release metadata, not timestamps
 - **Rule**: Release archive overrides should use deterministic release metadata for the build number so equivalent release inputs produce equivalent artifacts.
 - **Context**: Timestamped build numbers make manifests, appcast validation, and post-release comparisons drift for reasons that have nothing to do with the release contents.
-- **Example**: `scripts/release.sh` now uses the requested release version for `CURRENT_PROJECT_VERSION` instead of `date +%Y%m%d%H%M%S`.
+- **Example**: `scripts/release.sh` now derives `CURRENT_PROJECT_VERSION` from the requested semantic release version with a stable numeric mapping instead of `date +%Y%m%d%H%M%S` or a stale project build setting.
 
 ### Live appcast validation belongs in publish, not pre-release gating
 - **Rule**: Keep local appcast/manifest validation in pre-release checks, but validate the live feed only after the publish step updates the site repo.
@@ -83,9 +83,9 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Example**: `CalouraUITests.setUpWithError()` now returns `(XCUIApplication, XCUIElement)` from the actor closure and assigns both properties after the closure exits.
 
 ### Type-ID-guarded CF bridges do not need `unsafeBitCast`
-- **Rule**: After validating a CoreFoundation type with its runtime type ID, prefer a normal forced cast over `unsafeBitCast`.
-- **Context**: The runtime type check already establishes the expected CF type, so `unsafeBitCast` adds no value and increases the apparent crash surface in audits.
-- **Example**: `AXElementHandle`, `AXValueHandle`, and `SecRequirementHandle` now use `as!` after `CFGetTypeID(...)` guards instead of `unsafeBitCast(...)`.
+- **Rule**: After validating a CoreFoundation type with its runtime type ID, avoid `unsafeBitCast`; use the narrowest cast form that both Swift and SwiftLint accept.
+- **Context**: Normal forced casts work for some CF wrappers, but Security CF aliases can make Swift reject optional casts as always succeeding while SwiftLint rejects `as!`. A type-ID guard plus `unsafeDowncast` is acceptable for that shape because the runtime type has already been proven.
+- **Example**: `AXElementHandle` and `AXValueHandle` use normal casts after `CFGetTypeID(...)`; `SecRequirementHandle` uses a type-ID guard before `unsafeDowncast(...)` because `as? SecRequirement` does not compile and `as! SecRequirement` fails lint.
 
 ### Xcode app builds can surface sendability errors that SwiftPM misses
 - **Rule**: After `swift build` passes, still run an Xcode build path when a target uses cached Cocoa framework objects in static storage.

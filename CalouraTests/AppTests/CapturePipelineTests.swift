@@ -27,7 +27,7 @@ final class CapturePipelineTests: XCTestCase {
             },
             copyToClipboard: { _, _ in copyToClipboardCalled = true },
             showQuickAccess: { _ in showQuickAccessCalled = true },
-            postNotification: { _ in notificationPosted = true }
+            postNotification: { _, _ in notificationPosted = true }
         )
         pipeline.settings.autoCopyToClipboard = true
 
