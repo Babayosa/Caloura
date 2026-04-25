@@ -141,7 +141,7 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
             cursorLogger.debug("scheduleReprime: cursorActive=false, dropping reprime")
             return
         }
-        pendingReprime?.cancel()
+        guard pendingReprime == nil else { return }
         pendingReprime = scheduler.schedule { [weak self] in
             guard let self, self.cursorActive else { return }
             self.pendingReprime = nil

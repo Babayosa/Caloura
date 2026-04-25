@@ -47,7 +47,35 @@ final class CaptureCursorControllerTests: XCTestCase {
         controller.endCrosshairSession()
     }
 
-    func testDidBecomeActiveSchedulesOneBoundedReprime() {
+    func testDidBecomeActiveDoesNotStarvePendingReprime() {
+        let driver = CaptureCrosshairDriverSpy()
+        let scheduler = CaptureCursorSchedulerSpy()
+        let controller = CaptureCursorController(
+            crosshairDriver: driver,
+            scheduler: scheduler,
+            notificationCenter: NotificationCenter()
+        )
+
+        controller.beginCrosshairSession()
+
+        controller.handleApplicationDidBecomeActive()
+        controller.handleApplicationDidBecomeActive()
+
+        XCTAssertEqual(scheduler.scheduleCalls, 1)
+        XCTAssertEqual(scheduler.pendingCount, 1)
+        XCTAssertEqual(scheduler.cancelledCount, 0)
+
+        scheduler.runPendingActions()
+
+        // Initial push + the original pending reprime. Repeated events must
+        // not keep cancelling the action that reclaims the cursor from AppKit.
+        XCTAssertEqual(driver.pushCalls, 2)
+        XCTAssertEqual(scheduler.pendingCount, 0)
+
+        controller.endCrosshairSession()
+    }
+
+    func testScheduleReprimeAfterPendingActionRunsSchedulesAgain() {
         let driver = CaptureCrosshairDriverSpy()
         let scheduler = CaptureCursorSchedulerSpy()
         let controller = CaptureCursorController(
@@ -59,18 +87,10 @@ final class CaptureCursorControllerTests: XCTestCase {
         controller.beginCrosshairSession()
         scheduler.runPendingActions()
 
-        controller.handleApplicationDidBecomeActive()
-        controller.handleApplicationDidBecomeActive()
+        controller.scheduleReprime()
 
-        // Each call cancels+reschedules (3 total: begin + 2× didBecomeActive)
-        XCTAssertEqual(scheduler.scheduleCalls, 3)
+        XCTAssertEqual(scheduler.scheduleCalls, 2)
         XCTAssertEqual(scheduler.pendingCount, 1)
-
-        scheduler.runPendingActions()
-
-        // Initial push + begin reprime + didBecomeActive reprime
-        XCTAssertEqual(driver.pushCalls, 3)
-        XCTAssertEqual(scheduler.pendingCount, 0)
 
         controller.endCrosshairSession()
     }

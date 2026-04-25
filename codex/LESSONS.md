@@ -187,6 +187,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: Nonactivating panels can briefly miss key-window cursor-update delivery, which makes the selection overlay visible while the cursor remains an arrow until another event re-primes it.
 - **Example**: `RegionSelectionView` now uses an `.activeAlways` cursor-update tracking area, and overlay/window reuse paths call `handleCursorUpdate()` before scheduling deferred re-prime.
 
+### Cursor re-prime scheduling must not debounce mouse movement
+- **Rule**: Capture cursor re-prime should keep the first pending action instead of canceling and rescheduling it on every mouse/cursor event.
+- **Context**: A debounce can starve the only strong pop/push crosshair reassertion while the user keeps moving the mouse into the area overlay, leaving AppKit's arrow cursor visible throughout selection mode.
+- **Example**: `CaptureCursorController.scheduleReprime()` now returns when a re-prime is already pending, allowing the pending action to run and reclaim crosshair ownership.
+
 ## Capture / Scroll
 
 ### Zero-displacement must stay in bounded overlap searches

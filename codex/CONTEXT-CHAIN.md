@@ -732,6 +732,19 @@ Running log of completed tasks. Read this to understand what changed before your
 **Decisions Made:**
 - Kept the stable path requirement strict while allowing a wider bounded handoff window for macOS translocation/relaunch timing variance.
 
+## Task 28: Crosshair re-prime starvation fix
+**Status:** Complete
+**Branch:** task-28-crosshair-reprime-throttle
+**Changes:**
+- Fixed [CaptureCursorController.swift](/Users/b/Caloura/Caloura/Capture/CaptureCursorController.swift) so `scheduleReprime()` no longer cancels an already-pending cursor re-prime. The first queued pop/push reassertion now runs even while mouse/cursor events keep arriving.
+- Updated [CaptureCursorControllerTests.swift](/Users/b/Caloura/CalouraTests/AppTests/CaptureCursorControllerTests.swift) to cover the non-starving pending re-prime behavior and verify a new re-prime can be scheduled after the first action runs.
+
+**Validation:**
+- `swift test --filter CaptureCursorControllerTests`
+
+**Decisions Made:**
+- Treated this as a cursor ownership scheduling bug rather than adding another timer/watchdog. The controller now coalesces pending work by keeping the first scheduled action instead of debouncing it away.
+
 ---
 
 <!-- Add new task entries above this line -->
