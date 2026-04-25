@@ -98,7 +98,7 @@ executable_path_for_pid() {
 }
 
 wait_for_stable_applications_launch() {
-  local attempts="${STABLE_LAUNCH_ATTEMPTS:-20}"
+  local attempts="${STABLE_LAUNCH_ATTEMPTS:-60}"
   local attempt=1
   local launched_pids
   local pid

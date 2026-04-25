@@ -269,7 +269,7 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 ### Public download QA should poll AppTranslocation convergence
 - **Rule**: When validating a quarantined installed launch, allow a short bounded poll for Caloura to self-relaunch from AppTranslocation into `/Applications` before failing.
 - **Context**: Gatekeeper can start the first process from a translocated path even after the app-side fix is present; the correctness property is that the app clears quarantine and converges to `/Applications`, not that the first PID is already stable.
-- **Example**: `public_download_qa.sh` now polls process executable paths until every `Caloura` PID is `/Applications/Caloura.app/Contents/MacOS/Caloura`, then fails if convergence never happens.
+- **Example**: `public_download_qa.sh` now polls process executable paths for up to 60 seconds until every `Caloura` PID is `/Applications/Caloura.app/Contents/MacOS/Caloura`, then fails if convergence never happens.
 
 ### Publish reruns must be idempotent after site push
 - **Rule**: Publishing should continue to live validation and public-download QA when release files are already committed to the site repo.

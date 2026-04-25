@@ -720,6 +720,18 @@ Running log of completed tasks. Read this to understand what changed before your
 **Decisions Made:**
 - Kept downgrade protection strict for lower build numbers and mismatched equal-build appcasts; only exact manifest-matching reruns are treated as safe.
 
+## Task 27: Extend stable launch polling window
+**Status:** Complete
+**Branch:** task-27-extend-stable-launch-poll
+**Changes:**
+- Increased [public_download_qa.sh](/Users/b/Caloura/scripts/public_download_qa.sh) stable-launch polling from 20 seconds to 60 seconds after a real `2.4.4` publish rerun showed Gatekeeper/AppTranslocation convergence completing just after the 20-second window.
+
+**Validation:**
+- Validated by rerunning `SKIP_BUILD=1 ./scripts/publish.sh 2.4.4`; public-download QA observed transient AppTranslocation PIDs and then passed once Caloura relaunched from `/Applications`.
+
+**Decisions Made:**
+- Kept the stable path requirement strict while allowing a wider bounded handoff window for macOS translocation/relaunch timing variance.
+
 ---
 
 <!-- Add new task entries above this line -->
