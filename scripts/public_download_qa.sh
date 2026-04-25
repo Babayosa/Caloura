@@ -46,8 +46,11 @@ require_version() {
 }
 
 detach_dmg_if_needed() {
-  if mount | grep -q "on ${DMG_MOUNT} "; then
-    hdiutil detach "$DMG_MOUNT" >/dev/null 2>&1 || true
+  local physical_mount
+  physical_mount="$(cd "$(dirname "$DMG_MOUNT")" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$(basename "$DMG_MOUNT")")"
+  if mount | grep -Fq " on ${DMG_MOUNT} " || mount | grep -Fq " on ${physical_mount} "; then
+    hdiutil detach "$DMG_MOUNT" >/dev/null 2>&1 || \
+      hdiutil detach "$physical_mount" >/dev/null 2>&1 || true
   fi
 }
 
@@ -87,6 +90,31 @@ ensure_app_not_running() {
     pgrep -fl "$APP_NAME" || true
     exit 1
   fi
+}
+
+executable_path_for_pid() {
+  local pid="$1"
+  ps -p "$pid" -o comm= 2>/dev/null | sed 's/^[[:space:]]*//'
+}
+
+verify_stable_applications_launch() {
+  local launched_pids="$1"
+  local pid
+  local executable_path
+
+  for pid in $launched_pids; do
+    executable_path="$(executable_path_for_pid "$pid")"
+    echo "  pid ${pid}: ${executable_path:-unknown executable path}"
+    if [[ "$executable_path" == *"/AppTranslocation/"* ]]; then
+      echo "ERROR: $APP_NAME launched from AppTranslocation instead of /Applications."
+      echo "       The installed copy likely still has quarantine attached."
+      exit 1
+    fi
+    if [[ "$executable_path" != "$INSTALL_PATH/Contents/MacOS/$APP_NAME" ]]; then
+      echo "ERROR: $APP_NAME launched from an unexpected path: ${executable_path:-unknown}"
+      exit 1
+    fi
+  done
 }
 
 verify_public_artifacts() {
@@ -144,6 +172,7 @@ PY
 install_public_app() {
   require_version "install"
   print_header "Download DMG + Install Public App"
+  detach_dmg_if_needed
   rm -f "$DMG_PATH"
   rm -rf "$DMG_MOUNT"
   mkdir -p "$DMG_MOUNT"
@@ -252,6 +281,7 @@ launch_public_app() {
     exit 1
   fi
   pgrep -fl "$APP_NAME"
+  verify_stable_applications_launch "$launched_pids"
 
   print_storage_snapshot
 }

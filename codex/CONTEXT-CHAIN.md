@@ -665,4 +665,24 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 23: Public download QA cleanup
+**Status:** Complete
+**Branch:** task-23-public-download-qa-cleanup
+**Changes:**
+- Fixed [public_download_qa.sh](/Users/b/Caloura/scripts/public_download_qa.sh) so DMG cleanup detaches a mounted image using both the requested mountpoint and the physical `/private/var/...` path reported by macOS.
+- Fixed [AppMover.swift](/Users/b/Caloura/Caloura/App/AppMover.swift) so a process launched from AppTranslocation does not treat the randomized `/private/var/.../AppTranslocation/...` path as the install source of truth when the same version/build already exists in `/Applications`. Caloura clears quarantine on that installed bundle and relaunches the stable copy; a newer manual DMG can still replace an older installed copy.
+- Added public-download QA enforcement that the launched executable path is `/Applications/Caloura.app/Contents/MacOS/Caloura`, not AppTranslocation.
+- Re-ran public download QA for `2.4.3` after publish: public DMG install succeeded, the quarantined installed app passed Gatekeeper as Notarized Developer ID, and the app stayed running after launch. Follow-up code changes now make that check fail if the app remains translocated.
+
+**Validation:**
+- `swift test --filter AppMoverTests`
+- `SIMULATE_QUARANTINE=1 ./scripts/public_download_qa.sh --version 2.4.3 install`
+- `REQUIRE_QUARANTINE=1 ./scripts/public_download_qa.sh --version 2.4.3 launch`
+
+**Decisions Made:**
+- Kept the DMG cleanup fix inside the existing QA path rather than changing release artifacts; the live `2.4.3` appcast and downloads were already published and validated before the cleanup failure.
+- Treated AppTranslocation as a release correctness failure, not a harmless launch detail, because it breaks the install-first/TCC identity model.
+
+---
+
 <!-- Add new task entries above this line -->

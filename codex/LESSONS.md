@@ -256,6 +256,16 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: A simple `pgrep` check can falsely pass when a developer copy of the app was already running before QA started, which makes the launch validation meaningless for production downloads.
 - **Example**: `scripts/public_download_qa.sh` now stops any existing `Caloura` process before `open -a`, captures the newly launched PIDs, and fails if no fresh app process remains running.
 
+### DMG QA cleanup must detach by the physical mount path
+- **Rule**: Before cleaning a public-download QA mount directory, detach the DMG by both the requested mountpoint and its physical `pwd -P` path.
+- **Context**: macOS can report `/private/var/...` in `mount` even when the script requested `/var/...`; checking only the requested path missed a live read-only DMG mount and cleanup attempted to remove mounted files.
+- **Example**: `scripts/public_download_qa.sh` now resolves the physical mount path in `detach_dmg_if_needed()` before any install-phase mount directory cleanup.
+
+### AppTranslocation must not replace a matching installed copy
+- **Rule**: If a release app is running from `/private/var/.../AppTranslocation/...` and the same version/build already exists in `/Applications`, relaunch the stable installed copy after clearing quarantine instead of copying from the translocated path.
+- **Context**: A quarantined installed app can launch through Gatekeeper's randomized AppTranslocation mount. Treating that path as "not installed" makes the in-app move flow try to replace `/Applications/Caloura.app` from a synthetic read-only source; however, a newer manual DMG must still be allowed to replace an older installed app.
+- **Example**: `AppMover` now compares source and installed bundle version/build before choosing relaunch vs replacement; `public_download_qa.sh` fails if the launched executable path is still under AppTranslocation.
+
 ### Permission diagnostics should separate installed-app logs from XCTest hosts
 - **Rule**: Operational Screen Recording diagnostics must report installed-app logs separately from `xctest` logs so failure-path tests do not look like live permission regressions.
 - **Context**: `scripts/permission_diagnose.sh` originally tailed all matching subsystem logs together, which made a healthy installed app appear denied immediately after permission tests ran.

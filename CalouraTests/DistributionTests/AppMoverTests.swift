@@ -22,8 +22,10 @@ final class AppMoverTests: XCTestCase {
         var copyCalls: [(String, String)] = []
         var moveCalls: [(URL, URL)] = []
         var removeCalls: [URL] = []
+        var clearQuarantineCalls: [URL] = []
         var launchCalls: [URL] = []
         var terminateCount = 0
+        var bundleIdentitiesByPath: [String: String] = [:]
     }
 
     private func makeHooks(
@@ -58,6 +60,12 @@ final class AppMoverTests: XCTestCase {
             },
             remove: { url in
                 recorder.removeCalls.append(url)
+            },
+            clearQuarantine: { url in
+                recorder.clearQuarantineCalls.append(url)
+            },
+            bundleIdentity: { path in
+                recorder.bundleIdentitiesByPath[path]
             },
             launch: { url in
                 recorder.launchCalls.append(url)
@@ -215,5 +223,75 @@ final class AppMoverTests: XCTestCase {
         )
         XCTAssertEqual(recorder.copyCalls.count, 0, "must not copy when trashing failed")
         XCTAssertEqual(recorder.moveCalls.count, 0, "no rollback when there's nothing trashed")
+    }
+
+    // MARK: - App Translocation → relaunch installed copy
+
+    func testTranslocatedExistingApplicationsCopyRelaunchesWithoutReplacingDestination() {
+        let recorder = Recorder()
+        let hooks = makeHooks(recorder: recorder, destinationExists: true)
+        let source = "/private/var/folders/x/T/AppTranslocation/ABC/d/Caloura.app"
+        let destinationURL = URL(fileURLWithPath: "/Applications/Caloura.app")
+        recorder.bundleIdentitiesByPath = [
+            source: "2.4.3|200040003000000",
+            destinationURL.path: "2.4.3|200040003000000"
+        ]
+
+        let result = AppMover.moveToApplicationsFolder(
+            source: source,
+            destinationURL: destinationURL,
+            hooks: hooks
+        )
+
+        XCTAssertEqual(result, .moving)
+        XCTAssertEqual(recorder.trashCalls.count, 0, "must not trash an installed copy from a translocated process")
+        XCTAssertEqual(recorder.copyCalls.count, 0, "must not copy from the randomized translocation mount")
+        XCTAssertEqual(recorder.clearQuarantineCalls, [destinationURL])
+        XCTAssertEqual(recorder.launchCalls, [destinationURL])
+        XCTAssertEqual(recorder.terminateCount, 1)
+    }
+
+    func testTranslocatedNewerDownloadStillReplacesOlderApplicationsCopy() {
+        let recorder = Recorder()
+        let hooks = makeHooks(recorder: recorder, destinationExists: true)
+        let source = "/private/var/folders/x/T/AppTranslocation/DEF/d/Caloura.app"
+        let destinationURL = URL(fileURLWithPath: "/Applications/Caloura.app")
+        recorder.bundleIdentitiesByPath = [
+            source: "2.4.4|200040004000000",
+            destinationURL.path: "2.4.3|200040003000000"
+        ]
+
+        let result = AppMover.moveToApplicationsFolder(
+            source: source,
+            destinationURL: destinationURL,
+            hooks: hooks
+        )
+
+        XCTAssertEqual(result, .moving)
+        XCTAssertEqual(recorder.trashCalls, [destinationURL])
+        XCTAssertEqual(recorder.copyCalls.count, 1)
+        XCTAssertEqual(recorder.copyCalls.first?.0, source)
+        XCTAssertEqual(recorder.copyCalls.first?.1, destinationURL.path)
+        XCTAssertEqual(recorder.clearQuarantineCalls, [destinationURL])
+        XCTAssertEqual(recorder.launchCalls, [destinationURL])
+        XCTAssertEqual(recorder.terminateCount, 1)
+    }
+
+    func testSuccessfulMoveClearsQuarantineBeforeRelaunch() {
+        let recorder = Recorder()
+        let hooks = makeHooks(recorder: recorder)
+        let destinationURL = URL(fileURLWithPath: "/Applications/Caloura.app")
+
+        let result = AppMover.performMove(
+            source: "/Users/me/Downloads/Caloura.app",
+            destinationURL: destinationURL,
+            hooks: hooks
+        )
+
+        XCTAssertEqual(result, .moving)
+        XCTAssertEqual(recorder.copyCalls.count, 1)
+        XCTAssertEqual(recorder.clearQuarantineCalls, [destinationURL])
+        XCTAssertEqual(recorder.launchCalls, [destinationURL])
+        XCTAssertEqual(recorder.terminateCount, 1)
     }
 }

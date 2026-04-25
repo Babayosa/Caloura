@@ -94,6 +94,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Self.cleanupStaleTempFilesInBackground()
 
+        if AppMover.relaunchIfCurrentProcessIsTranslocatedInstall() {
+            return
+        }
+
         if AppMover.currentInstallState != .inApplications {
             onboardingController.show(
                 settings: AppSettings.shared,
