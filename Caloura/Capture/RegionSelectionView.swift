@@ -165,11 +165,13 @@ final class RegionSelectionView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         if window?.isKeyWindow == false { window?.makeKey() }
+        cursorController?.handleCursorUpdate()
         cursorController?.scheduleReprime()
     }
 
     override func mouseMoved(with event: NSEvent) {
         if window?.isKeyWindow == false { window?.makeKey() }
+        cursorController?.handleCursorUpdate()
         cursorController?.scheduleReprime()
     }
 

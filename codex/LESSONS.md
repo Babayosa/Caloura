@@ -192,6 +192,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: A debounce can starve the only strong pop/push crosshair reassertion while the user keeps moving the mouse into the area overlay, leaving AppKit's arrow cursor visible throughout selection mode.
 - **Example**: `CaptureCursorController.scheduleReprime()` now returns when a re-prime is already pending, allowing the pending action to run and reclaim crosshair ownership.
 
+### Mouse movement must synchronously own the capture cursor
+- **Rule**: During capture selection, mouse-entered and mouse-moved handling must synchronously reinstall the crosshair with balanced push/pop ownership; delayed re-prime alone is not sufficient.
+- **Context**: AppKit can recompute cursor state during active mouse movement and briefly restore the arrow between delayed re-primes. Calling only `NSCursor.set()` or scheduling a later repair leaves visible flicker.
+- **Example**: `RegionSelectionView.mouseMoved` now calls `handleCursorUpdate()`, and `CaptureCursorController.handleCursorUpdate()` uses the same push-before-pop reinstall path as deferred re-prime.
+
 ## Capture / Scroll
 
 ### Zero-displacement must stay in bounded overlap searches

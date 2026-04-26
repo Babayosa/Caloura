@@ -745,6 +745,20 @@ Running log of completed tasks. Read this to understand what changed before your
 **Decisions Made:**
 - Treated this as a cursor ownership scheduling bug rather than adding another timer/watchdog. The controller now coalesces pending work by keeping the first scheduled action instead of debouncing it away.
 
+## Task 29: Crosshair mouse-move ownership fix
+**Status:** Complete
+**Branch:** task-29-crosshair-move-ownership
+**Changes:**
+- Fixed [CaptureCursorController.swift](/Users/b/Caloura/Caloura/Capture/CaptureCursorController.swift) so `handleCursorUpdate()` synchronously reinstalls the crosshair with balanced push/pop ownership instead of relying on weak `NSCursor.set()`.
+- Updated [RegionSelectionView.swift](/Users/b/Caloura/Caloura/Capture/RegionSelectionView.swift) so `mouseEntered` and `mouseMoved` immediately reassert cursor ownership before scheduling deferred re-prime.
+- Extended [CaptureCursorControllerTests.swift](/Users/b/Caloura/CalouraTests/AppTests/CaptureCursorControllerTests.swift) to assert push-before-pop ordering and balanced repeated cursor updates.
+
+**Validation:**
+- `swift test --filter CaptureCursorControllerTests`
+
+**Decisions Made:**
+- Removed the remaining weak cursor path from active area-selection movement instead of adding more delayed retries.
+
 ---
 
 <!-- Add new task entries above this line -->

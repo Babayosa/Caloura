@@ -130,10 +130,10 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
 
     func handleCursorUpdate() {
         guard cursorActive else {
-            cursorLogger.debug("handleCursorUpdate: cursorActive=false, dropping .set()")
+            cursorLogger.debug("handleCursorUpdate: cursorActive=false, dropping cursor update")
             return
         }
-        crosshairDriver.setCrosshair()
+        reinstallCrosshair()
     }
 
     func scheduleReprime() {
@@ -145,14 +145,7 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
         pendingReprime = scheduler.schedule { [weak self] in
             guard let self, self.cursorActive else { return }
             self.pendingReprime = nil
-            // Push new crosshair BEFORE popping the old one so there is never a
-            // frame in which the cursor stack reverts to the arrow — that gap
-            // caused visible flicker while the mouse was moving.
-            let wasPushed = self.pushed
-            self.crosshairDriver.pushCrosshair()
-            if wasPushed { self.crosshairDriver.popCrosshair() }
-            self.pushed = true
-            self.crosshairDriver.setCrosshair()
+            self.reinstallCrosshair()
         }
     }
 
@@ -196,5 +189,17 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
     @objc
     private func handleSpaceDidChangeNotification(_ notification: Notification) {
         scheduleReprime()
+    }
+
+    private func reinstallCrosshair() {
+        // Push new crosshair BEFORE popping the old one so there is never a
+        // frame in which the cursor stack reverts to the arrow.
+        let wasPushed = pushed
+        crosshairDriver.pushCrosshair()
+        if wasPushed {
+            crosshairDriver.popCrosshair()
+        }
+        pushed = true
+        crosshairDriver.setCrosshair()
     }
 }

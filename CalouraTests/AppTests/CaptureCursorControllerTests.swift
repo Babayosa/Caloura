@@ -21,9 +21,10 @@ final class CaptureCursorControllerTests: XCTestCase {
 
         scheduler.runPendingActions()
 
-        // Reprime pops then pushes
+        // Reprime reinstalls the crosshair without an arrow gap.
         XCTAssertEqual(driver.popCalls, 1)
         XCTAssertEqual(driver.pushCalls, 2)
+        XCTAssertEqual(driver.events, [.push, .push, .pop, .set])
         XCTAssertEqual(scheduler.pendingCount, 0)
 
         controller.endCrosshairSession()
@@ -141,9 +142,35 @@ final class CaptureCursorControllerTests: XCTestCase {
         controller.beginCrosshairSession()
         controller.handleCursorUpdate()
 
+        XCTAssertEqual(driver.pushCalls, 2)
+        XCTAssertEqual(driver.popCalls, 1)
         XCTAssertEqual(driver.setCalls, 1)
+        XCTAssertEqual(driver.events, [.push, .push, .pop, .set])
 
         controller.endCrosshairSession()
+    }
+
+    func testRepeatedCursorUpdatesKeepCrosshairOwnershipBalanced() {
+        let driver = CaptureCrosshairDriverSpy()
+        let scheduler = CaptureCursorSchedulerSpy()
+        let controller = CaptureCursorController(
+            crosshairDriver: driver,
+            scheduler: scheduler,
+            notificationCenter: NotificationCenter()
+        )
+
+        controller.beginCrosshairSession()
+        controller.handleCursorUpdate()
+        controller.handleCursorUpdate()
+        controller.handleCursorUpdate()
+
+        XCTAssertEqual(driver.pushCalls, 4)
+        XCTAssertEqual(driver.popCalls, 3)
+        XCTAssertEqual(driver.setCalls, 3)
+
+        controller.endCrosshairSession()
+
+        XCTAssertEqual(driver.popCalls, 4)
     }
 
     func testResetCursorStateClearsLeakedActiveSessionAndAllowsFreshBegin() {
@@ -215,20 +242,30 @@ final class CaptureCursorControllerTests: XCTestCase {
 
 @MainActor
 private final class CaptureCrosshairDriverSpy: CaptureCrosshairDriving {
+    enum Event: Equatable {
+        case set
+        case push
+        case pop
+    }
+
     private(set) var setCalls = 0
     private(set) var pushCalls = 0
     private(set) var popCalls = 0
+    private(set) var events: [Event] = []
 
     func setCrosshair() {
         setCalls += 1
+        events.append(.set)
     }
 
     func pushCrosshair() {
         pushCalls += 1
+        events.append(.push)
     }
 
     func popCrosshair() {
         popCalls += 1
+        events.append(.pop)
     }
 }
 
