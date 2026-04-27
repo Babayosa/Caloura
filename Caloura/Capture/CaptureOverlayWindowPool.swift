@@ -7,7 +7,11 @@ final class CaptureOverlayWindowPool {
     private weak var lastCursorController: CaptureCursorControlling?
     private let screensProvider: @MainActor () -> [NSScreen]
 
-    init(screensProvider: @escaping @MainActor () -> [NSScreen] = { CaptureOverlayWindow.orderedPresentationScreens() }) {
+    init(
+        screensProvider: @escaping @MainActor () -> [NSScreen] = {
+            CaptureOverlayWindow.orderedPresentationScreens()
+        }
+    ) {
         self.screensProvider = screensProvider
     }
 
@@ -29,7 +33,7 @@ final class CaptureOverlayWindowPool {
     }
 
     func release() {
-        // Safety net: coordinator paths normally call endCrosshairSession on
+        // Safety net: coordinator paths normally end their cursor session on
         // the controller, but bypass paths (screen reconfig teardown, abnormal
         // unwind) reach the pool directly. resetCursorState is idempotent.
         lastCursorController?.resetCursorState()

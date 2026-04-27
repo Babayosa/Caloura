@@ -39,6 +39,7 @@ final class AreaCaptureSessionCoordinator {
     private(set) var overlayWindows: [CaptureOverlayWindow] = []
     private var frozenImages: [NSScreen: CGImage] = [:]
     private var firstInteractionRecorded = false
+    private var cursorSession: (any CaptureCursorSessionHandling)?
 
     init(
         session: CapturePerformanceRecorder.Session,
@@ -61,14 +62,12 @@ final class AreaCaptureSessionCoordinator {
         frozenImages = [:]
         overlayWindows = windows
 
-        // Cursor session MUST begin before any overlay is ordered front. Otherwise
+        // Cursor session MUST start before any overlay is ordered front. Otherwise
         // becomeKey() fires synchronously inside makeKeyAndOrderFront(nil), and
         // CaptureOverlayWindow.primeCrosshair()'s scheduleReprime() silently
-        // no-ops because cursorActive is still false. resetCursorState() clears
-        // any leaked state from a prior session that bypassed endCrosshairSession
-        // (e.g., screen reconfiguration teardown).
-        cursorController.resetCursorState()
-        cursorController.beginCrosshairSession()
+        // no-ops because cursorActive is still false.
+        cursorSession?.end()
+        cursorSession = cursorController.startCrosshairSession()
 
         for (index, window) in windows.enumerated() {
             if suppressDimming {
@@ -139,8 +138,13 @@ final class AreaCaptureSessionCoordinator {
     }
 
     private func releaseOverlays() {
-        cursorController.endCrosshairSession()
+        for overlay in overlayWindows {
+            overlay.tearDownHandlers()
+            overlay.orderOut(nil)
+        }
         overlayWindows = []
+        cursorSession?.end()
+        cursorSession = nil
     }
 }
 
@@ -164,6 +168,7 @@ final class FullscreenCaptureSessionCoordinator {
     private let overlayPresenter: OverlayPresenter
 
     private(set) var overlayWindows: [ScreenSelectionOverlayWindow] = []
+    private var cursorSession: (any CaptureCursorSessionHandling)?
 
     private static func defaultOverlayPresenter(
         cursorController: CaptureCursorControlling?,
@@ -194,11 +199,10 @@ final class FullscreenCaptureSessionCoordinator {
     }
 
     func present() {
-        // Reset clears any leaked state from a prior session that bypassed
-        // endCrosshairSession; begin must run before the overlay presenter
+        // Start must run before the overlay presenter
         // calls makeKeyAndOrderFront so primeCrosshair's reprime can take.
-        cursorController.resetCursorState()
-        cursorController.beginCrosshairSession()
+        cursorSession?.end()
+        cursorSession = cursorController.startCrosshairSession()
         overlayWindows = overlayPresenter(
             cursorController,
             { [weak self] screen in
@@ -232,7 +236,8 @@ final class FullscreenCaptureSessionCoordinator {
             overlay.close()
         }
         overlayWindows = []
-        cursorController.endCrosshairSession()
+        cursorSession?.end()
+        cursorSession = nil
     }
 }
 

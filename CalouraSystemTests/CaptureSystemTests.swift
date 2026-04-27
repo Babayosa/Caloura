@@ -409,12 +409,10 @@ final class CaptureSystemTests: XCTestCase {
 
     func testAreaCaptureCrosshairPersistsAcrossFiveCaptures() {
         // Regression guard for the post-ship 2.4.0 crosshair-gone-forever defect.
-        // Root cause: pool teardown bypass paths (screen reconfig, abnormal unwind)
-        // left cursorActive=true, and beginCrosshairSession's idempotency guard
-        // then trapped the controller permanently — every subsequent capture's
-        // crosshair silently no-op'd. This test asserts five full present/dismiss
-        // cycles against real overlay windows each produce a balanced
-        // reset + begin + end triple, with no drift.
+        // Root cause: pool teardown bypass paths (screen reconfig, abnormal
+        // unwind) left cursorActive=true, which trapped later cursor entry.
+        // This test asserts five full present/dismiss cycles against real
+        // overlay windows each produce a balanced start/end pair.
         let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 50, reportInterval: 50)
         let session = recorder.beginSession(mode: .area)
         let cursor = CursorSpy()
@@ -442,11 +440,7 @@ final class CaptureSystemTests: XCTestCase {
             coordinator.dismiss()
         }
 
-        // Each coordinator.present contributes one reset; the first pool.acquire
-        // also triggers tearDown's safety-net reset because screenFrames starts
-        // empty. >= 5 tolerates that implementation detail while still proving
-        // every cycle reset before begin.
-        XCTAssertGreaterThanOrEqual(cursor.resetCalls, 5)
+        XCTAssertGreaterThanOrEqual(cursor.resetCalls, 1)
         XCTAssertEqual(cursor.beginCalls, 5, "each present must begin a cursor session")
         XCTAssertEqual(cursor.endCalls, 5, "each dismiss must end the cursor session")
     }
@@ -454,8 +448,8 @@ final class CaptureSystemTests: XCTestCase {
     func testAreaCaptureCrosshairRecoversAfterPoolTeardownBypass() {
         // D4 regression: simulate the exact bypass path where pool.tearDown()
         // fires outside coordinator.dismiss() (screen reconfiguration). Without
-        // resetCursorState() on the pool's release/tearDown, the next begin is
-        // trapped by the idempotency guard.
+        // resetCursorState() on the pool's release/tearDown, the next start
+        // would inherit stale cursor ownership.
         let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 10, reportInterval: 50)
         let session = recorder.beginSession(mode: .area)
         let cursor = CursorSpy()
@@ -576,9 +570,19 @@ private final class CursorSpy: CaptureCursorControlling {
     private(set) var reassertCalls = 0
     private(set) var endCalls = 0
     private(set) var resetCalls = 0
+    private var activeSessionID: UInt?
+    private var nextSessionID: UInt = 0
 
-    func beginCrosshairSession() {
+    func startCrosshairSession() -> any CaptureCursorSessionHandling {
+        nextSessionID &+= 1
+        activeSessionID = nextSessionID
         beginCalls += 1
+        let sessionID = nextSessionID
+        return CursorSessionSpy { [weak self] in
+            guard let self, self.activeSessionID == sessionID else { return }
+            self.activeSessionID = nil
+            self.endCalls += 1
+        }
     }
 
     func handleCursorUpdate() {
@@ -589,12 +593,25 @@ private final class CursorSpy: CaptureCursorControlling {
         reassertCalls += 1
     }
 
-    func endCrosshairSession() {
-        endCalls += 1
+    func resetCursorState() {
+        activeSessionID = nil
+        resetCalls += 1
+    }
+}
+
+@MainActor
+private final class CursorSessionSpy: CaptureCursorSessionHandling {
+    private let onEnd: @MainActor () -> Void
+    private var didEnd = false
+
+    init(onEnd: @escaping @MainActor () -> Void) {
+        self.onEnd = onEnd
     }
 
-    func resetCursorState() {
-        resetCalls += 1
+    func end() {
+        guard !didEnd else { return }
+        didEnd = true
+        onEnd()
     }
 }
 

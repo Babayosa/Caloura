@@ -5,14 +5,18 @@ private let cursorLogger = Logger(subsystem: "com.caloura.app", category: "Curso
 
 @MainActor
 protocol CaptureCursorControlling: AnyObject {
-    func beginCrosshairSession()
+    func startCrosshairSession() -> any CaptureCursorSessionHandling
     func handleCursorUpdate()
     func scheduleReprime()
-    func endCrosshairSession()
     /// Force-clear any leaked cursor state from a prior session that did not
-    /// reach `endCrosshairSession()`. Safe to call when no session is active.
-    /// Pool teardown and coordinator entry call this as a safety net.
+    /// reach its session token's `end()`. Safe to call when no session is active.
+    /// Pool teardown calls this as a safety net.
     func resetCursorState()
+}
+
+@MainActor
+protocol CaptureCursorSessionHandling: AnyObject {
+    func end()
 }
 
 @MainActor
@@ -89,6 +93,8 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
     private var cursorActive = false
     private var pushed = false
     private var pendingReprime: CaptureCursorScheduledAction?
+    private var activeSessionID: UInt?
+    private var nextSessionID: UInt = 0
 
     init(
         crosshairDriver: CaptureCrosshairDriving = SystemCaptureCrosshairDriver(),
@@ -114,18 +120,23 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
         )
     }
 
-    func beginCrosshairSession() {
-        guard !cursorActive else {
-            cursorLogger.debug("beginCrosshairSession: already active, no-op (idempotent)")
-            return
+    func startCrosshairSession() -> any CaptureCursorSessionHandling {
+        if cursorActive || pushed {
+            resetCursorState()
         }
+        nextSessionID &+= 1
+        let sessionID = nextSessionID
+        activeSessionID = sessionID
         cursorActive = true
         if !pushed {
             crosshairDriver.pushCrosshair()
             pushed = true
         }
-        cursorLogger.debug("beginCrosshairSession: pushed=true, cursorActive=true")
+        cursorLogger.debug(
+            "startCrosshairSession: id=\(sessionID, privacy: .public) pushed=true"
+        )
         scheduleReprime()
+        return CaptureCursorSession(controller: self, sessionID: sessionID)
     }
 
     func handleCursorUpdate() {
@@ -142,16 +153,32 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
             return
         }
         guard pendingReprime == nil else { return }
+        let scheduledSessionID = activeSessionID
         pendingReprime = scheduler.schedule { [weak self] in
-            guard let self, self.cursorActive else { return }
+            guard let self,
+                  self.cursorActive,
+                  self.activeSessionID == scheduledSessionID else {
+                return
+            }
             self.pendingReprime = nil
             self.reinstallCrosshair()
         }
     }
 
-    func endCrosshairSession() {
+    func endCrosshairSession(sessionID: UInt) {
+        guard activeSessionID == sessionID else {
+            cursorLogger.debug(
+                "endCrosshairSession: stale token id=\(sessionID, privacy: .public)"
+            )
+            return
+        }
+        endActiveCrosshairSession()
+    }
+
+    private func endActiveCrosshairSession() {
         pendingReprime?.cancel()
         pendingReprime = nil
+        activeSessionID = nil
         cursorActive = false
         if pushed {
             crosshairDriver.popCrosshair()
@@ -165,6 +192,7 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
         let wasPushed = pushed
         pendingReprime?.cancel()
         pendingReprime = nil
+        activeSessionID = nil
         cursorActive = false
         if pushed {
             crosshairDriver.popCrosshair()
@@ -201,5 +229,23 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
         }
         pushed = true
         crosshairDriver.setCrosshair()
+    }
+}
+
+@MainActor
+private final class CaptureCursorSession: CaptureCursorSessionHandling {
+    private weak var controller: CaptureCursorController?
+    private let sessionID: UInt
+    private var didEnd = false
+
+    init(controller: CaptureCursorController, sessionID: UInt) {
+        self.controller = controller
+        self.sessionID = sessionID
+    }
+
+    func end() {
+        guard !didEnd else { return }
+        didEnd = true
+        controller?.endCrosshairSession(sessionID: sessionID)
     }
 }

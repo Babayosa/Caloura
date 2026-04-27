@@ -166,6 +166,8 @@ for run in $(seq 1 "$CAPTURE_STABILITY_RUNS"); do
       -configuration Debug \
       -derivedDataPath "$CAPTURE_REPEAT_DERIVED_DATA_PATH" \
       -only-testing:CalouraTests/CapturePipelineEntryPointTests \
+      -only-testing:CalouraSystemTests/CaptureSystemTests/testAreaCaptureCrosshairPersistsAcrossFiveCaptures \
+      -only-testing:CalouraSystemTests/CaptureSystemTests/testAreaCaptureCrosshairRecoversAfterPoolTeardownBypass \
       -destination 'platform=macOS,arch=arm64' \
       >"$capture_log" 2>&1
   )

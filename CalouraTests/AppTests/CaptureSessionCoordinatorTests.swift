@@ -31,7 +31,7 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(cursor.activeSessions, 0)
     }
 
-    func testAreaCoordinatorResetsAndBeginsBeforeOverlayWork() {
+    func testAreaCoordinatorStartsCursorSessionBeforeOverlayWork() {
         let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 10, reportInterval: 50)
         let session = recorder.beginSession(mode: .area)
         let cursor = CoordinatorCursorSpy()
@@ -46,13 +46,12 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
 
         coordinator.present(windows: [])
 
-        // Reset and begin must be the first two cursor events. Any later
+        // Cursor start must be the first cursor event. Any later
         // primeCrosshair-driven scheduleReprime (from becomeKey) would be
-        // a silent no-op if begin had not run first — that was the post-ship
+        // a silent no-op if start had not run first — that was the post-ship
         // crosshair regression.
-        XCTAssertEqual(cursor.events.first, .reset)
-        XCTAssertEqual(cursor.events.dropFirst().first, .begin)
-        XCTAssertEqual(cursor.resetCalls, 1)
+        XCTAssertEqual(cursor.events.first, .begin)
+        XCTAssertEqual(cursor.resetCalls, 0)
 
         coordinator.dismiss()
         recorder.finishSession(session)
@@ -157,6 +156,63 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(cursor.activeSessions, 0)
     }
 
+    func testAreaSelectionThenSecondPresentationKeepsCursorSessionActive() async throws {
+        let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 10, reportInterval: 50)
+        let driver = CoordinatorCrosshairDriverSpy()
+        let scheduler = CoordinatorCursorSchedulerSpy()
+        let cursorController = CaptureCursorController(
+            crosshairDriver: driver,
+            scheduler: scheduler,
+            notificationCenter: NotificationCenter()
+        )
+        let pool = CaptureOverlayWindowPool()
+        defer { pool.tearDown() }
+
+        let firstSession = recorder.beginSession(mode: .area)
+        let firstSelection = expectation(description: "first selection")
+        let firstCoordinator = AreaCaptureSessionCoordinator(
+            session: firstSession,
+            performanceRecorder: recorder,
+            cursorController: cursorController,
+            onSelection: { _, _, _ in firstSelection.fulfill() },
+            onCancel: { }
+        )
+        let firstWindows = pool.acquire(cursorController: cursorController)
+        let firstWindow = try XCTUnwrap(firstWindows.first)
+        let firstScreen = try XCTUnwrap(firstWindow.screen)
+
+        firstCoordinator.present(windows: firstWindows)
+        XCTAssertEqual(driver.pushCalls, driver.popCalls + 1)
+
+        firstWindow.onRegionSelected?(
+            CGRect(x: 10, y: 10, width: 80, height: 80),
+            firstScreen
+        )
+        await fulfillment(of: [firstSelection], timeout: 1.0)
+        pool.release()
+        recorder.finishSession(firstSession)
+        XCTAssertEqual(driver.pushCalls, driver.popCalls)
+
+        let secondSession = recorder.beginSession(mode: .area)
+        let secondCoordinator = AreaCaptureSessionCoordinator(
+            session: secondSession,
+            performanceRecorder: recorder,
+            cursorController: cursorController,
+            onSelection: { _, _, _ in },
+            onCancel: { }
+        )
+        let secondWindows = pool.acquire(cursorController: cursorController)
+        secondCoordinator.present(windows: secondWindows)
+
+        XCTAssertEqual(driver.pushCalls, driver.popCalls + 1)
+        XCTAssertFalse(secondCoordinator.overlayWindows.isEmpty)
+
+        secondCoordinator.dismiss()
+        pool.release()
+        recorder.finishSession(secondSession)
+        XCTAssertEqual(driver.pushCalls, driver.popCalls)
+    }
+
     func testFullscreenCoordinatorDismissAfterScreenReconfigDoesNotLeakCursor() {
         let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 10, reportInterval: 50)
         let session = recorder.beginSession(mode: .fullscreen)
@@ -175,9 +231,8 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
         coordinator.present()
         coordinator.dismiss()
 
-        // Second present must still reset+begin cleanly. If dismiss had leaked
-        // state (no resetCursorState on re-entry, no centralized end path),
-        // the second begin would trap the controller in a stuck state, same
+        // Second present must still start cleanly. If dismiss had leaked state,
+        // the second start would trap the controller in a stuck state, same
         // shape as the D4 regression we shipped a fix for.
         coordinator.present()
         coordinator.dismiss()
@@ -185,7 +240,7 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(cursor.beginCalls, 2)
         XCTAssertEqual(cursor.endCalls, 2)
-        XCTAssertEqual(cursor.resetCalls, 2)
+        XCTAssertEqual(cursor.resetCalls, 0)
         XCTAssertEqual(cursor.activeSessions, 0)
         XCTAssertEqual(cursor.maxActiveSessions, 1)
     }
@@ -240,11 +295,17 @@ final class CoordinatorCursorSpy: CaptureCursorControlling {
     private(set) var maxActiveSessions = 0
     private(set) var events: [Event] = []
 
-    func beginCrosshairSession() {
+    func startCrosshairSession() -> any CaptureCursorSessionHandling {
         beginCalls += 1
         activeSessions += 1
         maxActiveSessions = max(maxActiveSessions, activeSessions)
         events.append(.begin)
+        return CoordinatorCursorSessionSpy { [weak self] in
+            guard let self else { return }
+            self.endCalls += 1
+            self.activeSessions = max(0, self.activeSessions - 1)
+            self.events.append(.end)
+        }
     }
 
     func handleCursorUpdate() {
@@ -257,15 +318,53 @@ final class CoordinatorCursorSpy: CaptureCursorControlling {
         events.append(.scheduleReprime)
     }
 
-    func endCrosshairSession() {
-        endCalls += 1
-        activeSessions = max(0, activeSessions - 1)
-        events.append(.end)
-    }
-
     func resetCursorState() {
         resetCalls += 1
         activeSessions = 0
         events.append(.reset)
     }
+}
+
+@MainActor
+private final class CoordinatorCursorSessionSpy: CaptureCursorSessionHandling {
+    private let onEnd: @MainActor () -> Void
+    private var didEnd = false
+
+    init(onEnd: @escaping @MainActor () -> Void) {
+        self.onEnd = onEnd
+    }
+
+    func end() {
+        guard !didEnd else { return }
+        didEnd = true
+        onEnd()
+    }
+}
+
+@MainActor
+private final class CoordinatorCrosshairDriverSpy: CaptureCrosshairDriving {
+    private(set) var pushCalls = 0
+    private(set) var popCalls = 0
+
+    func setCrosshair() {}
+
+    func pushCrosshair() {
+        pushCalls += 1
+    }
+
+    func popCrosshair() {
+        popCalls += 1
+    }
+}
+
+@MainActor
+private final class CoordinatorCursorSchedulerSpy: CaptureCursorScheduling {
+    func schedule(_ action: @escaping @MainActor () -> Void) -> CaptureCursorScheduledAction {
+        CoordinatorCursorScheduledActionSpy()
+    }
+}
+
+@MainActor
+private final class CoordinatorCursorScheduledActionSpy: CaptureCursorScheduledAction {
+    func cancel() {}
 }

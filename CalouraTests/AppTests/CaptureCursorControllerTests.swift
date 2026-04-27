@@ -4,7 +4,7 @@ import XCTest
 
 @MainActor
 final class CaptureCursorControllerTests: XCTestCase {
-    func testBeginCrosshairSessionPushesAndSchedulesReprime() {
+    func testStartCrosshairSessionPushesAndSchedulesReprime() {
         let driver = CaptureCrosshairDriverSpy()
         let scheduler = CaptureCursorSchedulerSpy()
         let controller = CaptureCursorController(
@@ -13,7 +13,7 @@ final class CaptureCursorControllerTests: XCTestCase {
             notificationCenter: NotificationCenter()
         )
 
-        controller.beginCrosshairSession()
+        let session = controller.startCrosshairSession()
 
         XCTAssertEqual(driver.pushCalls, 1)
         XCTAssertEqual(scheduler.scheduleCalls, 1)
@@ -27,10 +27,10 @@ final class CaptureCursorControllerTests: XCTestCase {
         XCTAssertEqual(driver.events, [.push, .push, .pop, .set])
         XCTAssertEqual(scheduler.pendingCount, 0)
 
-        controller.endCrosshairSession()
+        session.end()
     }
 
-    func testRepeatedBeginCrosshairSessionIsIdempotent() {
+    func testRepeatedStartCrosshairSessionResetsLeakedActiveSession() {
         let driver = CaptureCrosshairDriverSpy()
         let scheduler = CaptureCursorSchedulerSpy()
         let controller = CaptureCursorController(
@@ -39,13 +39,19 @@ final class CaptureCursorControllerTests: XCTestCase {
             notificationCenter: NotificationCenter()
         )
 
-        controller.beginCrosshairSession()
-        controller.beginCrosshairSession()
+        let firstSession = controller.startCrosshairSession()
+        let secondSession = controller.startCrosshairSession()
 
-        XCTAssertEqual(driver.pushCalls, 1)
-        XCTAssertEqual(scheduler.scheduleCalls, 1)
+        XCTAssertEqual(driver.pushCalls, 2)
+        XCTAssertEqual(driver.popCalls, 1)
+        XCTAssertEqual(scheduler.scheduleCalls, 2)
+        XCTAssertEqual(scheduler.cancelledCount, 1)
 
-        controller.endCrosshairSession()
+        firstSession.end()
+        XCTAssertEqual(driver.popCalls, 1)
+
+        secondSession.end()
+        XCTAssertEqual(driver.popCalls, 2)
     }
 
     func testDidBecomeActiveDoesNotStarvePendingReprime() {
@@ -57,7 +63,7 @@ final class CaptureCursorControllerTests: XCTestCase {
             notificationCenter: NotificationCenter()
         )
 
-        controller.beginCrosshairSession()
+        let session = controller.startCrosshairSession()
 
         controller.handleApplicationDidBecomeActive()
         controller.handleApplicationDidBecomeActive()
@@ -73,7 +79,7 @@ final class CaptureCursorControllerTests: XCTestCase {
         XCTAssertEqual(driver.pushCalls, 2)
         XCTAssertEqual(scheduler.pendingCount, 0)
 
-        controller.endCrosshairSession()
+        session.end()
     }
 
     func testScheduleReprimeAfterPendingActionRunsSchedulesAgain() {
@@ -85,7 +91,7 @@ final class CaptureCursorControllerTests: XCTestCase {
             notificationCenter: NotificationCenter()
         )
 
-        controller.beginCrosshairSession()
+        let session = controller.startCrosshairSession()
         scheduler.runPendingActions()
 
         controller.scheduleReprime()
@@ -93,7 +99,7 @@ final class CaptureCursorControllerTests: XCTestCase {
         XCTAssertEqual(scheduler.scheduleCalls, 2)
         XCTAssertEqual(scheduler.pendingCount, 1)
 
-        controller.endCrosshairSession()
+        session.end()
     }
 
     func testEndCrosshairSessionCancelsPendingAndPops() {
@@ -105,10 +111,10 @@ final class CaptureCursorControllerTests: XCTestCase {
             notificationCenter: NotificationCenter()
         )
 
-        controller.beginCrosshairSession()
+        let session = controller.startCrosshairSession()
         XCTAssertEqual(driver.pushCalls, 1)
 
-        controller.endCrosshairSession()
+        session.end()
         scheduler.runPendingActions()
 
         XCTAssertEqual(driver.popCalls, 1)
@@ -139,7 +145,7 @@ final class CaptureCursorControllerTests: XCTestCase {
             notificationCenter: NotificationCenter()
         )
 
-        controller.beginCrosshairSession()
+        let session = controller.startCrosshairSession()
         controller.handleCursorUpdate()
 
         XCTAssertEqual(driver.pushCalls, 2)
@@ -147,7 +153,7 @@ final class CaptureCursorControllerTests: XCTestCase {
         XCTAssertEqual(driver.setCalls, 1)
         XCTAssertEqual(driver.events, [.push, .push, .pop, .set])
 
-        controller.endCrosshairSession()
+        session.end()
     }
 
     func testRepeatedCursorUpdatesKeepCrosshairOwnershipBalanced() {
@@ -159,7 +165,7 @@ final class CaptureCursorControllerTests: XCTestCase {
             notificationCenter: NotificationCenter()
         )
 
-        controller.beginCrosshairSession()
+        let session = controller.startCrosshairSession()
         controller.handleCursorUpdate()
         controller.handleCursorUpdate()
         controller.handleCursorUpdate()
@@ -168,7 +174,7 @@ final class CaptureCursorControllerTests: XCTestCase {
         XCTAssertEqual(driver.popCalls, 3)
         XCTAssertEqual(driver.setCalls, 3)
 
-        controller.endCrosshairSession()
+        session.end()
 
         XCTAssertEqual(driver.popCalls, 4)
     }
@@ -182,25 +188,28 @@ final class CaptureCursorControllerTests: XCTestCase {
             notificationCenter: NotificationCenter()
         )
 
-        controller.beginCrosshairSession()
+        let leakedSession = controller.startCrosshairSession()
         XCTAssertEqual(driver.pushCalls, 1)
         XCTAssertEqual(scheduler.scheduleCalls, 1)
 
         // Simulate the bypass path: pool tearDown reached without
-        // endCrosshairSession (e.g., screen reconfiguration).
+        // the cursor session token's end (e.g., screen reconfiguration).
         controller.resetCursorState()
 
         XCTAssertEqual(driver.popCalls, 1)
         XCTAssertEqual(scheduler.cancelledCount, 1)
 
-        // The next begin must produce a fresh push, not silently no-op.
-        // Without reset, the guard !cursorActive in beginCrosshairSession
-        // would trap the controller in a permanently broken state.
-        controller.beginCrosshairSession()
+        // The next start must produce a fresh push, not silently no-op.
+        // Without reset, cursorActive would trap the controller in a
+        // permanently broken state.
+        let freshSession = controller.startCrosshairSession()
         XCTAssertEqual(driver.pushCalls, 2)
         XCTAssertEqual(scheduler.scheduleCalls, 2)
 
-        controller.endCrosshairSession()
+        leakedSession.end()
+        XCTAssertEqual(driver.popCalls, 1)
+
+        freshSession.end()
     }
 
     func testResetCursorStateOnInactiveControllerIsSafeNoOp() {
@@ -229,13 +238,29 @@ final class CaptureCursorControllerTests: XCTestCase {
             notificationCenter: NotificationCenter()
         )
 
-        controller.beginCrosshairSession()
-        controller.endCrosshairSession()
+        let session = controller.startCrosshairSession()
+        session.end()
         XCTAssertEqual(driver.popCalls, 1)
 
         controller.resetCursorState()
 
         // end already cleared pushed=false; reset must not pop again.
+        XCTAssertEqual(driver.popCalls, 1)
+    }
+
+    func testSessionTokenEndIsExactOnce() {
+        let driver = CaptureCrosshairDriverSpy()
+        let scheduler = CaptureCursorSchedulerSpy()
+        let controller = CaptureCursorController(
+            crosshairDriver: driver,
+            scheduler: scheduler,
+            notificationCenter: NotificationCenter()
+        )
+
+        let session = controller.startCrosshairSession()
+        session.end()
+        session.end()
+
         XCTAssertEqual(driver.popCalls, 1)
     }
 }

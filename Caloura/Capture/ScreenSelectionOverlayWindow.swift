@@ -58,9 +58,8 @@ final class ScreenSelectionOverlayWindow: NSPanel {
 
     /// Present a fullscreen-selection overlay on every screen.
     ///
-    /// **Contract**: callers MUST have already invoked
-    /// `cursorController.beginCrosshairSession()` (preceded by
-    /// `resetCursorState()`) before calling this. `becomeKey()` fires
+    /// **Contract**: callers MUST have already started a crosshair session
+    /// before calling this. `becomeKey()` fires
     /// synchronously inside `makeKeyAndOrderFront(nil)` below; if
     /// `cursorActive == false` at that moment, `primeCrosshair()`'s
     /// `scheduleReprime()` silently no-ops and the crosshair never appears.

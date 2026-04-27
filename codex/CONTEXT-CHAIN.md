@@ -761,4 +761,29 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 30: Area capture cursor lifecycle rework
+**Status:** Complete
+**Branch:** task-30-area-capture-cursor-lifecycle
+**Changes:**
+- Reworked [CaptureCursorController.swift](/Users/b/Caloura/Caloura/Capture/CaptureCursorController.swift) so starting crosshair ownership returns an explicit session token; stale tokens are ignored and repeated starts reset leaked state instead of silently no-oping.
+- Updated [CaptureSessionCoordinators.swift](/Users/b/Caloura/Caloura/App/CaptureSessionCoordinators.swift) so area/fullscreen coordinators hold the cursor token and release overlays before ending cursor ownership.
+- Added a regression in [CaptureSessionCoordinatorTests.swift](/Users/b/Caloura/CalouraTests/AppTests/CaptureSessionCoordinatorTests.swift) that completes one real pooled-window area selection, releases it, then immediately presents area capture again and asserts cursor ownership remains active.
+- Updated the Xcode-only repeated area crosshair system tests for token ownership and added those system-test checks to [release_ready.sh](/Users/b/Caloura/scripts/release_ready.sh)'s capture stability loop.
+
+**Validation:**
+- `swift build`
+- `swiftlint lint --quiet` (passed with existing warning-level debt)
+- `swift test` (669 tests, 0 failures)
+- `swift test --filter CaptureCursorControllerTests`
+- `swift test --filter CaptureSessionCoordinatorTests`
+- `swift test --filter CaptureOverlayWindowPoolTests`
+- `swift test --filter CapturePipelineTests/testCaptureArea`
+- `xcodebuild test -project /Users/b/Caloura/Caloura.xcodeproj -scheme Caloura -destination 'platform=macOS' -only-testing:CalouraSystemTests/CaptureSystemTests/testAreaCaptureCrosshairPersistsAcrossFiveCaptures -only-testing:CalouraSystemTests/CaptureSystemTests/testAreaCaptureCrosshairRecoversAfterPoolTeardownBypass`
+
+**Decisions Made:**
+- Kept `CaptureOverlayWindowPool.resetCursorState()` as an abnormal-teardown safety net, but moved normal cursor end responsibility into coordinator-held tokens.
+- Did not remove overlay pooling in this task; the token model addresses stale cursor ownership while preserving the existing low-latency reuse path.
+
+---
+
 <!-- Add new task entries above this line -->

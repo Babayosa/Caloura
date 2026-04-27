@@ -110,11 +110,17 @@ final class CaptureOverlayWindowPoolTests: XCTestCase {
 private final class PoolCursorSpy: CaptureCursorControlling {
     private(set) var resetCalls = 0
 
-    func beginCrosshairSession() {}
+    func startCrosshairSession() -> any CaptureCursorSessionHandling {
+        PoolCursorSessionSpy()
+    }
     func handleCursorUpdate() {}
     func scheduleReprime() {}
-    func endCrosshairSession() {}
     func resetCursorState() {
         resetCalls += 1
     }
+}
+
+@MainActor
+private final class PoolCursorSessionSpy: CaptureCursorSessionHandling {
+    func end() {}
 }
