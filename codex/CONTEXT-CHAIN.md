@@ -761,6 +761,29 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 31: Fullscreen capture cursor immediate prime
+**Status:** Complete
+**Branch:** task-31-fullscreen-cursor-prime
+**Changes:**
+- Updated [CaptureSessionCoordinators.swift](/Users/b/Caloura/Caloura/App/CaptureSessionCoordinators.swift) so fullscreen overlay presentation mirrors area capture: reset cursor rects, immediately reassert the crosshair, then schedule deferred re-prime.
+- Updated [ScreenSelectionOverlayWindow.swift](/Users/b/Caloura/Caloura/Capture/ScreenSelectionOverlayWindow.swift) and [ScreenSelectionView.swift](/Users/b/Caloura/Caloura/Capture/ScreenSelectionView.swift) so fullscreen selection primes cursor rects and synchronously owns the crosshair during view movement/entry/down events.
+- Added coordinator regression coverage proving fullscreen reasserts the cursor before marking the overlay visible, instead of depending on a later mouse movement.
+
+**Validation:**
+- `swift build`
+- `swiftlint lint --quiet` (passed with existing warning-level debt)
+- `swift test` (670 tests, 0 failures)
+- `swift test --filter CaptureSessionCoordinatorTests`
+- `swift test --filter CaptureCursorControllerTests`
+- `swift test --filter CaptureOverlayWindowPoolTests`
+- `xcodebuild test -project /Users/b/Caloura/Caloura.xcodeproj -scheme Caloura -destination 'platform=macOS' -only-testing:CalouraSystemTests/CaptureSystemTests/testFullscreenCapturePresentsDisplaySelectionCue -only-testing:CalouraSystemTests/CaptureSystemTests/testAreaCaptureCrosshairPersistsAcrossFiveCaptures -only-testing:CalouraSystemTests/CaptureSystemTests/testAreaCaptureCrosshairRecoversAfterPoolTeardownBypass`
+
+**Decisions Made:**
+- Kept the fix at the fullscreen overlay boundary instead of adding more delayed retries to the cursor controller; the failure was an unprimed mode path, not a token-lifetime failure.
+- Did not alter window capture/picker focus behavior; the current bug report points to cursor repair after mode switching, while window picker still must avoid activating Caloura.
+
+---
+
 ## Task 30: Area capture cursor lifecycle rework
 **Status:** Complete
 **Branch:** task-30-area-capture-cursor-lifecycle

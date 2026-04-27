@@ -35,6 +35,7 @@ final class ScreenSelectionView: NSView {
         if let window = window {
             window.makeFirstResponder(self)
             window.acceptsMouseMovedEvents = true
+            cursorController?.handleCursorUpdate()
             cursorController?.scheduleReprime()
         }
         window?.invalidateCursorRects(for: self)
@@ -151,6 +152,7 @@ final class ScreenSelectionView: NSView {
     override func mouseEntered(with event: NSEvent) {
         isHighlighted = true
         if window?.isKeyWindow == false { window?.makeKey() }
+        cursorController?.handleCursorUpdate()
         cursorController?.scheduleReprime()
         needsDisplay = true
     }
@@ -161,12 +163,14 @@ final class ScreenSelectionView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        cursorController?.handleCursorUpdate()
         cursorController?.scheduleReprime()
         onScreenSelected?(targetScreen)
     }
 
     override func mouseMoved(with event: NSEvent) {
         if window?.isKeyWindow == false { window?.makeKey() }
+        cursorController?.handleCursorUpdate()
         cursorController?.scheduleReprime()
     }
 

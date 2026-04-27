@@ -62,6 +62,7 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
         let session = recorder.beginSession(mode: .fullscreen)
         let cursor = CoordinatorCursorSpy()
         var beginCallsAtPresentation = 0
+        var handleCallsAtPresentation = 0
         var reprimeCallsAtPresentation = 0
         var overlayVisibleCountAtPresentation: Int?
 
@@ -73,6 +74,7 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
             onCancel: { },
             overlayPresenter: { _, _, _ in
                 beginCallsAtPresentation = cursor.beginCalls
+                handleCallsAtPresentation = cursor.handleCursorUpdateCalls
                 reprimeCallsAtPresentation = cursor.scheduleReprimeCalls
                 overlayVisibleCountAtPresentation = recorder.summary(
                     for: .fullscreen,
@@ -87,15 +89,43 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
         recorder.finishSession(session)
 
         XCTAssertEqual(beginCallsAtPresentation, 1)
+        XCTAssertEqual(handleCallsAtPresentation, 0)
         XCTAssertEqual(reprimeCallsAtPresentation, 0)
         XCTAssertNil(overlayVisibleCountAtPresentation)
         XCTAssertEqual(
             recorder.summary(for: .fullscreen, event: .overlayVisible)?.sampleCount,
             1
         )
+        XCTAssertEqual(cursor.handleCursorUpdateCalls, 1)
         XCTAssertEqual(cursor.scheduleReprimeCalls, 1)
         XCTAssertEqual(cursor.endCalls, 1)
         XCTAssertEqual(cursor.activeSessions, 0)
+    }
+
+    func testFullscreenCoordinatorReassertsCursorBeforeMarkingOverlayVisible() {
+        let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 10, reportInterval: 50)
+        let session = recorder.beginSession(mode: .fullscreen)
+        let cursor = CoordinatorCursorSpy()
+
+        let coordinator = FullscreenCaptureSessionCoordinator(
+            session: session,
+            performanceRecorder: recorder,
+            cursorController: cursor,
+            onSelection: { _ in },
+            onCancel: { },
+            overlayPresenter: { _, _, _ in [] }
+        )
+
+        coordinator.present()
+        coordinator.dismiss()
+        recorder.finishSession(session)
+
+        XCTAssertEqual(
+            Array(cursor.events.prefix(3)),
+            [.begin, .handleCursorUpdate, .scheduleReprime]
+        )
+        XCTAssertEqual(cursor.handleCursorUpdateCalls, 1)
+        XCTAssertEqual(cursor.scheduleReprimeCalls, 1)
     }
 
     func testAreaCoordinatorRepeatedPresentDismissBalancesCursorSessions() {

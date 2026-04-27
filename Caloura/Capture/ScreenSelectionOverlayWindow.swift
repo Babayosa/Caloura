@@ -52,7 +52,10 @@ final class ScreenSelectionOverlayWindow: NSPanel {
     private func primeCrosshair() {
         guard let contentView else { return }
         makeFirstResponder(contentView)
+        contentView.discardCursorRects()
+        contentView.resetCursorRects()
         invalidateCursorRects(for: contentView)
+        cursorController?.handleCursorUpdate()
         cursorController?.scheduleReprime()
     }
 

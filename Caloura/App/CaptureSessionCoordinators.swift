@@ -221,6 +221,16 @@ final class FullscreenCaptureSessionCoordinator {
                 }
             }
         )
+
+        for overlay in overlayWindows {
+            if let contentView = overlay.contentView {
+                contentView.discardCursorRects()
+                contentView.resetCursorRects()
+                overlay.invalidateCursorRects(for: contentView)
+            }
+        }
+
+        cursorController.handleCursorUpdate()
         cursorController.scheduleReprime()
         performanceRecorder.mark(.overlayVisible, in: session)
     }

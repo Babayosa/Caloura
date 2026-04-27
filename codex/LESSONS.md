@@ -202,6 +202,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: Repeated area capture reuses `NSPanel` and selection-view instances. If stale callbacks, pool teardown, or a previous coordinator can pop/reset cursor state outside the active coordinator's ownership, the next area entry can present with the arrow cursor instead of the crosshair.
 - **Example**: `CaptureCursorController.startCrosshairSession()` now returns a session token, and `AreaCaptureSessionCoordinator.releaseOverlays()` orders pooled panels out before ending that token.
 
+### Every capture overlay mode must prime the cursor synchronously
+- **Rule**: Fullscreen and area overlay presentation must both force cursor-rect registration and call `handleCursorUpdate()` immediately after ordering overlays front; mouse movement cannot be the first reliable repair.
+- **Context**: After switching capture modes, fullscreen selection could leave AppKit showing the arrow until movement triggered a view-level cursor event because fullscreen only scheduled a deferred re-prime.
+- **Example**: `FullscreenCaptureSessionCoordinator.present()` now mirrors the area path by resetting overlay cursor rects, calling `handleCursorUpdate()`, then scheduling a deferred re-prime; `ScreenSelectionView` also synchronously reasserts on entry/move/down.
+
 ## Capture / Scroll
 
 ### Zero-displacement must stay in bounded overlap searches
