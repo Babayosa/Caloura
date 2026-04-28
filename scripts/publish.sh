@@ -251,13 +251,20 @@ if [ -n "$PREVIOUS_BUILD_NUMBER" ]; then
     fi
 fi
 
-# minimumAutoupdateVersion = previous shipped build. Stops Sparkle from
-# auto-installing an older signed item even if it ever appears earlier in
-# the feed. Omit on first-ever release.
-MIN_AUTOUPDATE_LINE=""
-if [ -n "$PREVIOUS_BUILD_NUMBER" ]; then
-    MIN_AUTOUPDATE_LINE="      <sparkle:minimumAutoupdateVersion>$PREVIOUS_BUILD_NUMBER</sparkle:minimumAutoupdateVersion>"$'\n'
-fi
+# Remove any historical autoupdate floor. Caloura releases should advertise
+# the latest build to every eligible older app, not force chained updates.
+python3 - "$APPCAST_PATH" <<'STRIP_MIN_AUTOUPDATE'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+lines = path.read_text(encoding="utf-8").splitlines()
+filtered = [
+    line for line in lines
+    if "<sparkle:minimumAutoupdateVersion>" not in line
+]
+path.write_text("\n".join(filtered) + "\n", encoding="utf-8")
+STRIP_MIN_AUTOUPDATE
 
 if [ "$IDEMPOTENT_PUBLISH_RERUN" != "1" ]; then
     cat > "$TMPITEM" <<XMLEOF
@@ -267,7 +274,7 @@ if [ "$IDEMPOTENT_PUBLISH_RERUN" != "1" ]; then
       <sparkle:version>$BUILD_NUMBER</sparkle:version>
       <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>$MINIMUM_SYSTEM_VERSION</sparkle:minimumSystemVersion>
-${MIN_AUTOUPDATE_LINE}      <description><![CDATA[
+      <description><![CDATA[
         <h2>What's New</h2>
         <ul>
           <li>See release notes</li>

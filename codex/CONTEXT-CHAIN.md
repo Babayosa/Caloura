@@ -912,4 +912,26 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 36: Sparkle appcast direct-update repair
+
+**Branch:** task-36-repair-sparkle-appcast
+
+### Changes
+- Removed the publish-time `sparkle:minimumAutoupdateVersion` generation from [publish.sh](/Users/b/Caloura/scripts/publish.sh) because setting it to the previous build forced older installs through chained update eligibility.
+- Added a publish-time cleanup that strips historical `minimumAutoupdateVersion` tags from the site appcast before inserting the new release item.
+- Hardened [validate_appcast_against_manifest.py](/Users/b/Caloura/scripts/validate_appcast_against_manifest.py) so local and live appcast validation fails if any appcast item reintroduces `minimumAutoupdateVersion`.
+- Added regression coverage in [test_validate_appcast_downgrade.py](/Users/b/Caloura/scripts/tests/test_validate_appcast_downgrade.py).
+
+### Root Cause
+- `2.5.0` had been built but not published to `caloura-site`, so it was unavailable to Sparkle/manual download.
+- Recent appcast entries set `sparkle:minimumAutoupdateVersion` to the immediately previous build. That made old installs ineligible for the latest item and created the sequential `2.4.0`, `2.4.1`, ..., `2.4.9` update path.
+
+### Validation
+- `python3 scripts/tests/test_validate_appcast_downgrade.py`
+- `swift build`
+- `swiftlint lint --quiet` (passed with existing warning-level lint debt)
+- `swift test` (677 tests, 0 failures)
+
+---
+
 <!-- Add new task entries above this line -->

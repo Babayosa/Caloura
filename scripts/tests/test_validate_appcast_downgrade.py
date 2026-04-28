@@ -95,5 +95,28 @@ class DowngradeDetectionTests(unittest.TestCase):
             validator.parse_build_number(item)
 
 
+class MinimumAutoupdateVersionTests(unittest.TestCase):
+
+    def test_appcast_without_autoupdate_floor_passes(self) -> None:
+        rss = make_appcast([20260417000000, 20260408000000])
+        items = validator.all_items(rss)
+        self.assertIsNone(validator.detect_minimum_autoupdate_version(items))
+
+    def test_appcast_with_autoupdate_floor_fails(self) -> None:
+        rss = make_appcast([20260417000000, 20260408000000])
+        items = validator.all_items(rss)
+        floor = ET.SubElement(
+            items[0], f"{{{validator.SPARKLE_NAMESPACE}}}minimumAutoupdateVersion"
+        )
+        floor.text = "20260408000000"
+
+        result = validator.detect_minimum_autoupdate_version(items)
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertIn("minimumAutoupdateVersion detected", result)
+        self.assertIn("20260408000000", result)
+
+
 if __name__ == "__main__":
     unittest.main()

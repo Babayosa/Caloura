@@ -77,6 +77,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: Pre-release gates should not depend on GitHub Pages propagation or a feed that has not been published yet; those checks belong to the publish path where the live artifact actually exists.
 - **Example**: `scripts/release_ready.sh` now stops after local packaging checks, while `scripts/publish.sh` retries live `appcast.xml` validation after pushing the site repo.
 
+### Normal Sparkle releases must not set an autoupdate floor
+- **Rule**: Do not set `sparkle:minimumAutoupdateVersion` to the previous build for ordinary releases.
+- **Context**: That tag makes older installs ineligible for the newest appcast item and can force users through sequential manual updates instead of jumping directly to the latest release.
+- **Example**: `scripts/publish.sh` now strips historical `minimumAutoupdateVersion` tags before publishing, and `scripts/validate_appcast_against_manifest.py` fails any appcast that reintroduces one.
+
 ### XCTest lifecycle overrides should stay nonisolated
 - **Rule**: Keep `XCTestCase` lifecycle overrides nonisolated and isolate only the work inside them.
 - **Context**: Annotating `setUp` / `tearDown` overrides with `@MainActor` triggers Swift 6 override-isolation warnings even when the tested objects are main-actor bound.

@@ -112,6 +112,19 @@ def detect_downgrade(items: list[ET.Element]) -> str | None:
     return None
 
 
+def detect_minimum_autoupdate_version(items: list[ET.Element]) -> str | None:
+    for index, item in enumerate(items):
+        minimum = item.find(f"{{{SPARKLE_NAMESPACE}}}minimumAutoupdateVersion")
+        if minimum is not None:
+            version = minimum.text or ""
+            return (
+                "minimumAutoupdateVersion detected: "
+                f"item[{index}] gates updates at build {version}. "
+                "Caloura appcasts must let eligible older versions update directly to latest."
+            )
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate a Sparkle appcast against a generated release manifest.")
     parser.add_argument("--manifest", required=True, help="Path to release manifest JSON")
@@ -130,6 +143,10 @@ def main() -> int:
     downgrade_error = detect_downgrade(items)
     if downgrade_error:
         print(downgrade_error)
+        return 1
+    minimum_autoupdate_error = detect_minimum_autoupdate_version(items)
+    if minimum_autoupdate_error:
+        print(minimum_autoupdate_error)
         return 1
     item = items[0]
     enclosure = item.find("enclosure")
