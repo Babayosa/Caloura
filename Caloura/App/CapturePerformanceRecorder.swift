@@ -13,8 +13,12 @@ struct CapturePerformanceSummary {
 @MainActor
 final class CapturePerformanceRecorder {
     enum Event: String, CaseIterable {
+        case requestReceived = "request_received"
         case appActivated = "app_activated"
+        case cursorSessionStarted = "cursor_session_started"
+        case cursorPrimed = "cursor_primed"
         case overlayVisible = "overlay_visible"
+        case overlayTeardown = "overlay_teardown"
         case freezeSnapshot = "freeze_snapshot"
         case prewarmComplete = "prewarm_complete"
         case pickerVisibleWarm = "picker_visible_warm"
@@ -23,6 +27,7 @@ final class CapturePerformanceRecorder {
         case windowCaptureComplete = "window_capture_complete"
         case firstInteraction = "first_interaction"
         case screenshotDuration = "screenshot_duration"
+        case captureImageReady = "capture_image_ready"
         case previewPresentationDuration = "preview_presentation_duration"
         case rawPreviewVisible = "raw_preview_visible"
         case saveComplete = "save_complete"
@@ -57,6 +62,7 @@ final class CapturePerformanceRecorder {
     private let reportInterval: Int
     private var sessions: [UUID: SessionState] = [:]
     private var samples: [MetricKey: [Double]] = [:]
+    private var budgetViolations: [MetricKey: Int] = [:]
 
     init(maxSamplesPerKey: Int = 120, reportInterval: Int = 20) {
         self.maxSamplesPerKey = max(20, maxSamplesPerKey)
@@ -144,6 +150,13 @@ final class CapturePerformanceRecorder {
         )
     }
 
+    func budgetViolationCount(
+        for mode: CaptureMode,
+        event: Event
+    ) -> Int {
+        budgetViolations[MetricKey(mode: mode, event: event)] ?? 0
+    }
+
     private func elapsedMilliseconds(since start: CFAbsoluteTime) -> Double {
         (CFAbsoluteTimeGetCurrent() - start) * 1000.0
     }
@@ -162,6 +175,11 @@ final class CapturePerformanceRecorder {
             stageSamples.removeFirst(stageSamples.count - maxSamplesPerKey)
         }
         samples[key] = stageSamples
+        recordBudgetViolationIfNeeded(
+            mode: mode,
+            event: event,
+            milliseconds: milliseconds
+        )
 
         guard stageSamples.count % reportInterval == 0 else { return }
         let p50 = percentile(0.50, values: stageSamples)
@@ -175,6 +193,42 @@ final class CapturePerformanceRecorder {
             + " p50=\(p50)"
             + " p95=\(p95)"
         logger.info("\(summary, privacy: .public)")
+    }
+
+    private func recordBudgetViolationIfNeeded(
+        mode: CaptureMode,
+        event: Event,
+        milliseconds: Double
+    ) {
+        guard let budget = budgetMilliseconds(for: event),
+              milliseconds > budget else {
+            return
+        }
+
+        let key = MetricKey(mode: mode, event: event)
+        budgetViolations[key, default: 0] += 1
+        let modeValue = mode.rawValue
+        let eventValue = event.rawValue
+        let warning = "capture_timeline_budget_violation mode=\(modeValue)"
+            + " event=\(eventValue)"
+            + " ms=\(milliseconds)"
+            + " budget_ms=\(budget)"
+        logger.warning("\(warning, privacy: .public)")
+    }
+
+    private func budgetMilliseconds(for event: Event) -> Double? {
+        switch event {
+        case .overlayVisible:
+            50
+        case .cursorPrimed:
+            16.7
+        case .overlayTeardown:
+            50
+        case .rawPreviewVisible:
+            500
+        default:
+            nil
+        }
     }
 
     private func percentile(_ percentile: Double, values: [Double]) -> Double {

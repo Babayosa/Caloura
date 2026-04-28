@@ -207,6 +207,16 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: After switching capture modes, fullscreen selection could leave AppKit showing the arrow until movement triggered a view-level cursor event because fullscreen only scheduled a deferred re-prime.
 - **Example**: `FullscreenCaptureSessionCoordinator.present()` now mirrors the area path by resetting overlay cursor rects, calling `handleCursorUpdate()`, then scheduling a deferred re-prime; `ScreenSelectionView` also synchronously reasserts on entry/move/down.
 
+### Full-screen apps can keep reclaiming the cursor after initial capture priming
+- **Rule**: Active area/fullscreen capture sessions should keep a bounded maintenance re-prime alive until the cursor-session token ends.
+- **Context**: Apps in their own full-screen Spaces, especially apps with custom cursor behavior, can continue to run cursor-rect updates after Caloura's one-shot entry re-prime and restore the arrow during selection.
+- **Example**: `CaptureCursorController` now schedules a 50 ms maintenance re-prime during the active crosshair session and cancels it on token end/reset, keeping push/pop ownership balanced while the selection overlay is visible.
+
+### Capture hot-path guardrails should warn before they fail UI tests
+- **Rule**: For AppKit-heavy capture timing, record lightweight budget violations in the performance timeline before turning them into hard test failures.
+- **Context**: Full-screen Spaces and cursor rect delivery vary by app and machine. Hard timing assertions can create flaky tests, while missing instrumentation makes production regressions hard to diagnose.
+- **Example**: `CapturePerformanceRecorder` now logs warning-only `capture_timeline_budget_violation` entries for overlay visibility, cursor priming, overlay teardown, and raw preview latency.
+
 ## Capture / Scroll
 
 ### Zero-displacement must stay in bounded overlap searches

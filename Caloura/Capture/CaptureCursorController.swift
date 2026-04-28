@@ -33,7 +33,10 @@ protocol CaptureCursorScheduledAction: AnyObject {
 
 @MainActor
 protocol CaptureCursorScheduling {
-    func schedule(_ action: @escaping @MainActor () -> Void) -> CaptureCursorScheduledAction
+    func schedule(
+        after delay: Duration,
+        _ action: @escaping @MainActor () -> Void
+    ) -> CaptureCursorScheduledAction
 }
 
 @MainActor
@@ -55,13 +58,13 @@ private struct SystemCaptureCrosshairDriver: CaptureCrosshairDriving {
 private final class MainActorDeferredCaptureCursorAction: CaptureCursorScheduledAction {
     private var task: Task<Void, Never>?
 
-    init(action: @escaping @MainActor () -> Void) {
+    init(delay: Duration, action: @escaping @MainActor () -> Void) {
         task = Task { @MainActor in
             // Sleep instead of yield: Task.yield() may resume before
             // AppKit finishes cursor rect processing from key-window
             // transitions. A minimal sleep ensures we fire after the
             // current run loop pass completes.
-            try? await Task.sleep(for: .milliseconds(1))
+            try? await Task.sleep(for: delay)
             guard !Task.isCancelled else { return }
             action()
         }
@@ -79,13 +82,19 @@ private final class MainActorDeferredCaptureCursorAction: CaptureCursorScheduled
 
 @MainActor
 private struct MainActorCaptureCursorScheduler: CaptureCursorScheduling {
-    func schedule(_ action: @escaping @MainActor () -> Void) -> CaptureCursorScheduledAction {
-        MainActorDeferredCaptureCursorAction(action: action)
+    func schedule(
+        after delay: Duration,
+        _ action: @escaping @MainActor () -> Void
+    ) -> CaptureCursorScheduledAction {
+        MainActorDeferredCaptureCursorAction(delay: delay, action: action)
     }
 }
 
 @MainActor
 final class CaptureCursorController: NSObject, CaptureCursorControlling {
+    private static let initialReprimeDelay: Duration = .milliseconds(1)
+    private static let maintenanceReprimeDelay: Duration = .milliseconds(50)
+
     private let crosshairDriver: CaptureCrosshairDriving
     private let scheduler: CaptureCursorScheduling
     private let notificationCenter: NotificationCenter
@@ -93,6 +102,7 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
     private var cursorActive = false
     private var pushed = false
     private var pendingReprime: CaptureCursorScheduledAction?
+    private var pendingMaintenanceReprime: CaptureCursorScheduledAction?
     private var activeSessionID: UInt?
     private var nextSessionID: UInt = 0
 
@@ -136,6 +146,7 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
             "startCrosshairSession: id=\(sessionID, privacy: .public) pushed=true"
         )
         scheduleReprime()
+        scheduleMaintenanceReprime()
         return CaptureCursorSession(controller: self, sessionID: sessionID)
     }
 
@@ -154,7 +165,7 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
         }
         guard pendingReprime == nil else { return }
         let scheduledSessionID = activeSessionID
-        pendingReprime = scheduler.schedule { [weak self] in
+        pendingReprime = scheduler.schedule(after: Self.initialReprimeDelay) { [weak self] in
             guard let self,
                   self.cursorActive,
                   self.activeSessionID == scheduledSessionID else {
@@ -162,6 +173,22 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
             }
             self.pendingReprime = nil
             self.reinstallCrosshair()
+        }
+    }
+
+    private func scheduleMaintenanceReprime() {
+        guard cursorActive else { return }
+        guard pendingMaintenanceReprime == nil else { return }
+        let scheduledSessionID = activeSessionID
+        pendingMaintenanceReprime = scheduler.schedule(after: Self.maintenanceReprimeDelay) { [weak self] in
+            guard let self,
+                  self.cursorActive,
+                  self.activeSessionID == scheduledSessionID else {
+                return
+            }
+            self.pendingMaintenanceReprime = nil
+            self.reinstallCrosshair()
+            self.scheduleMaintenanceReprime()
         }
     }
 
@@ -178,6 +205,8 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
     private func endActiveCrosshairSession() {
         pendingReprime?.cancel()
         pendingReprime = nil
+        pendingMaintenanceReprime?.cancel()
+        pendingMaintenanceReprime = nil
         activeSessionID = nil
         cursorActive = false
         if pushed {
@@ -192,6 +221,8 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
         let wasPushed = pushed
         pendingReprime?.cancel()
         pendingReprime = nil
+        pendingMaintenanceReprime?.cancel()
+        pendingMaintenanceReprime = nil
         activeSessionID = nil
         cursorActive = false
         if pushed {

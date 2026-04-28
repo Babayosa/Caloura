@@ -177,6 +177,7 @@ final class CaptureExecutionService {
                 milliseconds: captureDuration,
                 in: performanceSession
             )
+            capturePerformanceRecorder.mark(.captureImageReady, in: performanceSession)
         }
         return cgImage
     }

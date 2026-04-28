@@ -5,8 +5,10 @@ import XCTest
 extension CapturePipelineTests {
     func testCaptureArea_entrypointPresentsInjectedCoordinator() {
         var areaSession: FakeAreaCaptureSession?
+        let recorder = CapturePerformanceRecorder()
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function,
+            capturePerformanceRecorder: recorder,
             makeAreaCaptureSession: { _, onSelection, onCancel, onFirstInteraction in
                 let session = FakeAreaCaptureSession(
                     onSelection: onSelection,
@@ -24,6 +26,10 @@ extension CapturePipelineTests {
         XCTAssertEqual(areaSession?.presentCalls, 1)
         XCTAssertFalse(areaSession?.lastSuppressDimming ?? true)
         XCTAssertTrue(pipeline.appState.isCapturing)
+        XCTAssertEqual(
+            recorder.summary(for: .area, event: .requestReceived)?.sampleCount,
+            1
+        )
     }
 
     func testCaptureArea_cancelledViaCoordinatorClearsCaptureState() {
@@ -55,9 +61,11 @@ extension CapturePipelineTests {
     func testCaptureArea_selectionRunsLiveAreaCapture() async throws {
         let captureManager = FakeScreenCaptureManager()
         var areaSession: FakeAreaCaptureSession?
+        let recorder = CapturePerformanceRecorder()
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function,
             captureManager: captureManager,
+            capturePerformanceRecorder: recorder,
             makeAreaCaptureSession: { _, onSelection, onCancel, onFirstInteraction in
                 let session = FakeAreaCaptureSession(
                     onSelection: onSelection,
@@ -85,6 +93,10 @@ extension CapturePipelineTests {
 
         XCTAssertEqual(captureManager.areaCalls, 1)
         XCTAssertEqual(pipeline.appState.lastScreenshot?.context.mode, .area)
+        XCTAssertEqual(
+            recorder.summary(for: .area, event: .captureImageReady)?.sampleCount,
+            1
+        )
     }
 
     func testCaptureArea_selectionUsesFrozenImageCropPath() async throws {

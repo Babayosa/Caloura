@@ -16,16 +16,17 @@ final class CaptureCursorControllerTests: XCTestCase {
         let session = controller.startCrosshairSession()
 
         XCTAssertEqual(driver.pushCalls, 1)
-        XCTAssertEqual(scheduler.scheduleCalls, 1)
-        XCTAssertEqual(scheduler.pendingCount, 1)
+        XCTAssertEqual(scheduler.scheduleCalls, 2)
+        XCTAssertEqual(scheduler.pendingCount, 2)
+        XCTAssertEqual(scheduler.delays, [.milliseconds(1), .milliseconds(50)])
 
-        scheduler.runPendingActions()
+        scheduler.runPendingActions(limit: 1)
 
         // Reprime reinstalls the crosshair without an arrow gap.
         XCTAssertEqual(driver.popCalls, 1)
         XCTAssertEqual(driver.pushCalls, 2)
         XCTAssertEqual(driver.events, [.push, .push, .pop, .set])
-        XCTAssertEqual(scheduler.pendingCount, 0)
+        XCTAssertEqual(scheduler.pendingCount, 1)
 
         session.end()
     }
@@ -44,8 +45,8 @@ final class CaptureCursorControllerTests: XCTestCase {
 
         XCTAssertEqual(driver.pushCalls, 2)
         XCTAssertEqual(driver.popCalls, 1)
-        XCTAssertEqual(scheduler.scheduleCalls, 2)
-        XCTAssertEqual(scheduler.cancelledCount, 1)
+        XCTAssertEqual(scheduler.scheduleCalls, 4)
+        XCTAssertEqual(scheduler.cancelledCount, 2)
 
         firstSession.end()
         XCTAssertEqual(driver.popCalls, 1)
@@ -68,16 +69,16 @@ final class CaptureCursorControllerTests: XCTestCase {
         controller.handleApplicationDidBecomeActive()
         controller.handleApplicationDidBecomeActive()
 
-        XCTAssertEqual(scheduler.scheduleCalls, 1)
-        XCTAssertEqual(scheduler.pendingCount, 1)
+        XCTAssertEqual(scheduler.scheduleCalls, 2)
+        XCTAssertEqual(scheduler.pendingCount, 2)
         XCTAssertEqual(scheduler.cancelledCount, 0)
 
-        scheduler.runPendingActions()
+        scheduler.runPendingActions(limit: 1)
 
         // Initial push + the original pending reprime. Repeated events must
         // not keep cancelling the action that reclaims the cursor from AppKit.
         XCTAssertEqual(driver.pushCalls, 2)
-        XCTAssertEqual(scheduler.pendingCount, 0)
+        XCTAssertEqual(scheduler.pendingCount, 1)
 
         session.end()
     }
@@ -92,14 +93,39 @@ final class CaptureCursorControllerTests: XCTestCase {
         )
 
         let session = controller.startCrosshairSession()
-        scheduler.runPendingActions()
+        scheduler.runPendingActions(limit: 1)
 
         controller.scheduleReprime()
 
-        XCTAssertEqual(scheduler.scheduleCalls, 2)
-        XCTAssertEqual(scheduler.pendingCount, 1)
+        XCTAssertEqual(scheduler.scheduleCalls, 3)
+        XCTAssertEqual(scheduler.pendingCount, 2)
 
         session.end()
+    }
+
+    func testMaintenanceReprimeKeepsCrosshairOwnedUntilSessionEnds() {
+        let driver = CaptureCrosshairDriverSpy()
+        let scheduler = CaptureCursorSchedulerSpy()
+        let controller = CaptureCursorController(
+            crosshairDriver: driver,
+            scheduler: scheduler,
+            notificationCenter: NotificationCenter()
+        )
+
+        let session = controller.startCrosshairSession()
+
+        scheduler.runPendingActions(limit: 2)
+
+        XCTAssertEqual(driver.events, [.push, .push, .pop, .set, .push, .pop, .set])
+        XCTAssertEqual(scheduler.pendingCount, 1)
+        XCTAssertEqual(scheduler.scheduleCalls, 3)
+        XCTAssertEqual(scheduler.delays, [.milliseconds(1), .milliseconds(50), .milliseconds(50)])
+
+        session.end()
+        scheduler.runPendingActions()
+
+        XCTAssertEqual(driver.pushCalls, driver.popCalls)
+        XCTAssertEqual(scheduler.pendingCount, 0)
     }
 
     func testEndCrosshairSessionCancelsPendingAndPops() {
@@ -119,7 +145,7 @@ final class CaptureCursorControllerTests: XCTestCase {
 
         XCTAssertEqual(driver.popCalls, 1)
         XCTAssertEqual(scheduler.pendingCount, 0)
-        XCTAssertEqual(scheduler.cancelledCount, 1)
+        XCTAssertEqual(scheduler.cancelledCount, 2)
     }
 
     func testHandleCursorUpdateNoOpWhenInactive() {
@@ -190,21 +216,21 @@ final class CaptureCursorControllerTests: XCTestCase {
 
         let leakedSession = controller.startCrosshairSession()
         XCTAssertEqual(driver.pushCalls, 1)
-        XCTAssertEqual(scheduler.scheduleCalls, 1)
+        XCTAssertEqual(scheduler.scheduleCalls, 2)
 
         // Simulate the bypass path: pool tearDown reached without
         // the cursor session token's end (e.g., screen reconfiguration).
         controller.resetCursorState()
 
         XCTAssertEqual(driver.popCalls, 1)
-        XCTAssertEqual(scheduler.cancelledCount, 1)
+        XCTAssertEqual(scheduler.cancelledCount, 2)
 
         // The next start must produce a fresh push, not silently no-op.
         // Without reset, cursorActive would trap the controller in a
         // permanently broken state.
         let freshSession = controller.startCrosshairSession()
         XCTAssertEqual(driver.pushCalls, 2)
-        XCTAssertEqual(scheduler.scheduleCalls, 2)
+        XCTAssertEqual(scheduler.scheduleCalls, 4)
 
         leakedSession.end()
         XCTAssertEqual(driver.popCalls, 1)
@@ -328,16 +354,24 @@ private final class CaptureCursorSchedulerSpy: CaptureCursorScheduling {
         actions.filter(\.isCancelled).count
     }
 
-    func schedule(_ action: @escaping @MainActor () -> Void) -> CaptureCursorScheduledAction {
+    private(set) var delays: [Duration] = []
+
+    func schedule(
+        after delay: Duration,
+        _ action: @escaping @MainActor () -> Void
+    ) -> CaptureCursorScheduledAction {
         scheduleCalls += 1
+        delays.append(delay)
         let scheduledAction = ScheduledAction(action: action)
         actions.append(scheduledAction)
         return scheduledAction
     }
 
-    func runPendingActions() {
-        for action in actions {
+    func runPendingActions(limit: Int? = nil) {
+        var remaining = limit
+        for action in actions where remaining.map({ $0 > 0 }) ?? true {
             action.runIfNeeded()
+            remaining = remaining.map { $0 - 1 }
         }
     }
 }

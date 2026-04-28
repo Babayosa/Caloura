@@ -29,6 +29,18 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(cursor.scheduleReprimeCalls, 1)
         XCTAssertEqual(cursor.endCalls, 1)
         XCTAssertEqual(cursor.activeSessions, 0)
+        XCTAssertEqual(
+            recorder.summary(for: .area, event: .cursorSessionStarted)?.sampleCount,
+            1
+        )
+        XCTAssertEqual(
+            recorder.summary(for: .area, event: .cursorPrimed)?.sampleCount,
+            1
+        )
+        XCTAssertEqual(
+            recorder.summary(for: .area, event: .overlayTeardown)?.sampleCount,
+            1
+        )
     }
 
     func testAreaCoordinatorStartsCursorSessionBeforeOverlayWork() {
@@ -100,6 +112,18 @@ final class CaptureSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(cursor.scheduleReprimeCalls, 1)
         XCTAssertEqual(cursor.endCalls, 1)
         XCTAssertEqual(cursor.activeSessions, 0)
+        XCTAssertEqual(
+            recorder.summary(for: .fullscreen, event: .cursorSessionStarted)?.sampleCount,
+            1
+        )
+        XCTAssertEqual(
+            recorder.summary(for: .fullscreen, event: .cursorPrimed)?.sampleCount,
+            1
+        )
+        XCTAssertEqual(
+            recorder.summary(for: .fullscreen, event: .overlayTeardown)?.sampleCount,
+            1
+        )
     }
 
     func testFullscreenCoordinatorReassertsCursorBeforeMarkingOverlayVisible() {
@@ -389,7 +413,10 @@ private final class CoordinatorCrosshairDriverSpy: CaptureCrosshairDriving {
 
 @MainActor
 private final class CoordinatorCursorSchedulerSpy: CaptureCursorScheduling {
-    func schedule(_ action: @escaping @MainActor () -> Void) -> CaptureCursorScheduledAction {
+    func schedule(
+        after delay: Duration,
+        _ action: @escaping @MainActor () -> Void
+    ) -> CaptureCursorScheduledAction {
         CoordinatorCursorScheduledActionSpy()
     }
 }

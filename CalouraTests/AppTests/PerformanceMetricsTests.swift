@@ -64,4 +64,37 @@ final class PerformanceMetricsTests: XCTestCase {
         XCTAssertEqual(summary?.p50Milliseconds, 30.0)
         XCTAssertEqual(summary?.p95Milliseconds, 40.0)
     }
+
+    @MainActor
+    func testCapturePerformanceRecorderTracksBudgetViolationsWithoutDroppingSample() {
+        let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 50, reportInterval: 5)
+        let session = recorder.beginSession(mode: .area)
+
+        recorder.recordDuration(.overlayVisible, milliseconds: 75, in: session)
+
+        let summary = recorder.summary(for: .area, event: .overlayVisible)
+        XCTAssertEqual(summary?.sampleCount, 1)
+        XCTAssertEqual(summary?.latestMilliseconds, 75)
+        XCTAssertEqual(
+            recorder.budgetViolationCount(for: .area, event: .overlayVisible),
+            1
+        )
+        XCTAssertEqual(
+            recorder.budgetViolationCount(for: .area, event: .freezeSnapshot),
+            0
+        )
+    }
+
+    @MainActor
+    func testCapturePerformanceRecorderDoesNotFlagSamplesInsideBudget() {
+        let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 50, reportInterval: 5)
+        let session = recorder.beginSession(mode: .area)
+
+        recorder.recordDuration(.cursorPrimed, milliseconds: 8, in: session)
+
+        XCTAssertEqual(
+            recorder.budgetViolationCount(for: .area, event: .cursorPrimed),
+            0
+        )
+    }
 }

@@ -807,6 +807,51 @@ Running log of completed tasks. Read this to understand what changed before your
 - Kept `CaptureOverlayWindowPool.resetCursorState()` as an abnormal-teardown safety net, but moved normal cursor end responsibility into coordinator-held tokens.
 - Did not remove overlay pooling in this task; the token model addresses stale cursor ownership while preserving the existing low-latency reuse path.
 
+## Task 32: Full-screen app crosshair maintenance
+**Status:** Complete
+**Branch:** task-32-area-crosshair-fullscreen-apps
+**Changes:**
+- Updated [CaptureCursorController.swift](/Users/b/Caloura/Caloura/Capture/CaptureCursorController.swift) so active crosshair sessions keep a 50 ms maintenance re-prime alive until the session token ends or cursor state resets.
+- Extended [CaptureCursorControllerTests.swift](/Users/b/Caloura/CalouraTests/AppTests/CaptureCursorControllerTests.swift) to prove the maintenance re-prime repeats during active capture, preserves push/pop balance, and cancels on session end.
+- Updated [CaptureSessionCoordinatorTests.swift](/Users/b/Caloura/CalouraTests/AppTests/CaptureSessionCoordinatorTests.swift) for the scheduler protocol signature change.
+
+**Validation:**
+- `swift build`
+- `swiftlint lint --quiet` (passed with existing warning-level debt)
+- `swift test` (671 tests, 0 failures)
+- `swift test --filter CaptureCursorControllerTests`
+- `swift test --filter CaptureSessionCoordinatorTests`
+- `xcodebuild test -project /Users/b/Caloura/Caloura.xcodeproj -scheme Caloura -destination 'platform=macOS' -only-testing:CalouraSystemTests/CaptureSystemTests/testFullscreenCapturePresentsDisplaySelectionCue -only-testing:CalouraSystemTests/CaptureSystemTests/testAreaCaptureCrosshairPersistsAcrossFiveCaptures -only-testing:CalouraSystemTests/CaptureSystemTests/testAreaCaptureCrosshairRecoversAfterPoolTeardownBypass`
+
+**Decisions Made:**
+- Treated TradingView/FaceTime full-screen failures as external cursor reassertion during an already-active capture session, not another first-frame setup issue. The cursor controller now keeps ownership for the whole selection lifetime instead of relying on one deferred repair plus movement events.
+
+---
+
+## Task 33: Capture hardening instrumentation
+**Status:** Complete
+**Branch:** task-33-capture-hardening
+**Changes:**
+- Extended [CapturePerformanceRecorder.swift](/Users/b/Caloura/Caloura/App/CapturePerformanceRecorder.swift) with hot-path events for request receipt, cursor session start, cursor priming, overlay teardown, and image readiness.
+- Added warning-only performance budgets for overlay visibility, cursor priming, overlay teardown, and raw preview visibility so slow paths show up as `capture_timeline_budget_violation` logs without fragile UI timing failures.
+- Instrumented [CaptureEntrypointService.swift](/Users/b/Caloura/Caloura/App/CaptureEntrypointService.swift), [CaptureSessionCoordinators.swift](/Users/b/Caloura/Caloura/App/CaptureSessionCoordinators.swift), and [CaptureExecutionService.swift](/Users/b/Caloura/Caloura/App/CaptureExecutionService.swift) at the user-facing capture lifecycle points.
+- Added regression coverage in [PerformanceMetricsTests.swift](/Users/b/Caloura/CalouraTests/AppTests/PerformanceMetricsTests.swift), [CapturePipelineEntryPointTests.swift](/Users/b/Caloura/CalouraTests/AppTests/CapturePipelineEntryPointTests.swift), and [CaptureSessionCoordinatorTests.swift](/Users/b/Caloura/CalouraTests/AppTests/CaptureSessionCoordinatorTests.swift).
+- Added [CAPTURE-QA.md](/Users/b/Caloura/codex/CAPTURE-QA.md) with the TradingView, FaceTime, full-screen, repeated-capture, and cancel/retry checks that are too app-specific for stable SwiftPM automation.
+
+**Validation:**
+- `swift build`
+- `swiftlint lint --quiet` (passed with warning-level lint debt still present)
+- `swift test` (673 tests, 0 failures)
+- `swift test --filter PerformanceMetricsTests`
+- `swift test --filter CapturePipelineTests/testCaptureArea_entrypointPresentsInjectedCoordinator`
+- `swift test --filter CapturePipelineTests/testCaptureArea_selectionRunsLiveAreaCapture`
+- `swift test --filter CaptureSessionCoordinatorTests`
+- `xcodebuild test -project /Users/b/Caloura/Caloura.xcodeproj -scheme Caloura -destination 'platform=macOS' -only-testing:CalouraSystemTests/CaptureSystemTests/testFullscreenCapturePresentsDisplaySelectionCue -only-testing:CalouraSystemTests/CaptureSystemTests/testAreaCaptureCrosshairPersistsAcrossFiveCaptures -only-testing:CalouraSystemTests/CaptureSystemTests/testAreaCaptureCrosshairRecoversAfterPoolTeardownBypass`
+
+**Decisions Made:**
+- Kept guardrails warning-only and log-driven. The goal is production diagnosis and release review signal, not brittle timing assertions tied to AppKit scheduling.
+- Did not add new abstractions or dependencies; this pass reuses the existing performance recorder and coordinator ownership model.
+
 ---
 
 <!-- Add new task entries above this line -->

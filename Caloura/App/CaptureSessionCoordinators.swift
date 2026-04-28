@@ -68,6 +68,7 @@ final class AreaCaptureSessionCoordinator {
         // no-ops because cursorActive is still false.
         cursorSession?.end()
         cursorSession = cursorController.startCrosshairSession()
+        performanceRecorder.mark(.cursorSessionStarted, in: session)
 
         for (index, window) in windows.enumerated() {
             if suppressDimming {
@@ -117,7 +118,13 @@ final class AreaCaptureSessionCoordinator {
             }
         }
 
+        let cursorPrimeStart = CFAbsoluteTimeGetCurrent()
         cursorController.handleCursorUpdate()
+        performanceRecorder.recordDuration(
+            .cursorPrimed,
+            milliseconds: (CFAbsoluteTimeGetCurrent() - cursorPrimeStart) * 1000.0,
+            in: session
+        )
         cursorController.scheduleReprime()
         performanceRecorder.mark(.overlayVisible, in: session)
     }
@@ -138,6 +145,7 @@ final class AreaCaptureSessionCoordinator {
     }
 
     private func releaseOverlays() {
+        let teardownStart = CFAbsoluteTimeGetCurrent()
         for overlay in overlayWindows {
             overlay.tearDownHandlers()
             overlay.orderOut(nil)
@@ -145,6 +153,11 @@ final class AreaCaptureSessionCoordinator {
         overlayWindows = []
         cursorSession?.end()
         cursorSession = nil
+        performanceRecorder.recordDuration(
+            .overlayTeardown,
+            milliseconds: (CFAbsoluteTimeGetCurrent() - teardownStart) * 1000.0,
+            in: session
+        )
     }
 }
 
@@ -203,6 +216,7 @@ final class FullscreenCaptureSessionCoordinator {
         // calls makeKeyAndOrderFront so primeCrosshair's reprime can take.
         cursorSession?.end()
         cursorSession = cursorController.startCrosshairSession()
+        performanceRecorder.mark(.cursorSessionStarted, in: session)
         overlayWindows = overlayPresenter(
             cursorController,
             { [weak self] screen in
@@ -230,7 +244,13 @@ final class FullscreenCaptureSessionCoordinator {
             }
         }
 
+        let cursorPrimeStart = CFAbsoluteTimeGetCurrent()
         cursorController.handleCursorUpdate()
+        performanceRecorder.recordDuration(
+            .cursorPrimed,
+            milliseconds: (CFAbsoluteTimeGetCurrent() - cursorPrimeStart) * 1000.0,
+            in: session
+        )
         cursorController.scheduleReprime()
         performanceRecorder.mark(.overlayVisible, in: session)
     }
@@ -240,6 +260,7 @@ final class FullscreenCaptureSessionCoordinator {
     }
 
     private func releaseOverlays() {
+        let teardownStart = CFAbsoluteTimeGetCurrent()
         for overlay in overlayWindows {
             overlay.onScreenSelected = nil
             overlay.onCancelled = nil
@@ -248,6 +269,11 @@ final class FullscreenCaptureSessionCoordinator {
         overlayWindows = []
         cursorSession?.end()
         cursorSession = nil
+        performanceRecorder.recordDuration(
+            .overlayTeardown,
+            milliseconds: (CFAbsoluteTimeGetCurrent() - teardownStart) * 1000.0,
+            in: session
+        )
     }
 }
 

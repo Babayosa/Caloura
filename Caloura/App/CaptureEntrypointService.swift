@@ -84,6 +84,7 @@ final class CaptureEntrypointService {
         let sessionID = sessionState.beginTrackedSession()
         let entryStart = CFAbsoluteTimeGetCurrent()
         let performanceSession = capturePerformanceRecorder.beginSession(mode: .area)
+        capturePerformanceRecorder.mark(.requestReceived, in: performanceSession)
         Self.logger.debug("Capture entry: request received")
 
         let coordinator = makeAreaCaptureCoordinator(
@@ -113,6 +114,7 @@ final class CaptureEntrypointService {
     func captureFullscreen() {
         guard beginCaptureIfIdle() else { return }
         let performanceSession = capturePerformanceRecorder.beginSession(mode: .fullscreen)
+        capturePerformanceRecorder.mark(.requestReceived, in: performanceSession)
 
         if screenCountProvider() > 1 {
             let coordinator = makeFullscreenCaptureCoordinator(
@@ -155,6 +157,7 @@ final class CaptureEntrypointService {
         }
         guard beginCaptureIfIdle() else { return }
         let performanceSession = capturePerformanceRecorder.beginSession(mode: .window)
+        capturePerformanceRecorder.mark(.requestReceived, in: performanceSession)
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -193,6 +196,7 @@ final class CaptureEntrypointService {
         }
         let screen = appState.lastCaptureScreen ?? mainScreenProvider()
         let performanceSession = capturePerformanceRecorder.beginSession(mode: .area)
+        capturePerformanceRecorder.mark(.requestReceived, in: performanceSession)
 
         Task { @MainActor [weak self] in
             await self?.performAreaCapture(rect: rect, screen: screen, performanceSession: performanceSession)
