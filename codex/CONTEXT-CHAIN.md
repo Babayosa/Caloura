@@ -878,6 +878,27 @@ Running log of completed tasks. Read this to understand what changed before your
 - Stopped treating the visible crosshair as an AppKit cursor-rect problem. The overlay now owns the visible crosshair, while native cursor APIs remain a fallback/compatibility layer.
 - Kept the implementation local to capture cursor/session views; no new dependencies, no polling beyond the existing maintenance re-prime fallback.
 
+## Task 35: Capture crosshair visual polish
+
+**Branch:** task-35-crosshair-polish
+
+### Changes
+- Changed [CaptureCursorController.swift](/Users/b/Caloura/Caloura/Capture/CaptureCursorController.swift) so the native fallback cursor during capture is a transparent 1x1 cursor instead of a visible system crosshair. This prevents double-cursor frames when AppKit briefly ignores or reverses `NSCursor.hide()`.
+- Added [CaptureCrosshairMetrics.swift](/Users/b/Caloura/Caloura/Capture/CaptureCrosshairMetrics.swift) to share one compact crosshair size across area and fullscreen capture.
+- Updated [CaptureCrosshairOverlayLayer.swift](/Users/b/Caloura/Caloura/Capture/CaptureCrosshairOverlayLayer.swift) and [ScreenSelectionView.swift](/Users/b/Caloura/Caloura/Capture/ScreenSelectionView.swift) to use smaller 8 pt arms, a 2.5 pt center gap, a 2 pt dark backing stroke, and a 1 pt white stroke.
+- Renamed the cursor-driver protocol methods from crosshair-specific visible cursor names to capture-cursor names so tests and conformers reflect that the native fallback is intentionally invisible.
+
+### Validation
+- `swift build`
+- `swift test --filter RegionSelectionViewTests`
+- `swift test --filter CaptureCursorControllerTests`
+- `swift test --filter CaptureSessionCoordinatorTests`
+- `swiftlint lint --quiet` (passed with existing warning-level lint debt)
+
+### Notes
+- Treated the reported offset and double-cursor symptom as the same visible-native-cursor problem: when the native pointer appears at the same time as the rendered crosshair, the pointer artwork makes the overlay look displaced even when it is centered on the actual event hotspot.
+- Kept the fix small and local: no new dependencies, no polling, no redesign of capture overlay presentation.
+
 ---
 
 <!-- Add new task entries above this line -->

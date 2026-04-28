@@ -26,7 +26,7 @@ final class CaptureCursorControllerTests: XCTestCase {
         // Reprime reinstalls the crosshair without an arrow gap.
         XCTAssertEqual(driver.popCalls, 1)
         XCTAssertEqual(driver.pushCalls, 2)
-        XCTAssertEqual(driver.events, [.hide, .push, .push, .pop, .set])
+        XCTAssertEqual(driver.events, [.hide, .pushCaptureCursor, .pushCaptureCursor, .pop, .set])
         XCTAssertEqual(scheduler.pendingCount, 1)
 
         session.end()
@@ -121,7 +121,19 @@ final class CaptureCursorControllerTests: XCTestCase {
 
         scheduler.runPendingActions(limit: 2)
 
-        XCTAssertEqual(driver.events, [.hide, .push, .push, .pop, .set, .push, .pop, .set])
+        XCTAssertEqual(
+            driver.events,
+            [
+                .hide,
+                .pushCaptureCursor,
+                .pushCaptureCursor,
+                .pop,
+                .set,
+                .pushCaptureCursor,
+                .pop,
+                .set
+            ]
+        )
         XCTAssertEqual(scheduler.pendingCount, 1)
         XCTAssertEqual(scheduler.scheduleCalls, 3)
         XCTAssertEqual(scheduler.delays, [.milliseconds(1), .milliseconds(50), .milliseconds(50)])
@@ -184,7 +196,7 @@ final class CaptureCursorControllerTests: XCTestCase {
         XCTAssertEqual(driver.pushCalls, 2)
         XCTAssertEqual(driver.popCalls, 1)
         XCTAssertEqual(driver.setCalls, 1)
-        XCTAssertEqual(driver.events, [.hide, .push, .push, .pop, .set])
+        XCTAssertEqual(driver.events, [.hide, .pushCaptureCursor, .pushCaptureCursor, .pop, .set])
 
         session.end()
     }

@@ -8,8 +8,12 @@ final class CaptureCrosshairOverlayLayer {
     private var currentPoint: CGPoint?
 
     init() {
-        configure(layer: shadowLayer, color: NSColor.black.withAlphaComponent(0.75), lineWidth: 3)
-        configure(layer: strokeLayer, color: .white, lineWidth: 1.25)
+        configure(
+            layer: shadowLayer,
+            color: NSColor.black.withAlphaComponent(0.7),
+            lineWidth: CaptureCrosshairMetrics.shadowLineWidth
+        )
+        configure(layer: strokeLayer, color: .white, lineWidth: CaptureCrosshairMetrics.strokeLineWidth)
         shadowLayer.isHidden = true
         strokeLayer.isHidden = true
     }
@@ -37,8 +41,8 @@ final class CaptureCrosshairOverlayLayer {
         guard visible else { return }
 
         let path = CGMutablePath()
-        let armLength: CGFloat = 13
-        let gap: CGFloat = 4
+        let armLength = CaptureCrosshairMetrics.armLength
+        let gap = CaptureCrosshairMetrics.gap
         path.move(to: CGPoint(x: point.x - armLength, y: point.y))
         path.addLine(to: CGPoint(x: point.x - gap, y: point.y))
         path.move(to: CGPoint(x: point.x + gap, y: point.y))

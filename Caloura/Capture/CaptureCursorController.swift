@@ -21,8 +21,8 @@ protocol CaptureCursorSessionHandling: AnyObject {
 
 @MainActor
 protocol CaptureCrosshairDriving {
-    func setCrosshair()
-    func pushCrosshair()
+    func setCaptureCursor()
+    func pushCaptureCursor()
     func popCrosshair()
     func hideSystemCursor()
     func unhideSystemCursor()
@@ -43,12 +43,17 @@ protocol CaptureCursorScheduling {
 
 @MainActor
 private struct SystemCaptureCrosshairDriver: CaptureCrosshairDriving {
-    func setCrosshair() {
-        NSCursor.crosshair.set()
+    private static let transparentCursor = NSCursor(
+        image: NSImage(size: NSSize(width: 1, height: 1)),
+        hotSpot: .zero
+    )
+
+    func setCaptureCursor() {
+        Self.transparentCursor.set()
     }
 
-    func pushCrosshair() {
-        NSCursor.crosshair.push()
+    func pushCaptureCursor() {
+        Self.transparentCursor.push()
     }
 
     func popCrosshair() {
@@ -151,7 +156,7 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
         cursorActive = true
         hideSystemCursorIfNeeded()
         if !pushed {
-            crosshairDriver.pushCrosshair()
+            crosshairDriver.pushCaptureCursor()
             pushed = true
         }
         cursorLogger.debug(
@@ -268,12 +273,12 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
         // Push new crosshair BEFORE popping the old one so there is never a
         // frame in which the cursor stack reverts to the arrow.
         let wasPushed = pushed
-        crosshairDriver.pushCrosshair()
+        crosshairDriver.pushCaptureCursor()
         if wasPushed {
             crosshairDriver.popCrosshair()
         }
         pushed = true
-        crosshairDriver.setCrosshair()
+        crosshairDriver.setCaptureCursor()
     }
 
     private func hideSystemCursorIfNeeded() {

@@ -5,7 +5,7 @@ import Foundation
 final class CaptureCrosshairDriverSpy: CaptureCrosshairDriving {
     enum Event: Equatable {
         case set
-        case push
+        case pushCaptureCursor
         case pop
         case hide
         case unhide
@@ -18,14 +18,14 @@ final class CaptureCrosshairDriverSpy: CaptureCrosshairDriving {
     private(set) var unhideCalls = 0
     private(set) var events: [Event] = []
 
-    func setCrosshair() {
+    func setCaptureCursor() {
         setCalls += 1
         events.append(.set)
     }
 
-    func pushCrosshair() {
+    func pushCaptureCursor() {
         pushCalls += 1
-        events.append(.push)
+        events.append(.pushCaptureCursor)
     }
 
     func popCrosshair() {

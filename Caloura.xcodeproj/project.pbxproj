@@ -34,6 +34,7 @@
 		21B0332B75BD9E09DBBB3FAD /* LicenseManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A7A42423314D5FD004AD25 /* LicenseManagerTests.swift */; };
 		2226C676602B4BE555433E6D /* CapturePreviewPhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A062E45D205A98347DDC953 /* CapturePreviewPhase.swift */; };
 		22314CBC69F6241F18532B61 /* BeautifierEdgeCaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 377F70C6A7527231710AE640 /* BeautifierEdgeCaseTests.swift */; };
+		251E54C7A2582164C3C909B9 /* CaptureCrosshairMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDB7630EBC4B0327F892A853 /* CaptureCrosshairMetrics.swift */; };
 		256F1E38BFB087071F0572FB /* PermissionTestHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = D427D6C2D8A0FBC6B102C84C /* PermissionTestHelpers.swift */; };
 		298FDDEDAA59649B51C07071 /* CapturePerformanceRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F08AD8BC73DCAFF216345B9E /* CapturePerformanceRecorder.swift */; };
 		29AB177B65A4DF8FBFB6DC47 /* WindowPickerManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82948024B51A509DFED7716F /* WindowPickerManager.swift */; };
@@ -377,6 +378,7 @@
 		BBC74CEACA72F0277A0FBC91 /* ReleaseScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseScriptTests.swift; sourceTree = "<group>"; };
 		BC35B127FD103884C4B34BF5 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		BC5E17AF8283788E1FA494B5 /* OCREngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCREngine.swift; sourceTree = "<group>"; };
+		BDB7630EBC4B0327F892A853 /* CaptureCrosshairMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureCrosshairMetrics.swift; sourceTree = "<group>"; };
 		BF3D102277F5238C77501C32 /* CaptureEnrichmentServicePIIFailureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureEnrichmentServicePIIFailureTests.swift; sourceTree = "<group>"; };
 		BF5377722B4A60789BA4AF18 /* RedactionReviewOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RedactionReviewOverlay.swift; sourceTree = "<group>"; };
 		C0474123955D6E5B8B62F701 /* CaptureFreezeServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureFreezeServiceTests.swift; sourceTree = "<group>"; };
@@ -737,6 +739,7 @@
 		A3919DC36D5617277AB8FD8F /* Capture */ = {
 			isa = PBXGroup;
 			children = (
+				BDB7630EBC4B0327F892A853 /* CaptureCrosshairMetrics.swift */,
 				4F563C53BE9589204E9088A8 /* CaptureCrosshairOverlayLayer.swift */,
 				CD72C80740701EDE0DDB19DD /* CaptureCursorController.swift */,
 				E20996E12C67659425FFC3DB /* CaptureMode.swift */,
@@ -1065,6 +1068,7 @@
 				9DE19A0A0911958AF9D4935D /* BeautifyTheme.swift in Sources */,
 				A19416F135431777D7F7DBDA /* CalouraApp.swift in Sources */,
 				0E2F8952CD675A7B9956700C /* CaptureContext.swift in Sources */,
+				251E54C7A2582164C3C909B9 /* CaptureCrosshairMetrics.swift in Sources */,
 				525D50E397121D574B5ADFDC /* CaptureCrosshairOverlayLayer.swift in Sources */,
 				FA3B662385E45E6FB39A7A67 /* CaptureCursorController.swift in Sources */,
 				1B08CEB8C7BD3F8398B8F3A3 /* CaptureDistributionService.swift in Sources */,

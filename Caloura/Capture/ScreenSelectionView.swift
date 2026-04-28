@@ -157,16 +157,22 @@ final class ScreenSelectionView: NSView {
 
     private func drawCrosshair() {
         guard let point = crosshairPoint, bounds.contains(point) else { return }
-        let armLength: CGFloat = 13
-        let gap: CGFloat = 4
+        let armLength = CaptureCrosshairMetrics.armLength
+        let gap = CaptureCrosshairMetrics.gap
         drawCrosshairStroke(
             at: point,
             armLength: armLength,
             gap: gap,
             color: NSColor.black.withAlphaComponent(0.75),
-            width: 3
+            width: CaptureCrosshairMetrics.shadowLineWidth
         )
-        drawCrosshairStroke(at: point, armLength: armLength, gap: gap, color: .white, width: 1.25)
+        drawCrosshairStroke(
+            at: point,
+            armLength: armLength,
+            gap: gap,
+            color: .white,
+            width: CaptureCrosshairMetrics.strokeLineWidth
+        )
     }
 
     private func drawCrosshairStroke(

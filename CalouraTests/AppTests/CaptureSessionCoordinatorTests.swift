@@ -402,9 +402,9 @@ private final class CoordinatorCrosshairDriverSpy: CaptureCrosshairDriving {
     private(set) var hideCalls = 0
     private(set) var unhideCalls = 0
 
-    func setCrosshair() {}
+    func setCaptureCursor() {}
 
-    func pushCrosshair() {
+    func pushCaptureCursor() {
         pushCalls += 1
     }
 

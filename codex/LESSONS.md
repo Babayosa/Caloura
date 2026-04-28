@@ -217,6 +217,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: Repeated desktop captures and full-screen apps can still show the arrow when AppKit cursor rects or the native cursor stack lag behind overlay presentation. Re-prime loops improve the race but do not remove it.
 - **Example**: `CaptureCursorController` now balances `NSCursor.hide()`/`unhide()` per session, while `RegionSelectionView` and `ScreenSelectionView` draw their own crosshair at the current pointer location.
 
+### Rendered capture cursors need an invisible native fallback
+- **Rule**: Once Caloura renders its own capture crosshair, any native cursor pushed during capture must be transparent rather than another visible crosshair.
+- **Context**: `NSCursor.hide()` is still AppKit-owned and can briefly lose to cursor rect recalculation. If the fallback cursor is visible, users can see both the system cursor and Caloura's rendered crosshair.
+- **Example**: `SystemCaptureCrosshairDriver` now pushes/sets a 1x1 transparent cursor while the overlay draws the only visible crosshair.
+
 ### Capture hot-path guardrails should warn before they fail UI tests
 - **Rule**: For AppKit-heavy capture timing, record lightweight budget violations in the performance timeline before turning them into hard test failures.
 - **Context**: Full-screen Spaces and cursor rect delivery vary by app and machine. Hard timing assertions can create flaky tests, while missing instrumentation makes production regressions hard to diagnose.
