@@ -28,18 +28,18 @@ final class RegionSelectionView: NSView {
     private var isSelecting = false
     private var hasSentFirstMouseDown = false
 
-    // Layer tree (z-order: background → dimming → border → labels)
-    private let backgroundLayer = CALayer()
-    private let dimmingLayer = CAShapeLayer()
-    private let borderLayer = CAShapeLayer()
-    private let sizeContainer = CALayer()
-    private let sizeTextLayer = CATextLayer()
-    private let hintContainer = CALayer()
-    private let hintTextLayer = CATextLayer()
+    let backgroundLayer = CALayer()
+    let dimmingLayer = CAShapeLayer()
+    let borderLayer = CAShapeLayer()
+    let sizeContainer = CALayer()
+    let sizeTextLayer = CATextLayer()
+    let hintContainer = CALayer()
+    let hintTextLayer = CATextLayer()
+    let crosshairOverlay = CaptureCrosshairOverlayLayer()
 
     // Styling constants
-    private let sizeFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
-    private let hintFont = NSFont.systemFont(ofSize: 13, weight: .medium)
+    let sizeFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
+    let hintFont = NSFont.systemFont(ofSize: 13, weight: .medium)
     private let labelPadding: CGFloat = 6
     private let hintPadding: CGFloat = 10
 
@@ -69,6 +69,7 @@ final class RegionSelectionView: NSView {
         setupBorderLayer(in: rootLayer)
         setupSizeLabel(in: rootLayer)
         setupHintLabel(in: rootLayer)
+        crosshairOverlay.add(to: rootLayer)
 
         updateLayerVisibility()
     }
@@ -90,6 +91,7 @@ final class RegionSelectionView: NSView {
         isDimmingSuppressed = false
         updateLayerVisibility()
         CATransaction.commit()
+        updateCrosshairFromCurrentMouseLocation()
     }
 
     func revealFrozenImage(_ image: CGImage) {
@@ -112,6 +114,7 @@ final class RegionSelectionView: NSView {
         backgroundLayer.frame = bounds
         dimmingLayer.frame = bounds
         layoutHintLabel()
+        crosshairOverlay.updateBounds(bounds, scale: window?.backingScaleFactor ?? 2.0)
         CATransaction.commit()
     }
 
@@ -123,6 +126,7 @@ final class RegionSelectionView: NSView {
             cursorController?.handleCursorUpdate()
             cursorController?.scheduleReprime()
             applyBackingScale(window.backingScaleFactor)
+            updateCrosshairFromCurrentMouseLocation()
         }
         window?.invalidateCursorRects(for: self)
     }
@@ -165,12 +169,14 @@ final class RegionSelectionView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         if window?.isKeyWindow == false { window?.makeKey() }
+        updateCrosshair(with: event)
         cursorController?.handleCursorUpdate()
         cursorController?.scheduleReprime()
     }
 
     override func mouseMoved(with event: NSEvent) {
         if window?.isKeyWindow == false { window?.makeKey() }
+        updateCrosshair(with: event)
         cursorController?.handleCursorUpdate()
         cursorController?.scheduleReprime()
     }
@@ -259,7 +265,7 @@ final class RegionSelectionView: NSView {
         )
     }
 
-    private func layoutHintLabel() {
+    func layoutHintLabel() {
         let text = Self.hintText
         let textSize = (text as NSString).size(
             withAttributes: [.font: hintFont]
@@ -289,6 +295,7 @@ final class RegionSelectionView: NSView {
             onFirstMouseDown?()
         }
         let point = convert(event.locationInWindow, from: nil)
+        crosshairOverlay.update(to: point, in: bounds)
         selectionStart = point
         selectionEnd = point
         isSelecting = true
@@ -298,12 +305,14 @@ final class RegionSelectionView: NSView {
     override func mouseDragged(with event: NSEvent) {
         guard isSelecting else { return }
         let point = convert(event.locationInWindow, from: nil)
+        crosshairOverlay.update(to: point, in: bounds)
         selectionEnd = point
         updateLayerVisibility()
     }
 
     override func mouseUp(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        crosshairOverlay.update(to: point, in: bounds)
 
         guard isSelecting, let start = selectionStart else {
             return
@@ -341,63 +350,17 @@ final class RegionSelectionView: NSView {
         let height = abs(end.y - start.y)
         return CGRect(x: x, y: y, width: width, height: height)
     }
-}
 
-// MARK: - Layer Setup
-
-private extension RegionSelectionView {
-    func setupBackgroundLayer(in root: CALayer) {
-        backgroundLayer.contentsGravity = .resizeAspectFill
-        backgroundLayer.frame = bounds
-        backgroundLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
-        root.addSublayer(backgroundLayer)
+    private func updateCrosshair(with event: NSEvent) {
+        crosshairOverlay.update(to: convert(event.locationInWindow, from: nil), in: bounds)
     }
 
-    func setupDimmingLayer(in root: CALayer) {
-        dimmingLayer.fillColor = NSColor.clear.cgColor
-        dimmingLayer.fillRule = .evenOdd
-        dimmingLayer.frame = bounds
-        root.addSublayer(dimmingLayer)
-    }
-
-    func setupBorderLayer(in root: CALayer) {
-        borderLayer.strokeColor = NSColor.white.withAlphaComponent(0.9).cgColor
-        borderLayer.fillColor = nil
-        borderLayer.lineWidth = 1
-        borderLayer.isHidden = true
-        root.addSublayer(borderLayer)
-    }
-
-    func setupSizeLabel(in root: CALayer) {
-        sizeContainer.backgroundColor = NSColor.black.withAlphaComponent(0.65).cgColor
-        sizeContainer.cornerRadius = 4
-        sizeContainer.isHidden = true
-        root.addSublayer(sizeContainer)
-
-        sizeTextLayer.font = sizeFont
-        sizeTextLayer.fontSize = sizeFont.pointSize
-        sizeTextLayer.foregroundColor = NSColor.white.withAlphaComponent(0.9).cgColor
-        sizeTextLayer.alignmentMode = .center
-        sizeTextLayer.truncationMode = .none
-        sizeTextLayer.isWrapped = false
-        sizeContainer.addSublayer(sizeTextLayer)
-    }
-
-    func setupHintLabel(in root: CALayer) {
-        hintContainer.backgroundColor = NSColor.black.withAlphaComponent(0.50).cgColor
-        hintContainer.cornerRadius = 8
-        hintContainer.isHidden = false
-        root.addSublayer(hintContainer)
-
-        hintTextLayer.string = Self.hintText
-        hintTextLayer.font = hintFont
-        hintTextLayer.fontSize = hintFont.pointSize
-        hintTextLayer.foregroundColor = NSColor.white.withAlphaComponent(0.8).cgColor
-        hintTextLayer.alignmentMode = .center
-        hintTextLayer.truncationMode = .none
-        hintTextLayer.isWrapped = false
-        hintContainer.addSublayer(hintTextLayer)
-
-        layoutHintLabel()
+    private func updateCrosshairFromCurrentMouseLocation() {
+        guard let window else {
+            crosshairOverlay.hide()
+            return
+        }
+        let windowPoint = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        crosshairOverlay.update(to: convert(windowPoint, from: nil), in: bounds)
     }
 }

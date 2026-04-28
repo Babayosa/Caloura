@@ -854,4 +854,30 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Task 34: Rendered capture crosshair ownership
+**Status:** Complete
+**Branch:** main
+**Changes:**
+- Changed [CaptureCursorController.swift](/Users/b/Caloura/Caloura/Capture/CaptureCursorController.swift) so each capture cursor session hides the native cursor on start and unhides it on token end/reset, with tests proving repeated sessions balance hide/unhide and push/pop ownership.
+- Added [CaptureCrosshairOverlayLayer.swift](/Users/b/Caloura/Caloura/Capture/CaptureCrosshairOverlayLayer.swift) and wired [RegionSelectionView.swift](/Users/b/Caloura/Caloura/Capture/RegionSelectionView.swift) to render Caloura's own crosshair above the area-selection UI using the current global mouse location plus live mouse events.
+- Updated [ScreenSelectionView.swift](/Users/b/Caloura/Caloura/Capture/ScreenSelectionView.swift) to draw a matching crosshair during fullscreen-display selection, so fullscreen capture no longer depends on the native cursor being visible.
+- Split [RegionSelectionView+LayerSetup.swift](/Users/b/Caloura/Caloura/Capture/RegionSelectionView+LayerSetup.swift) and [CaptureCursorControllerTestDoubles.swift](/Users/b/Caloura/CalouraTests/AppTests/CaptureCursorControllerTestDoubles.swift) to keep the fix from adding fresh lint debt.
+- Regenerated [project.pbxproj](/Users/b/Caloura/Caloura.xcodeproj/project.pbxproj) so Xcode builds include the new source files.
+
+**Validation:**
+- `swift build`
+- `swiftlint lint --quiet` (passed with existing warning-level lint debt; no new warnings from touched cursor/selection files)
+- `swift test` (675 tests, 0 failures)
+- `swift test --filter CaptureCursorControllerTests`
+- `swift test --filter CaptureSessionCoordinatorTests`
+- `swift test --filter RegionSelectionViewTests`
+- `swift test --filter CaptureOverlayWindowTests`
+- `xcodebuild test -project /Users/b/Caloura/Caloura.xcodeproj -scheme Caloura -destination 'platform=macOS' -only-testing:CalouraSystemTests/CaptureSystemTests/testFullscreenCapturePresentsDisplaySelectionCue -only-testing:CalouraSystemTests/CaptureSystemTests/testAreaCaptureCrosshairPersistsAcrossFiveCaptures -only-testing:CalouraSystemTests/CaptureSystemTests/testAreaCaptureCrosshairRecoversAfterPoolTeardownBypass`
+
+**Decisions Made:**
+- Stopped treating the visible crosshair as an AppKit cursor-rect problem. The overlay now owns the visible crosshair, while native cursor APIs remain a fallback/compatibility layer.
+- Kept the implementation local to capture cursor/session views; no new dependencies, no polling beyond the existing maintenance re-prime fallback.
+
+---
+
 <!-- Add new task entries above this line -->

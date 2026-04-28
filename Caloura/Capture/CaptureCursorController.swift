@@ -24,6 +24,8 @@ protocol CaptureCrosshairDriving {
     func setCrosshair()
     func pushCrosshair()
     func popCrosshair()
+    func hideSystemCursor()
+    func unhideSystemCursor()
 }
 
 @MainActor
@@ -51,6 +53,14 @@ private struct SystemCaptureCrosshairDriver: CaptureCrosshairDriving {
 
     func popCrosshair() {
         NSCursor.pop()
+    }
+
+    func hideSystemCursor() {
+        NSCursor.hide()
+    }
+
+    func unhideSystemCursor() {
+        NSCursor.unhide()
     }
 }
 
@@ -101,6 +111,7 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
 
     private var cursorActive = false
     private var pushed = false
+    private var systemCursorHidden = false
     private var pendingReprime: CaptureCursorScheduledAction?
     private var pendingMaintenanceReprime: CaptureCursorScheduledAction?
     private var activeSessionID: UInt?
@@ -138,6 +149,7 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
         let sessionID = nextSessionID
         activeSessionID = sessionID
         cursorActive = true
+        hideSystemCursorIfNeeded()
         if !pushed {
             crosshairDriver.pushCrosshair()
             pushed = true
@@ -213,6 +225,7 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
             crosshairDriver.popCrosshair()
             pushed = false
         }
+        unhideSystemCursorIfNeeded()
         cursorLogger.debug("endCrosshairSession: cursorActive=false, pushed=false")
     }
 
@@ -229,6 +242,7 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
             crosshairDriver.popCrosshair()
             pushed = false
         }
+        unhideSystemCursorIfNeeded()
         if wasActive || wasPushed {
             cursorLogger.error(
                 "resetCursorState leaked: active=\(wasActive, privacy: .public) pushed=\(wasPushed, privacy: .public)"
@@ -260,6 +274,18 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
         }
         pushed = true
         crosshairDriver.setCrosshair()
+    }
+
+    private func hideSystemCursorIfNeeded() {
+        guard !systemCursorHidden else { return }
+        crosshairDriver.hideSystemCursor()
+        systemCursorHidden = true
+    }
+
+    private func unhideSystemCursorIfNeeded() {
+        guard systemCursorHidden else { return }
+        crosshairDriver.unhideSystemCursor()
+        systemCursorHidden = false
     }
 }
 

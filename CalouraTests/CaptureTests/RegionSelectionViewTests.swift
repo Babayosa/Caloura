@@ -50,4 +50,13 @@ final class RegionSelectionViewTests: XCTestCase {
         }
         XCTAssertEqual(dimmingLayer.opacity, 1)
     }
+
+    func testRegionSelectionViewOwnsCustomCrosshairLayersAboveSelectionUI() {
+        let view = RegionSelectionView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        let sublayers = view.layer?.sublayers ?? []
+
+        XCTAssertEqual(sublayers.count, 7)
+        XCTAssertTrue(sublayers[5] is CAShapeLayer)
+        XCTAssertTrue(sublayers[6] is CAShapeLayer)
+    }
 }

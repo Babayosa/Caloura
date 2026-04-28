@@ -14,6 +14,7 @@ final class ScreenSelectionView: NSView {
     private let highlightOverlayColor = NSColor.black.withAlphaComponent(0.15)
     private let labelFont = NSFont.systemFont(ofSize: 22, weight: .semibold)
     private let hintFont = NSFont.systemFont(ofSize: 14, weight: .medium)
+    private var crosshairPoint: CGPoint?
 
     var debugCaptureHintText: String {
         Self.captureHintText
@@ -37,8 +38,14 @@ final class ScreenSelectionView: NSView {
             window.acceptsMouseMovedEvents = true
             cursorController?.handleCursorUpdate()
             cursorController?.scheduleReprime()
+            updateCrosshairFromCurrentMouseLocation()
         }
         window?.invalidateCursorRects(for: self)
+    }
+
+    override func layout() {
+        super.layout()
+        updateCrosshairFromCurrentMouseLocation()
     }
 
     override func updateTrackingAreas() {
@@ -99,6 +106,7 @@ final class ScreenSelectionView: NSView {
             drawDisplayName()
             drawClickHint()
         }
+        drawCrosshair()
     }
 
     private func drawDisplayName() {
@@ -147,11 +155,49 @@ final class ScreenSelectionView: NSView {
         text.draw(at: textOrigin, withAttributes: attributes)
     }
 
+    private func drawCrosshair() {
+        guard let point = crosshairPoint, bounds.contains(point) else { return }
+        let armLength: CGFloat = 13
+        let gap: CGFloat = 4
+        drawCrosshairStroke(
+            at: point,
+            armLength: armLength,
+            gap: gap,
+            color: NSColor.black.withAlphaComponent(0.75),
+            width: 3
+        )
+        drawCrosshairStroke(at: point, armLength: armLength, gap: gap, color: .white, width: 1.25)
+    }
+
+    private func drawCrosshairStroke(
+        at point: CGPoint,
+        armLength: CGFloat,
+        gap: CGFloat,
+        color: NSColor,
+        width: CGFloat
+    ) {
+        let path = NSBezierPath()
+        path.lineCapStyle = .round
+        path.lineJoinStyle = .round
+        path.lineWidth = width
+        path.move(to: CGPoint(x: point.x - armLength, y: point.y))
+        path.line(to: CGPoint(x: point.x - gap, y: point.y))
+        path.move(to: CGPoint(x: point.x + gap, y: point.y))
+        path.line(to: CGPoint(x: point.x + armLength, y: point.y))
+        path.move(to: CGPoint(x: point.x, y: point.y - armLength))
+        path.line(to: CGPoint(x: point.x, y: point.y - gap))
+        path.move(to: CGPoint(x: point.x, y: point.y + gap))
+        path.line(to: CGPoint(x: point.x, y: point.y + armLength))
+        color.setStroke()
+        path.stroke()
+    }
+
     // MARK: - Mouse Events
 
     override func mouseEntered(with event: NSEvent) {
         isHighlighted = true
         if window?.isKeyWindow == false { window?.makeKey() }
+        updateCrosshair(with: event)
         cursorController?.handleCursorUpdate()
         cursorController?.scheduleReprime()
         needsDisplay = true
@@ -163,6 +209,7 @@ final class ScreenSelectionView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        updateCrosshair(with: event)
         cursorController?.handleCursorUpdate()
         cursorController?.scheduleReprime()
         onScreenSelected?(targetScreen)
@@ -170,6 +217,7 @@ final class ScreenSelectionView: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         if window?.isKeyWindow == false { window?.makeKey() }
+        updateCrosshair(with: event)
         cursorController?.handleCursorUpdate()
         cursorController?.scheduleReprime()
     }
@@ -180,5 +228,21 @@ final class ScreenSelectionView: NSView {
         if event.keyCode == 53 { // Escape
             onCancelled?()
         }
+    }
+
+    private func updateCrosshair(with event: NSEvent) {
+        crosshairPoint = convert(event.locationInWindow, from: nil)
+        needsDisplay = true
+    }
+
+    private func updateCrosshairFromCurrentMouseLocation() {
+        guard let window else {
+            crosshairPoint = nil
+            needsDisplay = true
+            return
+        }
+        let windowPoint = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        crosshairPoint = convert(windowPoint, from: nil)
+        needsDisplay = true
     }
 }

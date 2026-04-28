@@ -15,6 +15,7 @@ final class CaptureCursorControllerTests: XCTestCase {
 
         let session = controller.startCrosshairSession()
 
+        XCTAssertEqual(driver.hideCalls, 1)
         XCTAssertEqual(driver.pushCalls, 1)
         XCTAssertEqual(scheduler.scheduleCalls, 2)
         XCTAssertEqual(scheduler.pendingCount, 2)
@@ -25,10 +26,11 @@ final class CaptureCursorControllerTests: XCTestCase {
         // Reprime reinstalls the crosshair without an arrow gap.
         XCTAssertEqual(driver.popCalls, 1)
         XCTAssertEqual(driver.pushCalls, 2)
-        XCTAssertEqual(driver.events, [.push, .push, .pop, .set])
+        XCTAssertEqual(driver.events, [.hide, .push, .push, .pop, .set])
         XCTAssertEqual(scheduler.pendingCount, 1)
 
         session.end()
+        XCTAssertEqual(driver.unhideCalls, 1)
     }
 
     func testRepeatedStartCrosshairSessionResetsLeakedActiveSession() {
@@ -45,6 +47,8 @@ final class CaptureCursorControllerTests: XCTestCase {
 
         XCTAssertEqual(driver.pushCalls, 2)
         XCTAssertEqual(driver.popCalls, 1)
+        XCTAssertEqual(driver.hideCalls, 2)
+        XCTAssertEqual(driver.unhideCalls, 1)
         XCTAssertEqual(scheduler.scheduleCalls, 4)
         XCTAssertEqual(scheduler.cancelledCount, 2)
 
@@ -53,6 +57,7 @@ final class CaptureCursorControllerTests: XCTestCase {
 
         secondSession.end()
         XCTAssertEqual(driver.popCalls, 2)
+        XCTAssertEqual(driver.unhideCalls, 2)
     }
 
     func testDidBecomeActiveDoesNotStarvePendingReprime() {
@@ -116,7 +121,7 @@ final class CaptureCursorControllerTests: XCTestCase {
 
         scheduler.runPendingActions(limit: 2)
 
-        XCTAssertEqual(driver.events, [.push, .push, .pop, .set, .push, .pop, .set])
+        XCTAssertEqual(driver.events, [.hide, .push, .push, .pop, .set, .push, .pop, .set])
         XCTAssertEqual(scheduler.pendingCount, 1)
         XCTAssertEqual(scheduler.scheduleCalls, 3)
         XCTAssertEqual(scheduler.delays, [.milliseconds(1), .milliseconds(50), .milliseconds(50)])
@@ -125,6 +130,7 @@ final class CaptureCursorControllerTests: XCTestCase {
         scheduler.runPendingActions()
 
         XCTAssertEqual(driver.pushCalls, driver.popCalls)
+        XCTAssertEqual(driver.hideCalls, driver.unhideCalls)
         XCTAssertEqual(scheduler.pendingCount, 0)
     }
 
@@ -144,6 +150,7 @@ final class CaptureCursorControllerTests: XCTestCase {
         scheduler.runPendingActions()
 
         XCTAssertEqual(driver.popCalls, 1)
+        XCTAssertEqual(driver.unhideCalls, 1)
         XCTAssertEqual(scheduler.pendingCount, 0)
         XCTAssertEqual(scheduler.cancelledCount, 2)
     }
@@ -177,7 +184,7 @@ final class CaptureCursorControllerTests: XCTestCase {
         XCTAssertEqual(driver.pushCalls, 2)
         XCTAssertEqual(driver.popCalls, 1)
         XCTAssertEqual(driver.setCalls, 1)
-        XCTAssertEqual(driver.events, [.push, .push, .pop, .set])
+        XCTAssertEqual(driver.events, [.hide, .push, .push, .pop, .set])
 
         session.end()
     }
@@ -223,6 +230,7 @@ final class CaptureCursorControllerTests: XCTestCase {
         controller.resetCursorState()
 
         XCTAssertEqual(driver.popCalls, 1)
+        XCTAssertEqual(driver.unhideCalls, 1)
         XCTAssertEqual(scheduler.cancelledCount, 2)
 
         // The next start must produce a fresh push, not silently no-op.
@@ -230,6 +238,7 @@ final class CaptureCursorControllerTests: XCTestCase {
         // permanently broken state.
         let freshSession = controller.startCrosshairSession()
         XCTAssertEqual(driver.pushCalls, 2)
+        XCTAssertEqual(driver.hideCalls, 2)
         XCTAssertEqual(scheduler.scheduleCalls, 4)
 
         leakedSession.end()
@@ -252,6 +261,8 @@ final class CaptureCursorControllerTests: XCTestCase {
 
         XCTAssertEqual(driver.pushCalls, 0)
         XCTAssertEqual(driver.popCalls, 0)
+        XCTAssertEqual(driver.hideCalls, 0)
+        XCTAssertEqual(driver.unhideCalls, 0)
         XCTAssertEqual(scheduler.scheduleCalls, 0)
     }
 
@@ -272,6 +283,7 @@ final class CaptureCursorControllerTests: XCTestCase {
 
         // end already cleared pushed=false; reset must not pop again.
         XCTAssertEqual(driver.popCalls, 1)
+        XCTAssertEqual(driver.unhideCalls, 1)
     }
 
     func testSessionTokenEndIsExactOnce() {
@@ -288,90 +300,26 @@ final class CaptureCursorControllerTests: XCTestCase {
         session.end()
 
         XCTAssertEqual(driver.popCalls, 1)
-    }
-}
-
-@MainActor
-private final class CaptureCrosshairDriverSpy: CaptureCrosshairDriving {
-    enum Event: Equatable {
-        case set
-        case push
-        case pop
+        XCTAssertEqual(driver.unhideCalls, 1)
     }
 
-    private(set) var setCalls = 0
-    private(set) var pushCalls = 0
-    private(set) var popCalls = 0
-    private(set) var events: [Event] = []
+    func testRepeatedSessionsBalanceNativeCursorHideAndUnhide() {
+        let driver = CaptureCrosshairDriverSpy()
+        let scheduler = CaptureCursorSchedulerSpy()
+        let controller = CaptureCursorController(
+            crosshairDriver: driver,
+            scheduler: scheduler,
+            notificationCenter: NotificationCenter()
+        )
 
-    func setCrosshair() {
-        setCalls += 1
-        events.append(.set)
-    }
-
-    func pushCrosshair() {
-        pushCalls += 1
-        events.append(.push)
-    }
-
-    func popCrosshair() {
-        popCalls += 1
-        events.append(.pop)
-    }
-}
-
-@MainActor
-private final class CaptureCursorSchedulerSpy: CaptureCursorScheduling {
-    private final class ScheduledAction: CaptureCursorScheduledAction {
-        private let action: @MainActor () -> Void
-        private(set) var isCancelled = false
-        private(set) var didRun = false
-
-        init(action: @escaping @MainActor () -> Void) {
-            self.action = action
+        for _ in 0..<10 {
+            let session = controller.startCrosshairSession()
+            scheduler.runPendingActions(limit: 1)
+            session.end()
         }
 
-        func cancel() {
-            isCancelled = true
-        }
-
-        @MainActor
-        func runIfNeeded() {
-            guard !isCancelled, !didRun else { return }
-            didRun = true
-            action()
-        }
-    }
-
-    private(set) var scheduleCalls = 0
-    private var actions: [ScheduledAction] = []
-
-    var pendingCount: Int {
-        actions.filter { !$0.isCancelled && !$0.didRun }.count
-    }
-
-    var cancelledCount: Int {
-        actions.filter(\.isCancelled).count
-    }
-
-    private(set) var delays: [Duration] = []
-
-    func schedule(
-        after delay: Duration,
-        _ action: @escaping @MainActor () -> Void
-    ) -> CaptureCursorScheduledAction {
-        scheduleCalls += 1
-        delays.append(delay)
-        let scheduledAction = ScheduledAction(action: action)
-        actions.append(scheduledAction)
-        return scheduledAction
-    }
-
-    func runPendingActions(limit: Int? = nil) {
-        var remaining = limit
-        for action in actions where remaining.map({ $0 > 0 }) ?? true {
-            action.runIfNeeded()
-            remaining = remaining.map { $0 - 1 }
-        }
+        XCTAssertEqual(driver.hideCalls, 10)
+        XCTAssertEqual(driver.unhideCalls, 10)
+        XCTAssertEqual(driver.pushCalls, driver.popCalls)
     }
 }

@@ -212,6 +212,11 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: Apps in their own full-screen Spaces, especially apps with custom cursor behavior, can continue to run cursor-rect updates after Caloura's one-shot entry re-prime and restore the arrow during selection.
 - **Example**: `CaptureCursorController` now schedules a 50 ms maintenance re-prime during the active crosshair session and cancels it on token end/reset, keeping push/pop ownership balanced while the selection overlay is visible.
 
+### Capture mode must not depend on the native cursor being visible
+- **Rule**: During area/fullscreen capture, hide the native cursor and render Caloura's visible crosshair inside the overlay.
+- **Context**: Repeated desktop captures and full-screen apps can still show the arrow when AppKit cursor rects or the native cursor stack lag behind overlay presentation. Re-prime loops improve the race but do not remove it.
+- **Example**: `CaptureCursorController` now balances `NSCursor.hide()`/`unhide()` per session, while `RegionSelectionView` and `ScreenSelectionView` draw their own crosshair at the current pointer location.
+
 ### Capture hot-path guardrails should warn before they fail UI tests
 - **Rule**: For AppKit-heavy capture timing, record lightweight budget violations in the performance timeline before turning them into hard test failures.
 - **Context**: Full-screen Spaces and cursor rect delivery vary by app and machine. Hard timing assertions can create flaky tests, while missing instrumentation makes production regressions hard to diagnose.

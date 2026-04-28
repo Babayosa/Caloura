@@ -399,6 +399,8 @@ private final class CoordinatorCursorSessionSpy: CaptureCursorSessionHandling {
 private final class CoordinatorCrosshairDriverSpy: CaptureCrosshairDriving {
     private(set) var pushCalls = 0
     private(set) var popCalls = 0
+    private(set) var hideCalls = 0
+    private(set) var unhideCalls = 0
 
     func setCrosshair() {}
 
@@ -408,6 +410,14 @@ private final class CoordinatorCrosshairDriverSpy: CaptureCrosshairDriving {
 
     func popCrosshair() {
         popCalls += 1
+    }
+
+    func hideSystemCursor() {
+        hideCalls += 1
+    }
+
+    func unhideSystemCursor() {
+        unhideCalls += 1
     }
 }
 
