@@ -13,6 +13,23 @@ final class CaptureOverlayWindowTests: XCTestCase {
 
     // MARK: - Bridge closure invariant
 
+    func testAreaOverlayWindowIsBorderlessForScreenAlignedCoordinates() throws {
+        let window = try makeWindow()
+
+        XCTAssertTrue(window.styleMask.contains(.borderless))
+        XCTAssertTrue(window.styleMask.contains(.nonactivatingPanel))
+    }
+
+    func testScreenSelectionOverlayWindowIsBorderlessForScreenAlignedCoordinates() throws {
+        guard let screen = NSScreen.main else {
+            throw XCTSkip("No screen available")
+        }
+        let window = ScreenSelectionOverlayWindow(for: screen, cursorController: nil)
+
+        XCTAssertTrue(window.styleMask.contains(.borderless))
+        XCTAssertTrue(window.styleMask.contains(.nonactivatingPanel))
+    }
+
     func testTearDownHandlersPreservesBridgeClosures() throws {
         let window = try makeWindow()
         let selectionView = try XCTUnwrap(window.contentView as? RegionSelectionView)

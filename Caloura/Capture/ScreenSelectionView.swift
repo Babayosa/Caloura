@@ -68,7 +68,7 @@ final class ScreenSelectionView: NSView {
 
     override func resetCursorRects() {
         discardCursorRects()
-        addCursorRect(bounds, cursor: .crosshair)
+        addCursorRect(bounds, cursor: CaptureCursorStyle.transparentCursor)
     }
 
     override func cursorUpdate(with event: NSEvent) {
@@ -157,45 +157,57 @@ final class ScreenSelectionView: NSView {
 
     private func drawCrosshair() {
         guard let point = crosshairPoint, bounds.contains(point) else { return }
-        let armLength = CaptureCrosshairMetrics.armLength
-        let gap = CaptureCrosshairMetrics.gap
-        drawCrosshairStroke(
+        drawCrosshairSegments(
             at: point,
-            armLength: armLength,
-            gap: gap,
-            color: NSColor.black.withAlphaComponent(0.75),
-            width: CaptureCrosshairMetrics.shadowLineWidth
+            color: NSColor.black.withAlphaComponent(0.85),
+            pixelWidth: CaptureCrosshairMetrics.backingPixelWidth
         )
-        drawCrosshairStroke(
-            at: point,
-            armLength: armLength,
-            gap: gap,
-            color: .white,
-            width: CaptureCrosshairMetrics.strokeLineWidth
-        )
+        drawCrosshairSegments(at: point, color: .white, pixelWidth: CaptureCrosshairMetrics.strokePixelWidth)
     }
 
-    private func drawCrosshairStroke(
-        at point: CGPoint,
-        armLength: CGFloat,
-        gap: CGFloat,
-        color: NSColor,
-        width: CGFloat
-    ) {
-        let path = NSBezierPath()
-        path.lineCapStyle = .round
-        path.lineJoinStyle = .round
-        path.lineWidth = width
-        path.move(to: CGPoint(x: point.x - armLength, y: point.y))
-        path.line(to: CGPoint(x: point.x - gap, y: point.y))
-        path.move(to: CGPoint(x: point.x + gap, y: point.y))
-        path.line(to: CGPoint(x: point.x + armLength, y: point.y))
-        path.move(to: CGPoint(x: point.x, y: point.y - armLength))
-        path.line(to: CGPoint(x: point.x, y: point.y - gap))
-        path.move(to: CGPoint(x: point.x, y: point.y + gap))
-        path.line(to: CGPoint(x: point.x, y: point.y + armLength))
-        color.setStroke()
-        path.stroke()
+    private func drawCrosshairSegments(at point: CGPoint, color: NSColor, pixelWidth: CGFloat) {
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        let pixel = 1 / max(scale, 1)
+        let thickness = pixelWidth * pixel
+        let armLength = CaptureCrosshairMetrics.armLength
+        let gap = CaptureCrosshairMetrics.gap
+        let snappedPoint = CGPoint(
+            x: snap(point.x, pixel: pixel),
+            y: snap(point.y, pixel: pixel)
+        )
+        let centered = snap(snappedPoint.x - thickness / 2, pixel: pixel)
+        let middle = snap(snappedPoint.y - thickness / 2, pixel: pixel)
+        let segmentLength = snap(armLength - gap, pixel: pixel)
+
+        color.setFill()
+        NSBezierPath(rect: CGRect(
+            x: snap(snappedPoint.x - armLength, pixel: pixel),
+            y: middle,
+            width: segmentLength,
+            height: thickness
+        )).fill()
+        NSBezierPath(rect: CGRect(
+            x: snap(snappedPoint.x + gap, pixel: pixel),
+            y: middle,
+            width: segmentLength,
+            height: thickness
+        )).fill()
+        NSBezierPath(rect: CGRect(
+            x: centered,
+            y: snap(snappedPoint.y - armLength, pixel: pixel),
+            width: thickness,
+            height: segmentLength
+        )).fill()
+        NSBezierPath(rect: CGRect(
+            x: centered,
+            y: snap(snappedPoint.y + gap, pixel: pixel),
+            width: thickness,
+            height: segmentLength
+        )).fill()
+    }
+
+    private func snap(_ value: CGFloat, pixel: CGFloat) -> CGFloat {
+        (value / pixel).rounded() * pixel
     }
 
     // MARK: - Mouse Events

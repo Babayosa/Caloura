@@ -222,6 +222,16 @@ Historical lessons recorded before this file existed still live in `tasks/lesson
 - **Context**: `NSCursor.hide()` is still AppKit-owned and can briefly lose to cursor rect recalculation. If the fallback cursor is visible, users can see both the system cursor and Caloura's rendered crosshair.
 - **Example**: `SystemCaptureCrosshairDriver` now pushes/sets a 1x1 transparent cursor while the overlay draws the only visible crosshair.
 
+### Local GUI testing should use the debug Applications copy
+- **Rule**: For manual Caloura GUI testing without a release, build with Xcode, copy the debug app to `/Applications/Caloura-Debug.app`, and launch that bundle directly.
+- **Context**: Launching the DerivedData app can hand off to `/Applications/Caloura.app` because Caloura enforces an Applications install path and LaunchServices resolves by bundle identity. Copying the debug bundle to a separate Applications path avoids that loop.
+- **Example**: After `xcodebuild build`, replace `/Applications/Caloura-Debug.app` with the DerivedData `Caloura.app`, then run `open -n /Applications/Caloura-Debug.app`.
+
+### Capture reticles should be pixel-snapped rectangles
+- **Rule**: Render capture reticles with backing-scale-snapped rectangle segments, not stroked paths with rounded caps.
+- **Context**: Stroked Core Animation paths at fractional event coordinates can look soft or slightly displaced even when the logical coordinate is correct. Pixel-snapped segments avoid anti-alias drift and keep the reticle crisp on Retina and non-Retina displays.
+- **Example**: `CaptureCrosshairOverlayLayer` lays out four white segment layers over four dark backing layers at snapped pixel coordinates instead of assigning a `CGPath` to a `CAShapeLayer`.
+
 ### Capture hot-path guardrails should warn before they fail UI tests
 - **Rule**: For AppKit-heavy capture timing, record lightweight budget violations in the performance timeline before turning them into hard test failures.
 - **Context**: Full-screen Spaces and cursor rect delivery vary by app and machine. Hard timing assertions can create flaky tests, while missing instrumentation makes production regressions hard to diagnose.

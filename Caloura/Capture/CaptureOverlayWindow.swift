@@ -36,7 +36,7 @@ final class CaptureOverlayWindow: NSPanel {
     ) {
         self.init(
             contentRect: screen.frame,
-            styleMask: .nonactivatingPanel,
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -116,6 +116,10 @@ final class CaptureOverlayWindow: NSPanel {
         }
         acceptsMouseMovedEvents = true
         cursorController?.handleCursorUpdate()
+    }
+
+    func setInitialCrosshairLocation(globalPoint: CGPoint) {
+        selectionView?.setInitialCrosshairLocation(globalPoint: globalPoint)
     }
 
     static func orderedPresentationScreens() -> [NSScreen] {

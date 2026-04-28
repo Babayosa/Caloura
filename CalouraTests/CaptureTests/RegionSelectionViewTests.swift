@@ -56,7 +56,7 @@ final class RegionSelectionViewTests: XCTestCase {
         let sublayers = view.layer?.sublayers ?? []
 
         XCTAssertEqual(sublayers.count, 7)
-        XCTAssertTrue(sublayers[5] is CAShapeLayer)
-        XCTAssertTrue(sublayers[6] is CAShapeLayer)
+        XCTAssertEqual(sublayers[5].sublayers?.count, 4)
+        XCTAssertEqual(sublayers[6].sublayers?.count, 4)
     }
 }

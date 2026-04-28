@@ -69,8 +69,11 @@ final class AreaCaptureSessionCoordinator {
         cursorSession?.end()
         cursorSession = cursorController.startCrosshairSession()
         performanceRecorder.mark(.cursorSessionStarted, in: session)
+        let initialCrosshairPoint = NSEvent.mouseLocation
 
         for (index, window) in windows.enumerated() {
+            window.setInitialCrosshairLocation(globalPoint: initialCrosshairPoint)
+
             if suppressDimming {
                 window.isDimmingSuppressed = true
             }

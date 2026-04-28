@@ -11,7 +11,7 @@ final class ScreenSelectionOverlayWindow: NSPanel {
     ) {
         self.init(
             contentRect: screen.frame,
-            styleMask: .nonactivatingPanel,
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )

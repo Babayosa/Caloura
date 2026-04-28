@@ -19,6 +19,7 @@
 		0DF767702ACEA85D9113E84A /* CapturePipelineEntryPointTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDFB591803A28637B6D409BF /* CapturePipelineEntryPointTests.swift */; };
 		0DFE9711FF88889FD41CDAC6 /* HistoryView+WindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD00382E476279FAA544D81E /* HistoryView+WindowController.swift */; };
 		0E2F8952CD675A7B9956700C /* CaptureContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 699F1C771C0800F37394839E /* CaptureContext.swift */; };
+		0F2140A7D2454334992725AC /* CaptureCursorStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1910D6CDC87AC8E2FCCCB66F /* CaptureCursorStyle.swift */; };
 		111010296F957D4661F2CBE7 /* UpdateManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2692F22CB4A8BF8EDCB4B18 /* UpdateManager.swift */; };
 		14F1E8E717F33684CC6DFE70 /* HistoryCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70127AB34D54A40632AB564 /* HistoryCrypto.swift */; };
 		1539266428286E79A9BB0D05 /* PermissionIdentityTrustedSigningKeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5472F1919C2DACF760B98A10 /* PermissionIdentityTrustedSigningKeyTests.swift */; };
@@ -252,6 +253,7 @@
 		13369308B84323BF6FF56F59 /* Caloura.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Caloura.entitlements; sourceTree = "<group>"; };
 		13440022916B9A05FF442590 /* UpdateManager+Sparkle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "UpdateManager+Sparkle.swift"; sourceTree = "<group>"; };
 		14B28924DD665DA3EAA9A132 /* PermissionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionCoordinatorTests.swift; sourceTree = "<group>"; };
+		1910D6CDC87AC8E2FCCCB66F /* CaptureCursorStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureCursorStyle.swift; sourceTree = "<group>"; };
 		19E5C77BB0E1610921ED4A40 /* ScreenSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenSelectionView.swift; sourceTree = "<group>"; };
 		1A5BF4A1E76DDF177736CED4 /* CaptureMetricsRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureMetricsRecorder.swift; sourceTree = "<group>"; };
 		1C72393206D40357548F78EE /* PermissionIdentityProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionIdentityProvider.swift; sourceTree = "<group>"; };
@@ -742,6 +744,7 @@
 				BDB7630EBC4B0327F892A853 /* CaptureCrosshairMetrics.swift */,
 				4F563C53BE9589204E9088A8 /* CaptureCrosshairOverlayLayer.swift */,
 				CD72C80740701EDE0DDB19DD /* CaptureCursorController.swift */,
+				1910D6CDC87AC8E2FCCCB66F /* CaptureCursorStyle.swift */,
 				E20996E12C67659425FFC3DB /* CaptureMode.swift */,
 				94D8761A69116ED194469385 /* CaptureOverlayWindow.swift */,
 				98941373548AAF90D63D62E3 /* CaptureOverlayWindowPool.swift */,
@@ -1071,6 +1074,7 @@
 				251E54C7A2582164C3C909B9 /* CaptureCrosshairMetrics.swift in Sources */,
 				525D50E397121D574B5ADFDC /* CaptureCrosshairOverlayLayer.swift in Sources */,
 				FA3B662385E45E6FB39A7A67 /* CaptureCursorController.swift in Sources */,
+				0F2140A7D2454334992725AC /* CaptureCursorStyle.swift in Sources */,
 				1B08CEB8C7BD3F8398B8F3A3 /* CaptureDistributionService.swift in Sources */,
 				08AC2860039D39AFF21AD20D /* CaptureEnrichmentCoordinator.swift in Sources */,
 				09C83AD955D9FD4B4602C13E /* CaptureEnrichmentService.swift in Sources */,

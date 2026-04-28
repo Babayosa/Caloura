@@ -899,6 +899,17 @@ Running log of completed tasks. Read this to understand what changed before your
 - Treated the reported offset and double-cursor symptom as the same visible-native-cursor problem: when the native pointer appears at the same time as the rendered crosshair, the pointer artwork makes the overlay look displaced even when it is centered on the actual event hotspot.
 - Kept the fix small and local: no new dependencies, no polling, no redesign of capture overlay presentation.
 
+### Follow-up Local Test Fix
+- Made area and fullscreen capture overlay panels borderless so their content coordinates map one-to-one onto `NSScreen.frame` without AppKit panel chrome offsets.
+- Moved the transparent capture cursor into [CaptureCursorStyle.swift](/Users/b/Caloura/Caloura/Capture/CaptureCursorStyle.swift) and registered that transparent cursor in capture cursor rects, preventing AppKit cursor-rect recalculation from reintroducing a visible native crosshair.
+- Added overlay-window tests for the borderless screen-aligned coordinate contract.
+- Refreshed `/Applications/Caloura-Debug.app` for manual verification without publishing.
+
+### Pixel-Snapped Render Follow-up
+- Replaced anti-aliased stroked `CAShapeLayer` crosshair paths with pixel-snapped rectangular segment layers in [CaptureCrosshairOverlayLayer.swift](/Users/b/Caloura/Caloura/Capture/CaptureCrosshairOverlayLayer.swift), removing sub-pixel stroke drift and blur.
+- Updated [ScreenSelectionView.swift](/Users/b/Caloura/Caloura/Capture/ScreenSelectionView.swift) to draw matching pixel-snapped rectangle segments for fullscreen selection.
+- Tuned [CaptureCrosshairMetrics.swift](/Users/b/Caloura/Caloura/Capture/CaptureCrosshairMetrics.swift) for a compact but higher-contrast reticle: 7 pt arms, 3 pt gap, 5 physical-pixel dark backing, and 2 physical-pixel white core.
+
 ---
 
 <!-- Add new task entries above this line -->

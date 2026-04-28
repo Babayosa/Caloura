@@ -27,6 +27,7 @@ final class RegionSelectionView: NSView {
     private var selectionEnd: NSPoint?
     private var isSelecting = false
     private var hasSentFirstMouseDown = false
+    private var initialGlobalCrosshairPoint: CGPoint?
 
     let backgroundLayer = CALayer()
     let dimmingLayer = CAShapeLayer()
@@ -91,7 +92,7 @@ final class RegionSelectionView: NSView {
         isDimmingSuppressed = false
         updateLayerVisibility()
         CATransaction.commit()
-        updateCrosshairFromCurrentMouseLocation()
+        updateCrosshairFromInitialLocation()
     }
 
     func revealFrozenImage(_ image: CGImage) {
@@ -126,7 +127,7 @@ final class RegionSelectionView: NSView {
             cursorController?.handleCursorUpdate()
             cursorController?.scheduleReprime()
             applyBackingScale(window.backingScaleFactor)
-            updateCrosshairFromCurrentMouseLocation()
+            updateCrosshairFromInitialLocation()
         }
         window?.invalidateCursorRects(for: self)
     }
@@ -160,7 +161,7 @@ final class RegionSelectionView: NSView {
 
     override func resetCursorRects() {
         discardCursorRects()
-        addCursorRect(bounds, cursor: .crosshair)
+        addCursorRect(bounds, cursor: CaptureCursorStyle.transparentCursor)
     }
 
     override func cursorUpdate(with event: NSEvent) {
@@ -169,7 +170,6 @@ final class RegionSelectionView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         if window?.isKeyWindow == false { window?.makeKey() }
-        updateCrosshair(with: event)
         cursorController?.handleCursorUpdate()
         cursorController?.scheduleReprime()
     }
@@ -355,12 +355,21 @@ final class RegionSelectionView: NSView {
         crosshairOverlay.update(to: convert(event.locationInWindow, from: nil), in: bounds)
     }
 
-    private func updateCrosshairFromCurrentMouseLocation() {
+    func setInitialCrosshairLocation(globalPoint: CGPoint) {
+        initialGlobalCrosshairPoint = globalPoint
+        updateCrosshairFromInitialLocation()
+    }
+
+    private func updateCrosshairFromInitialLocation() {
         guard let window else {
             crosshairOverlay.hide()
             return
         }
-        let windowPoint = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        let globalPoint = initialGlobalCrosshairPoint ?? NSEvent.mouseLocation
+        let windowPoint = CGPoint(
+            x: globalPoint.x - window.frame.minX,
+            y: globalPoint.y - window.frame.minY
+        )
         crosshairOverlay.update(to: convert(windowPoint, from: nil), in: bounds)
     }
 }

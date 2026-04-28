@@ -43,17 +43,12 @@ protocol CaptureCursorScheduling {
 
 @MainActor
 private struct SystemCaptureCrosshairDriver: CaptureCrosshairDriving {
-    private static let transparentCursor = NSCursor(
-        image: NSImage(size: NSSize(width: 1, height: 1)),
-        hotSpot: .zero
-    )
-
     func setCaptureCursor() {
-        Self.transparentCursor.set()
+        CaptureCursorStyle.transparentCursor.set()
     }
 
     func pushCaptureCursor() {
-        Self.transparentCursor.push()
+        CaptureCursorStyle.transparentCursor.push()
     }
 
     func popCrosshair() {
