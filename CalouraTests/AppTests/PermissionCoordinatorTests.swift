@@ -387,7 +387,8 @@ final class PermissionCoordinatorTests: XCTestCase {
         let status = await coordinator.revalidateAfterSettingsReturn(
             timeoutSeconds: 1,
             pollIntervalNanoseconds: 1_000_000,
-            sckRetryDelayNanoseconds: 1_000_000
+            sckRetryDelayNanoseconds: 1_000_000,
+            maxSCKRetries: 3
         )
 
         XCTAssertEqual(status, .working, "Should succeed on second attempt")

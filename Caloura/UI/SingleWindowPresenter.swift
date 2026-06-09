@@ -17,7 +17,12 @@ final class SingleWindowPresenter<Content: View> {
     }
 
     private(set) var window: NSWindow?
+    private let activateApplication: () -> Void
     private var closeObserver: NSObjectProtocol?
+
+    init(activateApplication: @escaping () -> Void = { NSApplication.shared.activate() }) {
+        self.activateApplication = activateApplication
+    }
 
     var isVisible: Bool {
         window?.isVisible ?? false
@@ -31,11 +36,14 @@ final class SingleWindowPresenter<Content: View> {
     @discardableResult
     func show(
         config: WindowConfig,
+        activateApp: Bool,
         @ViewBuilder content: () -> Content
     ) -> Bool {
         if let existing = window, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
-            NSApplication.shared.activate()
+            if activateApp {
+                activateApplication()
+            }
             return false
         }
 
@@ -55,6 +63,7 @@ final class SingleWindowPresenter<Content: View> {
             backing: .buffered,
             defer: false
         )
+        newWindow.excludeFromScreenSharing()
         newWindow.isReleasedWhenClosed = false
         newWindow.contentView = hostingView
         newWindow.title = config.title
@@ -68,7 +77,9 @@ final class SingleWindowPresenter<Content: View> {
 
         newWindow.center()
         newWindow.makeKeyAndOrderFront(nil)
-        NSApplication.shared.activate()
+        if activateApp {
+            activateApplication()
+        }
 
         self.window = newWindow
 
@@ -89,9 +100,11 @@ final class SingleWindowPresenter<Content: View> {
         window?.close()
     }
 
-    func bringToFront() {
+    func bringToFront(activateApp: Bool) {
         window?.makeKeyAndOrderFront(nil)
-        NSApplication.shared.activate()
+        if activateApp {
+            activateApplication()
+        }
     }
 
     private func handleWindowWillClose() {

@@ -323,9 +323,9 @@ final class PermissionCoordinator {
     @discardableResult
     func revalidateAfterSettingsReturn(
         timeoutSeconds: TimeInterval = 10,
-        pollIntervalNanoseconds: UInt64 = 350_000_000,
+        pollIntervalNanoseconds: UInt64 = 3_000_000_000,
         sckRetryDelayNanoseconds: UInt64 = 1_000_000_000,
-        maxSCKRetries: Int = 5
+        maxSCKRetries: Int = 1
     ) async -> ScreenRecordingState {
         await serializedValidation { [self] in
             await revalidateAfterSettingsReturnCore(

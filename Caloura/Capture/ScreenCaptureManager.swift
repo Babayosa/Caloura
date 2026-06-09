@@ -169,6 +169,8 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     private var cachedContent: SCShareableContent?
     private var cachedContentTimestamp: CFAbsoluteTime = 0
     private let contentCacheTTL: CFAbsoluteTime = 60.0
+    private let passivePrewarmWindowUseTTL: CFAbsoluteTime = 300.0
+    private var lastWindowCaptureUseTimestamp: CFAbsoluteTime?
 
     /// Observer token for app-became-active notification.
     private var didBecomeActiveObserver: (any NSObjectProtocol)?
@@ -269,7 +271,9 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                 // Cmd+Tab / return-from-background should not nuke the
                 // shareable-content cache — the TTL already guards staleness.
                 // Only refresh the transient-failure budget so the next
-                // capture retries SCK cleanly, then warm in the background.
+                // capture retries SCK cleanly. Window-content prewarm is
+                // gated on recent window-capture activity to avoid doing SCK
+                // work on every ordinary app activation.
                 self?.refreshSCKFailureState()
                 await self?.prewarmWindowShareableContent()
             }
@@ -473,7 +477,9 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     }
 
     func prewarmWindowShareableContent() async {
-        guard checkPermission(), !sckFailed else { return }
+        guard shouldPrewarmWindowShareableContent(),
+              checkPermission(),
+              !sckFailed else { return }
         do {
             _ = try await shareableContent()
         } catch {
@@ -481,6 +487,17 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
                 "Window shareable content prewarm skipped: \(error.localizedDescription)"
             )
         }
+    }
+
+    private func shouldPrewarmWindowShareableContent(
+        now: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
+    ) -> Bool {
+        guard let lastWindowCaptureUseTimestamp else { return false }
+        return now - lastWindowCaptureUseTimestamp < passivePrewarmWindowUseTTL
+    }
+
+    private func markWindowCaptureUse() {
+        lastWindowCaptureUseTimestamp = CFAbsoluteTimeGetCurrent()
     }
 
     func setSCKFailed(_ failed: Bool, reason: SCKDisableReason?) {
@@ -586,6 +603,7 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
     /// Capture directly from an SCContentFilter (used by WindowPickerManager).
     /// This is the fastest path — no window lookup needed.
     func captureWindow(filter: SCContentFilter) async throws -> CGImage {
+        markWindowCaptureUse()
         do {
             return try await captureWindow(
                 filter: filter,

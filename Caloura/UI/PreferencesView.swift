@@ -116,6 +116,7 @@ struct PreferencesView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .help(tab.label)
                     .foregroundStyle(selectedTab == tab ? .primary : .secondary)
                     .background {
                         if selectedTab == tab {
@@ -211,6 +212,8 @@ struct GeneralPreferencesView: View {
 
             Section {
                 Toggle("Copy to clipboard", isOn: $settings.autoCopyToClipboard)
+                Toggle("Clear clipboard after 60 seconds", isOn: $settings.autoClearClipboard)
+                    .disabled(!settings.autoCopyToClipboard)
                 Toggle("Save to disk", isOn: $settings.autoSaveToDisk)
                 if !settings.autoSaveToDisk {
                     Text("Screenshots will only be copied to clipboard and won't use disk space.")
@@ -244,6 +247,7 @@ struct GeneralPreferencesView: View {
                         Text("TIFF").tag("tiff")
                     }
                     .pickerStyle(.segmented)
+                    Toggle("Use timestamp-only filenames", isOn: $settings.timestampOnlyFileNames)
                     Text("HEIC produces ~5× smaller files. Clipboard always uses PNG for compatibility.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -280,9 +284,9 @@ struct GeneralPreferencesView: View {
                     "Share anonymous diagnostics",
                     isOn: $settings.anonymousDiagnosticsEnabled
                 )
-                Text("Opt in to share anonymized crash + hang reports via MetricKit. "
-                    + "No uploads happen today — this toggle stores your preference for "
-                    + "a future release. Diagnostic files always stay on your Mac.")
+                Text("Opt in to local crash and hang diagnostics via MetricKit. "
+                    + "Caloura stores these files on your Mac for support review "
+                    + "and does not upload them.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

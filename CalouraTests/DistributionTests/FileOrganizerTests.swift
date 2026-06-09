@@ -408,6 +408,23 @@ final class FileOrganizerTests: XCTestCase {
         )
     }
 
+    func testGenerateFileName_timestampOnlyOmitsAppAndSmartName() {
+        let context = CaptureContext(
+            mode: .area,
+            sourceAppName: "SecretApp",
+            timestamp: makeDate(hour: 7, minute: 8, second: 9)
+        )
+        let fileName = FileOrganizer.generateFileName(
+            for: context,
+            smartFileName: "secret-smart-name",
+            timestampOnlyFileName: true
+        )
+
+        XCTAssertEqual(fileName, "Caloura_07-08-09-000.png")
+        XCTAssertFalse(fileName.contains("SecretApp"))
+        XCTAssertFalse(fileName.contains("secret"))
+    }
+
     // MARK: - Sanitization
 
     func testSanitizeFileName_removesUnsafeCharacters() {

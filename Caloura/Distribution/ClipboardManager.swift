@@ -26,23 +26,25 @@ struct ClipboardManager {
 
     // MARK: - Auto-Clear
 
-    /// Active auto-clear timer task; cancelled when a new copy happens.
-    @MainActor private static var autoClearTask: Task<Void, Never>?
+    /// Active auto-clear work item; cancelled when a new copy happens.
+    @MainActor private static var autoClearWorkItem: DispatchWorkItem?
 
     /// Schedule clipboard auto-clear after 60 seconds if the setting is enabled.
     /// Only clears if the pasteboard hasn't been modified by another app since we copied.
     @MainActor
     private static func scheduleAutoClearIfEnabled() {
-        autoClearTask?.cancel()
+        autoClearWorkItem?.cancel()
+        autoClearWorkItem = nil
         guard AppSettings.shared.autoClearClipboard else { return }
         let changeCount = activePasteboard.changeCount
-        autoClearTask = Task {
-            try? await Task.sleep(nanoseconds: 60_000_000_000) // 60 seconds
-            guard !Task.isCancelled else { return }
-            if activePasteboard.changeCount == changeCount {
+        let workItem = DispatchWorkItem {
+            Task { @MainActor in
+                guard activePasteboard.changeCount == changeCount else { return }
                 activePasteboard.clearContents()
             }
         }
+        autoClearWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60, execute: workItem)
     }
 
     @MainActor

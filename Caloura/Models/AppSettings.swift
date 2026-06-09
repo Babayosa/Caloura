@@ -32,6 +32,7 @@ final class AppSettings {
         static let saveDirectory = "saveDirectory"
         static let autoCopyToClipboard = "autoCopyToClipboard"
         static let autoSaveToDisk = "autoSaveToDisk"
+        static let timestampOnlyFileNames = "timestampOnlyFileNames"
         static let smartCropEnabled = "smartCropEnabled"
         static let playCaptureSound = "playCaptureSound"
         static let activePreset = "activePreset"
@@ -61,6 +62,9 @@ final class AppSettings {
         static let semanticSearchEnabled = "semanticSearchEnabled"
         static let lowProfileCaptureEnabled = "lowProfileCaptureEnabled"
         static let anonymousDiagnosticsEnabled = "anonymousDiagnosticsEnabled"
+        static let hotKeyDefaultsMigratedV2 = "hotKeyDefaultsMigratedV2"
+        static let hotKeyDefaultsMigratedV3 = "hotKeyDefaultsMigratedV3"
+        static let hotKeyDefaultsMigratedV4 = "hotKeyDefaultsMigratedV4"
     }
 
     var saveDirectory: String {
@@ -72,6 +76,10 @@ final class AppSettings {
     }
 
     var autoSaveToDisk: Bool {
+        didSet { debouncedSave() }
+    }
+
+    var timestampOnlyFileNames: Bool {
         didSet { debouncedSave() }
     }
 
@@ -197,6 +205,7 @@ final class AppSettings {
         defaults.set(saveDirectory, forKey: Keys.saveDirectory)
         defaults.set(autoCopyToClipboard, forKey: Keys.autoCopyToClipboard)
         defaults.set(autoSaveToDisk, forKey: Keys.autoSaveToDisk)
+        defaults.set(timestampOnlyFileNames, forKey: Keys.timestampOnlyFileNames)
         defaults.set(smartCropEnabled, forKey: Keys.smartCropEnabled)
         defaults.set(playCaptureSound, forKey: Keys.playCaptureSound)
         defaults.set(activePreset, forKey: Keys.activePreset)
@@ -220,8 +229,8 @@ final class AppSettings {
     // MARK: - HotKey Defaults Migration
 
     private func migrateHotKeyDefaultsIfNeeded() {
-        if !defaults.bool(forKey: "hotKeyDefaultsMigratedV2") {
-            defaults.set(true, forKey: "hotKeyDefaultsMigratedV2")
+        if !defaults.bool(forKey: Keys.hotKeyDefaultsMigratedV2) {
+            defaults.set(true, forKey: Keys.hotKeyDefaultsMigratedV2)
             // Only reset shortcuts that still match the old Cmd+Shift defaults.
             // User-customized shortcuts are left untouched.
             resetShortcutIfMatchesOldDefault(.captureArea, oldModifiers: 768, oldKeyCode: 21)
@@ -229,16 +238,16 @@ final class AppSettings {
             resetShortcutIfMatchesOldDefault(.captureFullscreen, oldModifiers: 768, oldKeyCode: 20)
         }
 
-        if !defaults.bool(forKey: "hotKeyDefaultsMigratedV3") {
-            defaults.set(true, forKey: "hotKeyDefaultsMigratedV3")
+        if !defaults.bool(forKey: Keys.hotKeyDefaultsMigratedV3) {
+            defaults.set(true, forKey: Keys.hotKeyDefaultsMigratedV3)
             // captureArea default moved from Control+Option+4 to Control+Option+C.
             // Carbon modifiers: controlKey (4096) + optionKey (2048) = 6144.
             // Carbon keyCode for "4" = 21.
             resetShortcutIfMatchesOldDefault(.captureArea, oldModifiers: 6144, oldKeyCode: 21)
         }
 
-        if !defaults.bool(forKey: "hotKeyDefaultsMigratedV4") {
-            defaults.set(true, forKey: "hotKeyDefaultsMigratedV4")
+        if !defaults.bool(forKey: Keys.hotKeyDefaultsMigratedV4) {
+            defaults.set(true, forKey: Keys.hotKeyDefaultsMigratedV4)
             // captureWindow default moved from Control+Option+5 to Control+Option+W.
             // captureFullscreen default moved from Control+Option+3 to Control+Option+F.
             // Carbon keyCodes: "5" = 23, "3" = 20. Modifiers 6144 as above.
@@ -286,6 +295,9 @@ final class AppSettings {
         self.saveDirectory = defaults.string(forKey: Keys.saveDirectory) ?? defaultDir
         self.autoCopyToClipboard = defaults.object(forKey: Keys.autoCopyToClipboard) as? Bool ?? true
         self.autoSaveToDisk = defaults.object(forKey: Keys.autoSaveToDisk) as? Bool ?? false
+        self.timestampOnlyFileNames = defaults.object(
+            forKey: Keys.timestampOnlyFileNames
+        ) as? Bool ?? false
         self.smartCropEnabled = defaults.object(forKey: Keys.smartCropEnabled) as? Bool ?? true
         self.playCaptureSound = defaults.object(forKey: Keys.playCaptureSound) as? Bool ?? false
         self.activePreset = defaults.string(forKey: Keys.activePreset) ?? "Quick Capture"

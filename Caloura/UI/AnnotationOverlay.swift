@@ -119,6 +119,7 @@ struct AnnotationOverlayView: View {
                     }
                     .buttonStyle(.bordered)
                     .tint(selectedTool == tool ? .accentColor : .secondary)
+                    .help(tool.rawValue)
                 }
 
                 Divider()
@@ -154,6 +155,7 @@ struct AnnotationOverlayView: View {
                 Spacer()
 
                 Button("Cancel") { onCancel() }
+                    .keyboardShortcut(.cancelAction)
                 Button("Save") { saveAnnotatedImage() }
                     .buttonStyle(.borderedProminent)
             }
@@ -383,7 +385,7 @@ final class AnnotationWindowController {
             size: windowSize,
             styleMask: [.titled, .closable, .resizable]
         )
-        presenter.show(config: config) {
+        presenter.show(config: config, activateApp: true) {
             AnnotationOverlayView(
                 image: image,
                 onSave: { [weak self] annotatedImage in

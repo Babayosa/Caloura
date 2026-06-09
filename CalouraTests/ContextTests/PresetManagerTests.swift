@@ -5,12 +5,29 @@ import XCTest
 final class PresetManagerTests: XCTestCase {
 
     nonisolated(unsafe) private var presetManager: PresetManager!
+    nonisolated(unsafe) private var defaultsSuite: String!
 
     override nonisolated func setUp() {
         super.setUp()
-        presetManager = MainActor.assumeIsolated {
-            PresetManager.shared
+        let suite = "com.caloura.tests.presets.\(UUID().uuidString)"
+        defaultsSuite = suite
+        guard let defaults = UserDefaults(suiteName: suite) else {
+            fatalError("Could not create defaults suite: \(suite)")
         }
+        defaults.removePersistentDomain(forName: suite)
+        presetManager = MainActor.assumeIsolated {
+            PresetManager(defaults: defaults)
+        }
+    }
+
+    override nonisolated func tearDown() {
+        if let defaultsSuite {
+            UserDefaults(suiteName: defaultsSuite)?
+                .removePersistentDomain(forName: defaultsSuite)
+        }
+        presetManager = nil
+        defaultsSuite = nil
+        super.tearDown()
     }
 
     // MARK: - Lookup by name

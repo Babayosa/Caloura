@@ -14,7 +14,8 @@ final class BeautifyPreviewController {
                 styleMask: [.titled, .closable, .resizable],
                 minSize: CGSize(width: 480, height: 400),
                 autosaveName: "CalouraBeautifyPreview"
-            )
+            ),
+            activateApp: true
         ) {
             BeautifyPreviewView(screenshot: screenshot)
         }
@@ -28,9 +29,7 @@ final class BeautifyPreviewController {
 struct BeautifyPreviewView: View {
     let screenshot: ProcessedScreenshot
 
-    @State private var selectedTheme = BeautifyTheme.builtInThemes
-        .first { $0.name == AppSettings.shared.beautifyThemeName }
-        ?? BeautifyTheme.builtInThemes[0]
+    @State private var selectedTheme = defaultSelectedTheme()
     @State private var previewImage: CGImage?
     @State private var isProcessing = false
 
@@ -60,6 +59,7 @@ struct BeautifyPreviewView: View {
                 ForEach(BeautifyTheme.builtInThemes) { theme in
                     Button {
                         selectedTheme = theme
+                        AppSettings.shared.beautifyThemeName = theme.name
                     } label: {
                         VStack(spacing: 4) {
                             RoundedRectangle(cornerRadius: 6)
@@ -93,12 +93,14 @@ struct BeautifyPreviewView: View {
                     BeautifyPreviewController.shared.close()
                 }
                 .buttonStyle(.bordered)
+                .disabled(previewImage == nil || isProcessing)
 
                 Button("Save") {
                     guard let image = previewImage else { return }
                     saveImage(image)
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(previewImage == nil || isProcessing)
             }
         }
         .padding()
@@ -110,9 +112,22 @@ struct BeautifyPreviewView: View {
 
     private func generatePreview() async {
         isProcessing = true
+        defer { isProcessing = false }
         let result = await Beautifier.beautify(cgImage: screenshot.cgImage, theme: selectedTheme)
+        guard !Task.isCancelled else { return }
         previewImage = result
-        isProcessing = false
+    }
+
+    private static func defaultSelectedTheme() -> BeautifyTheme {
+        if let saved = BeautifyTheme.builtInThemes.first(where: {
+            $0.name == AppSettings.shared.beautifyThemeName
+        }) {
+            return saved
+        }
+        guard let first = BeautifyTheme.builtInThemes.first else {
+            preconditionFailure("At least one built-in beautify theme is required")
+        }
+        return first
     }
 
     private func themePreviewGradient(_ theme: BeautifyTheme) -> LinearGradient {
@@ -126,7 +141,7 @@ struct BeautifyPreviewView: View {
             try ClipboardManager.copyNSImage(nsImage)
             AppState.shared.statusMessage = "Beautified image copied"
         } catch {
-            AppState.shared.statusMessage = error.localizedDescription
+            AppState.shared.statusMessage = UserFacingErrorMessage.message(for: error)
         }
     }
 
@@ -143,7 +158,7 @@ struct BeautifyPreviewView: View {
             } catch is CancellationError {
                 AppState.shared.statusMessage = "Beautify save cancelled"
             } catch {
-                AppState.shared.statusMessage = "Overwrite failed: \(error.localizedDescription)"
+                AppState.shared.statusMessage = "Save failed: \(UserFacingErrorMessage.message(for: error))"
             }
         }
     }

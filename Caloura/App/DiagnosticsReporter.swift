@@ -2,10 +2,10 @@ import Foundation
 import MetricKit
 import os.log
 
-/// Local-only MetricKit crash + hang capture. Writes JSON payloads to
-/// `~/Library/Application Support/Caloura/diagnostics/` and rotates files
-/// older than 30 days. Never uploads — users attach to support email
-/// if needed, matching the app's local-only privacy positioning.
+/// Local-only MetricKit crash + hang capture. Writes encrypted JSON payloads
+/// to `~/Library/Application Support/Caloura/diagnostics/` and rotates files
+/// older than 30 days. Never uploads — users attach to support email if
+/// needed, matching the app's local-only privacy positioning.
 @MainActor
 final class DiagnosticsReporter: NSObject, MXMetricManagerSubscriber {
     static let shared = DiagnosticsReporter()
@@ -63,14 +63,10 @@ final class DiagnosticsReporter: NSObject, MXMetricManagerSubscriber {
         formatter.formatOptions = [.withInternetDateTime]
         for data in blobs {
             let stamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
-            let filename = "diagnostic-\(stamp)-\(UUID().uuidString.prefix(8)).json"
+            let filename = "diagnostic-\(stamp)-\(UUID().uuidString.prefix(8)).json.enc"
             let url = dir.appendingPathComponent(filename)
             do {
-                try data.write(to: url, options: .atomic)
-                try fileManager.setAttributes(
-                    [.posixPermissions: 0o600],
-                    ofItemAtPath: url.path
-                )
+                try HistoryCrypto.writeEncrypted(data, to: url, purpose: "diagnostics")
                 logger.info("Wrote MetricKit diagnostic payload to \(filename, privacy: .public)")
             } catch {
                 let description = error.localizedDescription

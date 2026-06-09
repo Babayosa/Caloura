@@ -196,7 +196,8 @@ enum HistoryCrypto {
             throw HistoryCryptoError.keyFileCreationFailed
         }
         let written = keyData.withUnsafeBytes { buf in
-            Darwin.write(fd, buf.baseAddress!, buf.count)
+            guard let baseAddress = buf.baseAddress else { return -1 }
+            return Darwin.write(fd, baseAddress, buf.count)
         }
         close(fd)
         guard written == keyData.count else {

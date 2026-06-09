@@ -27,6 +27,7 @@ final class QuickAccessOverlay {
             backing: .buffered,
             defer: false
         )
+        panel.excludeFromScreenSharing()
         panel.isReleasedWhenClosed = false
         panel.isFloatingPanel = true
         panel.level = .floating

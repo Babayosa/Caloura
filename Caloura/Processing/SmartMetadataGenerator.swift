@@ -12,18 +12,6 @@ protocol MetadataGenerating {
     func generate(ocrText: String, sourceApp: String?, windowTitle: String?) async -> ScreenshotMetadata?
 }
 
-/// `LanguageModelSession` is not thread-safe; hoisting to an actor-isolated
-/// singleton lets us persist one session across captures instead of spinning
-/// up a fresh session per call (~80-120ms warmup).
-private actor SharedLanguageModelSession {
-    static let shared = SharedLanguageModelSession()
-    private let session = LanguageModelSession()
-
-    func respond(to prompt: String) async throws -> String {
-        try await session.respond(to: prompt).content
-    }
-}
-
 struct SmartMetadataGenerator: MetadataGenerating {
     static let shared = SmartMetadataGenerator()
     private static let logger = Logger(
@@ -38,7 +26,15 @@ struct SmartMetadataGenerator: MetadataGenerating {
         let appContext = sourceApp.map { "from \($0)" } ?? ""
         let windowContext = windowTitle.map { "window: \($0)" } ?? ""
         let contextLine = [appContext, windowContext].filter { !$0.isEmpty }.joined(separator: ", ")
+        let model = SystemLanguageModel.default
+        guard model.isAvailable else {
+            Self.logger.debug("Metadata generation skipped: Foundation Models unavailable")
+            return nil
+        }
 
+        // Foundation Models runs on-device. The prompt still includes OCR text
+        // and window/app context, so keep generation behind the local
+        // availability check and use a short-lived session per request.
         let prompt = """
         Analyze this screenshot text and provide:
         1. FILENAME: A concise descriptive filename (max 50 chars, lowercase, hyphens for spaces, no extension)
@@ -58,7 +54,8 @@ struct SmartMetadataGenerator: MetadataGenerating {
         let response: String?
         do {
             response = try await withTimeout(seconds: 2) {
-                try await SharedLanguageModelSession.shared.respond(to: prompt)
+                let session = LanguageModelSession(model: model)
+                return try await session.respond(to: prompt).content
             }
         } catch TimeoutError.timedOut {
             Self.logger.debug("Metadata generation timed out")

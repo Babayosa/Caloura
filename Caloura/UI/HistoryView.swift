@@ -51,6 +51,7 @@ private let historyLogger = Logger(subsystem: "com.caloura.app", category: "Hist
 
 struct HistoryView: View {
     let appState: AppState
+    var settings: AppSettings = .shared
     @State private var searchText = ""
     @State private var selectedItem: ScreenshotItem?
     @State private var itemToDelete: ScreenshotItem?
@@ -64,7 +65,7 @@ struct HistoryView: View {
             from: appState.recentScreenshots,
             searchText: searchText,
             semanticResults: semanticResults,
-            semanticSearchEnabled: AppSettings.shared.semanticSearchEnabled
+            semanticSearchEnabled: settings.semanticSearchEnabled
         )
     }
 
@@ -109,6 +110,7 @@ struct HistoryView: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 8) {
                         ForEach(filteredScreenshots) { item in
+                            let hasFile = !item.filePath.isEmpty
                             HistoryGridItem(
                                 item: item,
                                 isSelected: selectedItem == item,
@@ -126,16 +128,19 @@ struct HistoryView: View {
                                 } label: {
                                     Label("Open", systemImage: "eye")
                                 }
+                                .disabled(!hasFile)
                                 Button {
                                     copyImage(item)
                                 } label: {
                                     Label("Copy", systemImage: "doc.on.doc")
                                 }
+                                .disabled(!hasFile)
                                 Button {
                                     openInFinder(item)
                                 } label: {
                                     Label("Show in Finder", systemImage: "folder")
                                 }
+                                .disabled(!hasFile)
                                 Divider()
                                 Button(role: .destructive) {
                                     itemToDelete = item
@@ -198,7 +203,7 @@ struct HistoryView: View {
             semanticSearchTask?.cancel()
             semanticResults = []
             guard !newValue.isEmpty,
-                  AppSettings.shared.semanticSearchEnabled else { return }
+                  settings.semanticSearchEnabled else { return }
             let query = newValue
             let store = appState.embeddingStore
             semanticSearchTask = Task {
@@ -249,7 +254,7 @@ struct HistoryView: View {
                 try ClipboardManager.copyNSImage(image)
                 appState.setStatusMessage("Copied image")
             } catch {
-                appState.setStatusMessage(error.localizedDescription)
+                appState.setStatusMessage(UserFacingErrorMessage.message(for: error))
             }
         }
     }

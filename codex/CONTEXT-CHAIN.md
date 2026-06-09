@@ -4,6 +4,60 @@ Running log of completed tasks. Read this to understand what changed before your
 
 ---
 
+## Exploration Update: Audit 2026-06-09 closure sweep
+**Status:** Complete
+**Branch:** `task-22-window-sharing-stealth`
+**Changes:**
+- Closed the remaining practical high findings from [audit-2026-06-09.md](/Users/b/Dev/apps/Caloura/tasks/audit-2026-06-09.md): cursor maintenance reprime now runs at 350 ms instead of 50 ms, window shareable-content prewarm is gated on recent window-capture activity, settings-return permission repair defaults to one SCK validation per outer tick, raw user-facing error strings were mapped through [UserFacingErrorMessage.swift](/Users/b/Dev/apps/Caloura/Caloura/App/UserFacingErrorMessage.swift), history context-menu no-op actions are disabled for clipboard-only captures, Beautify preview disables unavailable actions and clears processing state with `defer`, Preferences diagnostics copy now describes local MetricKit capture, and UpdateManager no longer imports Combine
+- Closed practical medium/low findings: preview clear uses a cancellable task, clipboard auto-clear uses a cancellable `DispatchWorkItem`, beautify rendering uses `.utility`, capture/SCK probe timing logs are `.debug`, timestamp-only filenames are available for stealthier saved files, Smart Metadata checks Foundation Models availability and uses short-lived sessions, MetricKit diagnostics are encrypted with `HistoryCrypto`, PII/beautify/history force unwraps were removed, and CIContext disables intermediate caching
+- Added UI polish from the audit: license Return-to-activate, annotation Esc cancel, redaction progress, auto-clear preference, grouped shortcut keycaps, icon tooltips, X label, and cleaner recent-activity text
+- Added quality cleanups: injected `PresetManager` defaults, injected `HistoryView` settings, extracted shared cursor-rect reset, and moved hotkey migration keys into `AppSettings.Keys`
+- Added [audit-2026-06-09-closure.md](/Users/b/Dev/apps/Caloura/tasks/audit-2026-06-09-closure.md) mapping fixed items, deferred structural follow-ups, and residual manual checks
+- Revalidated with `swift build`, `swiftlint lint --quiet`, and `swift test` (685 tests passing)
+
+**Decisions Made:**
+- Keep large structural refactors as explicit follow-ups: `PermissionCoordinator` file splitting, view-controller file splitting, `CaptureEntrypointService` dependency slicing, logger consolidation, and test-only performance-summary cleanup
+- Keep Sparkle standard update windows as dependency-owned until Caloura adopts a custom public Sparkle user driver
+- Keep KeyboardShortcuts notification string usage documented because the package's typed notification is not public API
+
+---
+
+## Exploration Update: Work modes + activation stealth hardening
+**Status:** Complete
+**Branch:** `task-22-window-sharing-stealth`
+**Changes:**
+- Added explicit Release / Task Mode and Exploration Mode language to [AGENTS.md](/Users/b/Dev/apps/Caloura/AGENTS.md) and [RULES.md](/Users/b/Dev/apps/Caloura/codex/RULES.md), allowing multi-finding exploration only when the user explicitly overrides the strict one-task flow
+- Changed [SingleWindowPresenter.swift](/Users/b/Dev/apps/Caloura/Caloura/UI/SingleWindowPresenter.swift) so app activation is an explicit `activateApp` decision instead of a blanket side effect on every show or bring-to-front path
+- Kept user-requested windows activating intentionally: Preferences, History, Annotation, Beautify Preview, Redaction Review, and permission-repair onboarding flows opt into activation
+- Kept passive prompts non-activating: launch/onboarding default presentation, contextual tips, and automatic nag checks pass `activateApp: false`
+- Added focused activation regression coverage in [WindowPrivacyTests.swift](/Users/b/Dev/apps/Caloura/CalouraTests/AppTests/WindowPrivacyTests.swift), including both new-window and existing-window presenter paths
+- Revalidated with `swift build`, `swiftlint lint --quiet`, and `swift test` (681 tests passing)
+
+**Decisions Made:**
+- Treat activation as caller intent rather than presenter default behavior, but keep the default injected activation closure so production callers do not need to know AppKit details and tests can count activation attempts
+- Leave the DEBUG-only UI-test host's direct `NSApplication.shared.activate(ignoringOtherApps: true)` in place because it is outside the production presenter path and exists to surface the local test harness
+- Do not combine the next high-power cursor reprime finding into this change; it needs its own cursor-race verification pass
+
+---
+
+## Task 22: Window sharing stealth hardening
+**Status:** Complete
+**Branch:** `task-22-window-sharing-stealth`
+**Changes:**
+- Added [WindowPrivacy.swift](/Users/b/Dev/apps/Caloura/Caloura/App/WindowPrivacy.swift) with a shared `NSWindow.excludeFromScreenSharing()` helper that sets `sharingType = .none`
+- Applied the helper to every Caloura-owned `NSWindow` / `NSPanel` creation path found in source: [SingleWindowPresenter.swift](/Users/b/Dev/apps/Caloura/Caloura/UI/SingleWindowPresenter.swift), [PinnedScreenshotWindow.swift](/Users/b/Dev/apps/Caloura/Caloura/UI/PinnedScreenshotWindow.swift), [QuickAccessOverlay.swift](/Users/b/Dev/apps/Caloura/Caloura/UI/QuickAccessOverlay.swift), [CountdownOverlay.swift](/Users/b/Dev/apps/Caloura/Caloura/UI/CountdownOverlay.swift), [CaptureOverlayWindow.swift](/Users/b/Dev/apps/Caloura/Caloura/Capture/CaptureOverlayWindow.swift), [ScreenSelectionOverlayWindow.swift](/Users/b/Dev/apps/Caloura/Caloura/Capture/ScreenSelectionOverlayWindow.swift), and [UITestHostWindowController.swift](/Users/b/Dev/apps/Caloura/Caloura/App/UITestHostWindowController.swift)
+- Added focused regression coverage in [WindowPrivacyTests.swift](/Users/b/Dev/apps/Caloura/CalouraTests/AppTests/WindowPrivacyTests.swift) and extended [CaptureOverlayWindowTests.swift](/Users/b/Dev/apps/Caloura/CalouraTests/CaptureTests/CaptureOverlayWindowTests.swift) to assert non-shareable overlay windows
+- Regenerated [project.pbxproj](/Users/b/Dev/apps/Caloura/Caloura.xcodeproj/project.pbxproj) so the new source and test files are included in Xcode builds
+- Investigated Sparkle's standard updater UI: Caloura uses `SPUStandardUpdaterController`, whose public API exposes `userDriver` but not a public update-window customization hook; Sparkle's active update alert window access is private API, so Caloura-owned windows are hardened here and Sparkle standard windows remain dependency-owned unless Caloura later adopts a custom `SPUUserDriver`
+- Verified the UI-test host activation-policy branch remains Release-safe: `AppDelegate.isUITestHostEnabled` returns `false` outside `#if DEBUG`, and the `UITestHostWindowController.shared.show()` call is also compiled only under `#if DEBUG`
+- Revalidated with `swift build`, `swiftlint lint --quiet`, and `swift test` (679 tests passing)
+
+**Decisions Made:**
+- Keep the privacy behavior as a small AppKit helper instead of duplicating `sharingType = .none` at each call site
+- Do not use Sparkle private API to mutate dependency-owned update windows; if update-window stealth becomes mandatory, replace Sparkle's standard user driver with a custom public `SPUUserDriver` implementation in a separate task
+
+---
+
 ## Task 21: Window capture hardening + quick access simplification
 **Status:** Complete
 **Branch:** `task-21-window-capture-hardening`

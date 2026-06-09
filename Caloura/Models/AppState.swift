@@ -71,7 +71,7 @@ final class AppState {
     // Debounce save operations to avoid hammering disk writes.
     private var saveTask: Task<Void, Never>?
     private let saveDebounceInterval: UInt64 = 500_000_000 // 500ms
-    private var lastScreenshotTimer: Timer?
+    private var lastScreenshotClearTask: Task<Void, Never>?
     private var historyRevision: UInt64 = 0
 
     init(defaults: UserDefaults = .standard, historyStoreURL: URL? = nil) {
@@ -264,13 +264,13 @@ final class AppState {
     }
 
     private func resetLastScreenshotTimer() {
-        lastScreenshotTimer?.invalidate()
-        lastScreenshotTimer = nil
+        lastScreenshotClearTask?.cancel()
+        lastScreenshotClearTask = nil
         guard lastScreenshot != nil else { return }
-        lastScreenshotTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.lastScreenshot = nil
-            }
+        lastScreenshotClearTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(300))
+            guard !Task.isCancelled else { return }
+            self?.lastScreenshot = nil
         }
     }
 

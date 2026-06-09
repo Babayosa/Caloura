@@ -62,7 +62,7 @@ final class CaptureExecutionService {
         capture: () async throws -> CGImage
     ) async {
         let pipelineStart = CFAbsoluteTimeGetCurrent()
-        logger.info("Starting capture: mode=\(mode.rawValue)")
+        logger.debug("Starting capture: mode=\(mode.rawValue)")
 
         do {
             let request = requestResolver.resolve(mode: mode)
@@ -166,7 +166,7 @@ final class CaptureExecutionService {
         let captureStart = CFAbsoluteTimeGetCurrent()
         let cgImage = try await capture()
         let captureDuration = metricsRecorder.elapsedMilliseconds(since: captureStart)
-        logger.info("Capture succeeded: \(cgImage.width)x\(cgImage.height)")
+        logger.debug("Capture succeeded: \(cgImage.width)x\(cgImage.height)")
         logger.debug(
             "Capture stage completed in \(captureDuration, privacy: .public) ms"
         )

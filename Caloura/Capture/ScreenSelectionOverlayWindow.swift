@@ -16,6 +16,7 @@ final class ScreenSelectionOverlayWindow: NSPanel {
             defer: false
         )
 
+        self.excludeFromScreenSharing()
         self.isReleasedWhenClosed = false
         self.level = CaptureOverlayWindow.overlayLevel
         self.isOpaque = false

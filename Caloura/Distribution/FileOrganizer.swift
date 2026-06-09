@@ -25,7 +25,8 @@ struct FileOrganizer {
         _ screenshot: ProcessedScreenshot,
         baseDirectory: String,
         subfolder: String? = nil,
-        imageFormat: String = "png"
+        imageFormat: String = "png",
+        timestampOnlyFileName: Bool = false
     ) async throws -> URL {
         try await save(
             cgImage: screenshot.cgImage,
@@ -33,7 +34,8 @@ struct FileOrganizer {
             baseDirectory: baseDirectory,
             subfolder: subfolder,
             imageFormat: imageFormat,
-            smartFileName: screenshot.fileName.isEmpty ? nil : screenshot.fileName.deletingPathExtension
+            smartFileName: screenshot.fileName.isEmpty ? nil : screenshot.fileName.deletingPathExtension,
+            timestampOnlyFileName: timestampOnlyFileName
         )
     }
 
@@ -44,7 +46,8 @@ struct FileOrganizer {
         baseDirectory: String,
         subfolder: String? = nil,
         imageFormat: String = "png",
-        smartFileName: String? = nil
+        smartFileName: String? = nil,
+        timestampOnlyFileName: Bool = false
     ) async throws -> URL {
         // Prepare all data on current thread (fast)
         let baseURL = URL(fileURLWithPath: baseDirectory)
@@ -58,7 +61,8 @@ struct FileOrganizer {
         let fileName = generateFileName(
             for: context,
             imageFormat: imageFormat,
-            smartFileName: smartFileName
+            smartFileName: smartFileName,
+            timestampOnlyFileName: timestampOnlyFileName
         )
         let fileURL = directoryURL.appendingPathComponent(fileName)
 
@@ -83,7 +87,8 @@ struct FileOrganizer {
     static func generateFileName(
         for context: CaptureContext,
         imageFormat: String = "png",
-        smartFileName: String? = nil
+        smartFileName: String? = nil,
+        timestampOnlyFileName: Bool = false
     ) -> String {
         let ext: String
         switch imageFormat {
@@ -93,6 +98,11 @@ struct FileOrganizer {
         default: ext = "png"
         }
 
+        let timeStr = timeFormatter.string(from: context.timestamp)
+        if timestampOnlyFileName {
+            return "Caloura_\(timeStr).\(ext)"
+        }
+
         if let smart = smartFileName {
             let sanitized = sanitizeFileName(smart)
             if sanitized != "Unknown" {
@@ -100,7 +110,6 @@ struct FileOrganizer {
             }
         }
 
-        let timeStr = timeFormatter.string(from: context.timestamp)
         let appName = sanitizeFileName(context.sourceAppName ?? "Unknown")
         return "Caloura_\(timeStr)_\(appName).\(ext)"
     }

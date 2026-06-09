@@ -23,7 +23,8 @@ private let sharedFreezeCIContext: CIContext = {
         ?? CGColorSpace(name: CGColorSpace.sRGB)
         ?? CGColorSpaceCreateDeviceRGB()
     return CIContext(options: [
-        .workingColorSpace: workingSpace
+        .workingColorSpace: workingSpace,
+        .cacheIntermediates: false
     ])
 }()
 

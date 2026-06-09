@@ -18,7 +18,7 @@ final class HistoryWindowController {
             size: CGSize(width: 600, height: 500),
             styleMask: [.titled, .closable, .resizable, .miniaturizable]
         )
-        let didCreate = presenter.show(config: config) {
+        let didCreate = presenter.show(config: config, activateApp: true) {
             HistoryView(appState: appState)
         }
 

@@ -294,6 +294,46 @@ final class ScreenCaptureManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testDidBecomeActiveDoesNotPrewarmWithoutRecentWindowCaptureUse() async {
+        var shareableContentRequests = 0
+        _ = ScreenCaptureManager(
+            permissionDependencies: makePermissionDependencies(preflight: { true }),
+            shareableContentProvider: {
+                shareableContentRequests += 1
+                throw CaptureError.noContent(source: "test shareable content")
+            }
+        )
+
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        try? await Task.sleep(for: .milliseconds(50))
+
+        XCTAssertEqual(shareableContentRequests, 0)
+    }
+
+    @MainActor
+    func testDidBecomeActivePrewarmsAfterRecentWindowCaptureUse() async {
+        var shareableContentRequests = 0
+        let manager = ScreenCaptureManager(
+            permissionDependencies: makePermissionDependencies(preflight: { true }),
+            shareableContentProvider: {
+                shareableContentRequests += 1
+                throw CaptureError.noContent(source: "test shareable content")
+            }
+        )
+
+        do {
+            _ = try await manager.captureWindow(filter: SCContentFilter())
+        } catch {
+            // Empty test filter fails after marking recent window-capture use.
+        }
+
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        await pollUntil(timeout: 2.0) { shareableContentRequests > 0 }
+
+        XCTAssertEqual(shareableContentRequests, 1)
+    }
+
+    @MainActor
     func testCaptureFrozenDisplaySnapshotOperationCancelsUnderlyingCaptureOnTimeout() async {
         let captureStarted = expectation(description: "capture started")
         let captureCancelled = expectation(description: "capture cancelled")
@@ -322,6 +362,22 @@ final class ScreenCaptureManagerTests: XCTestCase {
             XCTFail("Expected TimeoutError, got \(error)")
         }
     }
+}
+
+private func makePermissionDependencies(
+    preflight: @escaping @Sendable () -> Bool
+) -> ScreenCapturePermissionDependencies {
+    ScreenCapturePermissionDependencies(
+        cgPreflight: preflight,
+        cgRequest: { false },
+        sckAccessProbe: { .authorized },
+        runRepairTool: { _, _ in },
+        presentAlert: { _ in .cancel },
+        openURL: { _ in },
+        relaunchApplication: { _ in },
+        terminateApplication: { },
+        statusMessageSink: { _ in }
+    )
 }
 
 @MainActor

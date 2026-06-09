@@ -352,12 +352,16 @@ final class OnboardingWindowController {
         show(settings: settings, initialState: .readyForFirstCapture)
     }
 
-    func show(settings: AppSettings, initialState: OnboardingFlowState = .readyForFirstCapture) {
+    func show(
+        settings: AppSettings,
+        initialState: OnboardingFlowState = .readyForFirstCapture,
+        activateApp: Bool = false
+    ) {
         let config = SingleWindowPresenter<OnboardingView>.WindowConfig(
             title: "Welcome to Caloura",
             size: CGSize(width: 560, height: 480)
         )
-        presenter.show(config: config) {
+        presenter.show(config: config, activateApp: activateApp) {
             OnboardingView(
                 settings: settings,
                 initialState: initialState,
@@ -402,7 +406,7 @@ final class OnboardingTipsController {
             title: "Caloura Tip",
             size: CGSize(width: 360, height: 220)
         )
-        presenter.show(config: config) {
+        presenter.show(config: config, activateApp: false) {
             ContextualTipView(
                 content: content,
                 onDismiss: { [weak self] in

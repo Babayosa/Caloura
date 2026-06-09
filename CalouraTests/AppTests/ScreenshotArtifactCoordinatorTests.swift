@@ -52,7 +52,7 @@ final class ScreenshotArtifactCoordinatorTests: XCTestCase {
         let coordinator = ScreenshotArtifactCoordinator(
             appState: appState,
             settings: settings,
-            saveFile: { _, _, _, _ in
+            saveFile: { _, _, _, _, _ in
                 counter.recordSaveFile()
                 // Slow down the save so concurrent callers must wait on the
                 // same in-flight task rather than racing to start their own.
@@ -78,6 +78,29 @@ final class ScreenshotArtifactCoordinatorTests: XCTestCase {
         )
     }
 
+    func testSaveCapturePassesTimestampOnlyFilenameSetting() async throws {
+        let (appState, settings) = makeAppState(testName: #function)
+        settings.timestampOnlyFileNames = true
+        var capturedTimestampOnlyFileName = false
+        let dest = FileManager.default.temporaryDirectory
+            .appendingPathComponent("timestamp-only-\(UUID()).png")
+
+        let coordinator = ScreenshotArtifactCoordinator(
+            appState: appState,
+            settings: settings,
+            saveFile: { _, _, _, _, timestampOnlyFileName in
+                capturedTimestampOnlyFileName = timestampOnlyFileName
+                return dest
+            },
+            overwriteImage: { _, _, _ in },
+            promptForSaveURL: { _ in nil }
+        )
+
+        _ = try await coordinator.saveCapture(CapturePipelineTestHelpers.makeProcessed())
+
+        XCTAssertTrue(capturedTimestampOnlyFileName)
+    }
+
     // MARK: - saveCapture: subsequent call after first save reuses existing URL
 
     func testSaveCaptureReusesExistingFilePathWithoutCallingSaveFile() async throws {
@@ -86,7 +109,7 @@ final class ScreenshotArtifactCoordinatorTests: XCTestCase {
         let coordinator = ScreenshotArtifactCoordinator(
             appState: appState,
             settings: settings,
-            saveFile: { _, _, _, _ in
+            saveFile: { _, _, _, _, _ in
                 counter.recordSaveFile()
                 return URL(fileURLWithPath: "/should/not/be/written")
             },
@@ -110,7 +133,7 @@ final class ScreenshotArtifactCoordinatorTests: XCTestCase {
         let coordinator = ScreenshotArtifactCoordinator(
             appState: appState,
             settings: settings,
-            saveFile: { _, _, _, _ in
+            saveFile: { _, _, _, _, _ in
                 counter.recordSaveFile()
                 if shouldFail.value {
                     throw StubError()
@@ -153,7 +176,7 @@ final class ScreenshotArtifactCoordinatorTests: XCTestCase {
         let coordinator = ScreenshotArtifactCoordinator(
             appState: appState,
             settings: settings,
-            saveFile: { _, _, _, _ in
+            saveFile: { _, _, _, _, _ in
                 XCTFail("saveFile must not be called for derived overwrite")
                 return existingURL
             },
@@ -189,7 +212,7 @@ final class ScreenshotArtifactCoordinatorTests: XCTestCase {
         let coordinator = ScreenshotArtifactCoordinator(
             appState: appState,
             settings: settings,
-            saveFile: { _, _, _, _ in chosen },
+            saveFile: { _, _, _, _, _ in chosen },
             overwriteImage: { _, url, _ in
                 counter.recordOverwrite()
                 XCTAssertEqual(url, chosen)
@@ -220,7 +243,7 @@ final class ScreenshotArtifactCoordinatorTests: XCTestCase {
         let coordinator = ScreenshotArtifactCoordinator(
             appState: appState,
             settings: settings,
-            saveFile: { _, _, _, _ in URL(fileURLWithPath: "/never") },
+            saveFile: { _, _, _, _, _ in URL(fileURLWithPath: "/never") },
             overwriteImage: { _, _, _ in
                 XCTFail("overwriteImage must not be called when panel is cancelled")
             },

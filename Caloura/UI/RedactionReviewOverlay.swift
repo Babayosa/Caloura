@@ -14,7 +14,8 @@ final class RedactionReviewController {
                 styleMask: [.titled, .closable, .resizable],
                 minSize: CGSize(width: 480, height: 400),
                 autosaveName: "CalouraRedactionReview"
-            )
+            ),
+            activateApp: true
         ) {
             RedactionReviewView(
                 screenshot: screenshot,
@@ -107,7 +108,7 @@ struct RedactionReviewView: View {
                         Task { await applyRedaction() }
                     }
                     .buttonStyle(.bordered)
-                    .disabled(detections.isEmpty)
+                    .disabled(detections.isEmpty || isRedacting)
 
                     Button("Redact Selected (\(selectedIndices.count))") {
                         Task { await applyRedaction() }
@@ -116,6 +117,11 @@ struct RedactionReviewView: View {
                     .disabled(selectedIndices.isEmpty || isRedacting)
                 }
             }
+
+            if isRedacting {
+                ProgressView("Applying redaction...")
+                    .controlSize(.small)
+            }
         }
         .padding()
         .frame(minWidth: 480, minHeight: 400)
@@ -123,10 +129,11 @@ struct RedactionReviewView: View {
 
     private func applyRedaction() async {
         isRedacting = true
+        defer { isRedacting = false }
         let regions = selectedIndices.map { detections[$0].boundingBox }
         let result = await RedactionEngine.redact(cgImage: screenshot.cgImage, regions: regions)
+        guard !Task.isCancelled else { return }
         redactedImage = result
-        isRedacting = false
         hasRedacted = true
     }
 
@@ -143,7 +150,7 @@ struct RedactionReviewView: View {
             AppState.shared.statusMessage = "Redaction save cancelled"
             return
         } catch {
-            AppState.shared.statusMessage = "Overwrite failed: \(error.localizedDescription)"
+            AppState.shared.statusMessage = "Save failed: \(UserFacingErrorMessage.message(for: error))"
             return
         }
 
@@ -152,7 +159,7 @@ struct RedactionReviewView: View {
         do {
             try ClipboardManager.copyNSImage(nsImage)
         } catch {
-            AppState.shared.statusMessage = error.localizedDescription
+            AppState.shared.statusMessage = UserFacingErrorMessage.message(for: error)
             return
         }
 

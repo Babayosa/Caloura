@@ -65,6 +65,7 @@ private final class CountdownPanel: NSPanel {
             defer: false
         )
 
+        excludeFromScreenSharing()
         isReleasedWhenClosed = false
         isFloatingPanel = true
         level = .floating

@@ -3,7 +3,7 @@ import Foundation
 
 struct Beautifier {
     static func beautify(cgImage: CGImage, theme: BeautifyTheme) async -> CGImage {
-        await Task.detached(priority: .userInitiated) {
+        await Task.detached(priority: .utility) {
             renderBeautified(cgImage: cgImage, theme: theme)
         }.value
     }

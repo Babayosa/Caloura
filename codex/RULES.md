@@ -1,5 +1,25 @@
 # Codex Execution Rules
 
+## Work Modes
+
+### Release / Task Mode
+Use this mode by default for audit fixes, production hardening, release prep,
+security, permissions, capture behavior, or any user-requested task.
+- One scoped task per branch.
+- Full validation is required before commit.
+- Update `codex/CONTEXT-CHAIN.md` when behavior changes.
+
+### Exploration Mode
+Use this mode only when the user explicitly asks to override the strict task
+rules, prototype, investigate, or continue across related findings.
+- Multiple related edits are allowed in one session.
+- Partial validation is acceptable during iteration if reported honestly.
+- Do not commit until scope is narrowed and Release / Task Mode validation
+  passes.
+- Keep unrelated work out of scope.
+- Promote proven exploration results into one or more formal tasks before
+  release or commit.
+
 ## Branch Protocol
 1. Create a new branch: `task-XX-[short-description]`
 2. All work happens on this branch
@@ -37,6 +57,7 @@ Run in this order. All must pass.
 
 ## Forbidden Actions
 - Deleting or skipping tests to make them pass
-- Modifying RULES.md
-- Working on multiple tasks in one session
+- Modifying RULES.md unless the user explicitly asks to change project rules
+- Working on multiple tasks in one session unless the user explicitly invokes
+  Exploration Mode or overrides the strict task rules
 - Making changes outside the task scope

@@ -103,7 +103,7 @@ private struct MainActorCaptureCursorScheduler: CaptureCursorScheduling {
 @MainActor
 final class CaptureCursorController: NSObject, CaptureCursorControlling {
     private static let initialReprimeDelay: Duration = .milliseconds(1)
-    private static let maintenanceReprimeDelay: Duration = .milliseconds(50)
+    private static let maintenanceReprimeDelay: Duration = .milliseconds(350)
 
     private let crosshairDriver: CaptureCrosshairDriving
     private let scheduler: CaptureCursorScheduling

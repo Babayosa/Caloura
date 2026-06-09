@@ -223,7 +223,7 @@ struct MenuBarView: View {
             Menu {
                 ForEach(appState.recentStatusMessages) { entry in
                     Text(Self.recentActivityFormatter.string(from: entry.timestamp)
-                        + "  " + entry.message)
+                        + " · " + entry.message)
                 }
             } label: {
                 Label("Recent activity", systemImage: "list.bullet.rectangle")

@@ -1,4 +1,3 @@
-import Combine
 import Sparkle
 import XCTest
 @testable import Caloura
@@ -73,14 +72,17 @@ final class UpdateManagerTests: XCTestCase {
     func testRecordUpdateFailure_setsFailureState() {
         let manager = UpdateManager(settings: makeSettings(#function), controller: MockUpdateController())
 
-        manager.recordUpdateFailure(NSError(domain: "network", code: -1, userInfo: [
-            NSLocalizedDescriptionKey: "The appcast could not be loaded."
+        manager.recordUpdateFailure(NSError(domain: NSURLErrorDomain, code: NSURLErrorSecureConnectionFailed, userInfo: [
+            NSLocalizedDescriptionKey: "An SSL error has occurred and a secure connection cannot be made."
         ]))
 
-        XCTAssertEqual(manager.state, .failed(errorSummary: "The appcast could not be loaded."))
+        XCTAssertEqual(
+            manager.state,
+            .failed(errorSummary: "Could not connect. Check your internet connection and try again.")
+        )
     }
 
-    func testControllerPublisher_updatesCanCheckForUpdates() async {
+    func testControllerObservation_updatesCanCheckForUpdates() async {
         let controller = MockUpdateController()
         let manager = UpdateManager(settings: makeSettings(#function), controller: controller)
 
@@ -168,11 +170,7 @@ final class UpdateManagerTests: XCTestCase {
 
     func testFinishUpdateCycle_errorMapsToFailure() {
         let manager = UpdateManager(settings: makeSettings(#function), controller: MockUpdateController())
-        let error = NSError(
-            domain: "network",
-            code: -1,
-            userInfo: [NSLocalizedDescriptionKey: "offline"]
-        )
+        let error = NSError(domain: "custom", code: -1, userInfo: [NSLocalizedDescriptionKey: "offline"])
 
         manager.finishUpdateCycle(error: error)
 
@@ -198,22 +196,29 @@ final class UpdateManagerTests: XCTestCase {
 @MainActor
 private final class MockUpdateController: UpdateControlling {
     var canCheckForUpdates: Bool {
-        canCheckSubject.value
+        canCheckForUpdatesValue
     }
 
     var automaticallyChecksForUpdates = true
-    var canCheckForUpdatesPublisher: AnyPublisher<Bool, Never> {
-        canCheckSubject.eraseToAnyPublisher()
-    }
 
-    private let canCheckSubject = CurrentValueSubject<Bool, Never>(true)
+    private var canCheckForUpdatesValue = true
+    private var canCheckObserver: (@MainActor (Bool) -> Void)?
     private(set) var checkForUpdatesCallCount = 0
+
+    func observeCanCheckForUpdates(_ handler: @escaping @MainActor (Bool) -> Void) -> AnyObject? {
+        canCheckObserver = handler
+        handler(canCheckForUpdatesValue)
+        return ObservationToken()
+    }
 
     func checkForUpdates() {
         checkForUpdatesCallCount += 1
     }
 
     func setCanCheckForUpdates(_ value: Bool) {
-        canCheckSubject.send(value)
+        canCheckForUpdatesValue = value
+        canCheckObserver?(value)
     }
 }
+
+private final class ObservationToken {}

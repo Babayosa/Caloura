@@ -62,15 +62,15 @@ final class NagWindowController {
         let settings = AppSettings.shared
         let license = LicenseManager.shared
         guard license.shouldShowNag(settings: settings) else { return }
-        show()
+        show(activateApp: false)
     }
 
-    func show() {
+    func show(activateApp: Bool = true) {
         let config = SingleWindowPresenter<NagDialogView>.WindowConfig(
             title: "Caloura",
             size: CGSize(width: 400, height: 320)
         )
-        presenter.show(config: config) {
+        presenter.show(config: config, activateApp: activateApp) {
             NagDialogView(
                 onDismiss: { [weak self] in
                     self?.presenter.close()

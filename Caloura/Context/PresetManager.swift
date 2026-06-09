@@ -65,10 +65,12 @@ final class PresetManager {
         }
     }
 
+    private let defaults: UserDefaults
     private let presetsKey = "capturePresets"
     private var isInitializing = true
 
-    private init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         loadPresets()
         ensureBuiltInPresets()
         isInitializing = false
@@ -138,12 +140,12 @@ final class PresetManager {
 
     private func savePresets() {
         if let data = try? JSONEncoder().encode(presets) {
-            UserDefaults.standard.set(data, forKey: presetsKey)
+            defaults.set(data, forKey: presetsKey)
         }
     }
 
     private func loadPresets() {
-        guard let data = UserDefaults.standard.data(forKey: presetsKey),
+        guard let data = defaults.data(forKey: presetsKey),
               let loaded = try? JSONDecoder().decode([CapturePreset].self, from: data) else {
             return
         }

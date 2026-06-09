@@ -60,7 +60,7 @@ final class PinnedScreenshotManager {
                     try ClipboardManager.copyNSImage(displayImage)
                     AppState.shared.statusMessage = "Copied pinned screenshot"
                 } catch {
-                    AppState.shared.statusMessage = error.localizedDescription
+                    AppState.shared.statusMessage = UserFacingErrorMessage.message(for: error)
                 }
             },
             onClose: { [weak panel] in
@@ -84,6 +84,7 @@ final class PinnedScreenshotManager {
             backing: .buffered,
             defer: false
         )
+        panel.excludeFromScreenSharing()
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]

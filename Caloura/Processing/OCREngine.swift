@@ -55,6 +55,8 @@ struct OCREngine {
 
     /// Synchronous OCR with bounding boxes (called from background thread)
     private static func performOCRWithBoundingBoxes(cgImage: CGImage) throws -> [OCRObservation] {
+        guard try fastOCRFindsText(cgImage: cgImage) else { return [] }
+
         var results: [OCRObservation] = []
 
         let request = VNRecognizeTextRequest { request, error in
@@ -80,5 +82,24 @@ struct OCREngine {
         try handler.perform([request])
 
         return results
+    }
+
+    private static func fastOCRFindsText(cgImage: CGImage) throws -> Bool {
+        var foundText = false
+
+        let request = VNRecognizeTextRequest { request, error in
+            guard error == nil,
+                  let observations = request.results as? [VNRecognizedTextObservation] else {
+                return
+            }
+            foundText = observations.contains { $0.topCandidates(1).first != nil }
+        }
+        request.recognitionLevel = .fast
+        request.usesLanguageCorrection = false
+        request.automaticallyDetectsLanguage = false
+
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        try handler.perform([request])
+        return foundText
     }
 }

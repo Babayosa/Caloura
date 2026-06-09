@@ -1,4 +1,3 @@
-import Combine
 @preconcurrency import Sparkle
 
 @MainActor
@@ -22,9 +21,16 @@ final class SparkleUpdateController: UpdateControlling {
         set { controller.updater.automaticallyChecksForUpdates = newValue }
     }
 
-    var canCheckForUpdatesPublisher: AnyPublisher<Bool, Never> {
-        controller.updater.publisher(for: \.canCheckForUpdates)
-            .eraseToAnyPublisher()
+    func observeCanCheckForUpdates(_ handler: @escaping @MainActor (Bool) -> Void) -> AnyObject? {
+        controller.updater.observe(
+            \.canCheckForUpdates,
+            options: [.initial, .new]
+        ) { updater, change in
+            let value = change.newValue ?? updater.canCheckForUpdates
+            Task { @MainActor in
+                handler(value)
+            }
+        }
     }
 
     func checkForUpdates() {

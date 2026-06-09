@@ -1,4 +1,3 @@
-import Combine
 @preconcurrency import Sparkle
 
 enum UpdateState: Equatable, Sendable {
@@ -55,11 +54,7 @@ enum UpdateStateClassifier {
     }
 
     static func classifyFailure(_ snapshot: UpdateErrorSnapshot) -> UpdateState {
-        let message = snapshot.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        if message.isEmpty {
-            return .failed(errorSummary: "Update check failed.")
-        }
-        return .failed(errorSummary: message)
+        .failed(errorSummary: UserFacingErrorMessage.message(for: snapshot))
     }
 
     static func classifyCycleResult(_ snapshot: UpdateErrorSnapshot?) -> UpdateState? {
@@ -76,8 +71,8 @@ enum UpdateStateClassifier {
 protocol UpdateControlling: AnyObject {
     var canCheckForUpdates: Bool { get }
     var automaticallyChecksForUpdates: Bool { get set }
-    var canCheckForUpdatesPublisher: AnyPublisher<Bool, Never> { get }
 
+    func observeCanCheckForUpdates(_ handler: @escaping @MainActor (Bool) -> Void) -> AnyObject?
     func checkForUpdates()
 }
 
@@ -87,7 +82,7 @@ final class UpdateManager {
     @ObservationIgnored private let settings: AppSettings
     @ObservationIgnored private let controller: any UpdateControlling
     @ObservationIgnored private var delegateHandler: UpdateDelegateHandler?
-    @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
+    @ObservationIgnored private var canCheckForUpdatesObservation: AnyObject?
     @ObservationIgnored private var settingsObservationTask: Task<Void, Never>?
 
     var canCheckForUpdates = false
@@ -121,13 +116,9 @@ final class UpdateManager {
 
     private func bindController() {
         canCheckForUpdates = controller.canCheckForUpdates
-
-        controller.canCheckForUpdatesPublisher
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] value in
-                self?.canCheckForUpdates = value
-            }
-            .store(in: &cancellables)
+        canCheckForUpdatesObservation = controller.observeCanCheckForUpdates { [weak self] value in
+            self?.canCheckForUpdates = value
+        }
 
         controller.automaticallyChecksForUpdates = settings.checkForUpdatesAutomatically
         observeAutomaticUpdatesSetting()

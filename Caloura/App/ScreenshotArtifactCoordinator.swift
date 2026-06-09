@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 final class ScreenshotArtifactCoordinator {
     static let shared = ScreenshotArtifactCoordinator()
 
-    typealias SaveFileFn = (ProcessedScreenshot, String, String?, String) async throws -> URL
+    typealias SaveFileFn = (ProcessedScreenshot, String, String?, String, Bool) async throws -> URL
     typealias OverwriteImageFn = (CGImage, URL, String) async throws -> Void
     typealias PromptForSaveURLFn = @MainActor (String) -> URL?
 
@@ -20,12 +20,13 @@ final class ScreenshotArtifactCoordinator {
     private init() {
         self.appState = AppState.shared
         self.settings = AppSettings.shared
-        self.saveFile = { screenshot, baseDirectory, subfolder, imageFormat in
+        self.saveFile = { screenshot, baseDirectory, subfolder, imageFormat, timestampOnlyFileName in
             try await FileOrganizer.save(
                 screenshot,
                 baseDirectory: baseDirectory,
                 subfolder: subfolder,
-                imageFormat: imageFormat
+                imageFormat: imageFormat,
+                timestampOnlyFileName: timestampOnlyFileName
             )
         }
         self.overwriteImage = { cgImage, url, imageFormat in
@@ -69,10 +70,17 @@ final class ScreenshotArtifactCoordinator {
 
         let baseDirectory = settings.saveDirectory
         let imageFormat = settings.imageFormat
+        let timestampOnlyFileName = settings.timestampOnlyFileNames
         let resolvedSubfolder = subfolder ?? defaultSubfolder(for: screenshot)
 
         let task = Task<URL, Error> {
-            let url = try await saveFile(screenshot, baseDirectory, resolvedSubfolder, imageFormat)
+            let url = try await saveFile(
+                screenshot,
+                baseDirectory,
+                resolvedSubfolder,
+                imageFormat,
+                timestampOnlyFileName
+            )
             await MainActor.run {
                 self.persistSavedScreenshot(screenshot, at: url)
             }
@@ -158,7 +166,14 @@ final class ScreenshotArtifactCoordinator {
         if screenshot.fileName.isEmpty {
             baseName = FileOrganizer.generateFileName(
                 for: screenshot.context,
-                imageFormat: imageFormat
+                imageFormat: imageFormat,
+                timestampOnlyFileName: settings.timestampOnlyFileNames
+            ).deletingPathExtension
+        } else if settings.timestampOnlyFileNames {
+            baseName = FileOrganizer.generateFileName(
+                for: screenshot.context,
+                imageFormat: imageFormat,
+                timestampOnlyFileName: true
             ).deletingPathExtension
         } else {
             baseName = screenshot.fileName.deletingPathExtension

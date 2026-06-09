@@ -18,6 +18,7 @@ final class CaptureOverlayWindowTests: XCTestCase {
 
         XCTAssertTrue(window.styleMask.contains(.borderless))
         XCTAssertTrue(window.styleMask.contains(.nonactivatingPanel))
+        XCTAssertEqual(window.sharingType, .none)
     }
 
     func testScreenSelectionOverlayWindowIsBorderlessForScreenAlignedCoordinates() throws {
@@ -28,6 +29,7 @@ final class CaptureOverlayWindowTests: XCTestCase {
 
         XCTAssertTrue(window.styleMask.contains(.borderless))
         XCTAssertTrue(window.styleMask.contains(.nonactivatingPanel))
+        XCTAssertEqual(window.sharingType, .none)
     }
 
     func testTearDownHandlersPreservesBridgeClosures() throws {

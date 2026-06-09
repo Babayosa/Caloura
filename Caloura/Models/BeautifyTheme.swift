@@ -32,7 +32,7 @@ struct BeautifyTheme: Codable, Identifiable, Hashable {
 
     static let builtInThemes: [BeautifyTheme] = [
         BeautifyTheme(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            id: builtInID("00000000-0000-0000-0000-000000000001"),
             name: "Clean",
             gradientColors: [
                 CodableColor(red: 0.95, green: 0.95, blue: 0.97),
@@ -46,7 +46,7 @@ struct BeautifyTheme: Codable, Identifiable, Hashable {
             shadowOffset: CGSize(width: 0, height: 4)
         ),
         BeautifyTheme(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+            id: builtInID("00000000-0000-0000-0000-000000000002"),
             name: "Ocean",
             gradientColors: [
                 CodableColor(red: 0.11, green: 0.56, blue: 0.85),
@@ -60,7 +60,7 @@ struct BeautifyTheme: Codable, Identifiable, Hashable {
             shadowOffset: CGSize(width: 0, height: 6)
         ),
         BeautifyTheme(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
+            id: builtInID("00000000-0000-0000-0000-000000000003"),
             name: "Sunset",
             gradientColors: [
                 CodableColor(red: 1.0, green: 0.60, blue: 0.30),
@@ -74,7 +74,7 @@ struct BeautifyTheme: Codable, Identifiable, Hashable {
             shadowOffset: CGSize(width: 0, height: 6)
         ),
         BeautifyTheme(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!,
+            id: builtInID("00000000-0000-0000-0000-000000000004"),
             name: "Midnight",
             gradientColors: [
                 CodableColor(red: 0.12, green: 0.12, blue: 0.18),
@@ -88,7 +88,7 @@ struct BeautifyTheme: Codable, Identifiable, Hashable {
             shadowOffset: CGSize(width: 0, height: 4)
         ),
         BeautifyTheme(
-            id: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!,
+            id: builtInID("00000000-0000-0000-0000-000000000005"),
             name: "Neon",
             gradientColors: [
                 CodableColor(red: 0.58, green: 0.0, blue: 0.83),
@@ -106,5 +106,12 @@ struct BeautifyTheme: Codable, Identifiable, Hashable {
 
     static func theme(named name: String) -> BeautifyTheme? {
         builtInThemes.first { $0.name == name }
+    }
+
+    private static func builtInID(_ value: String) -> UUID {
+        guard let id = UUID(uuidString: value) else {
+            preconditionFailure("Invalid built-in beautify theme UUID: \(value)")
+        }
+        return id
     }
 }

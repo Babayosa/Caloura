@@ -113,13 +113,7 @@ final class AreaCaptureSessionCoordinator {
         // is async and unreliable; calling resetCursorRects() directly
         // registers the crosshair rect immediately so AppKit's cursor
         // tracking applies it without waiting for the next run loop pass.
-        for window in windows {
-            if let contentView = window.contentView {
-                contentView.discardCursorRects()
-                contentView.resetCursorRects()
-                window.invalidateCursorRects(for: contentView)
-            }
-        }
+        resetCursorRects(for: windows)
 
         let cursorPrimeStart = CFAbsoluteTimeGetCurrent()
         cursorController.handleCursorUpdate()
@@ -239,13 +233,7 @@ final class FullscreenCaptureSessionCoordinator {
             }
         )
 
-        for overlay in overlayWindows {
-            if let contentView = overlay.contentView {
-                contentView.discardCursorRects()
-                contentView.resetCursorRects()
-                overlay.invalidateCursorRects(for: contentView)
-            }
-        }
+        resetCursorRects(for: overlayWindows)
 
         let cursorPrimeStart = CFAbsoluteTimeGetCurrent()
         cursorController.handleCursorUpdate()
@@ -277,6 +265,17 @@ final class FullscreenCaptureSessionCoordinator {
             milliseconds: (CFAbsoluteTimeGetCurrent() - teardownStart) * 1000.0,
             in: session
         )
+    }
+}
+
+@MainActor
+private func resetCursorRects(for windows: [NSWindow]) {
+    for window in windows {
+        if let contentView = window.contentView {
+            contentView.discardCursorRects()
+            contentView.resetCursorRects()
+            window.invalidateCursorRects(for: contentView)
+        }
     }
 }
 

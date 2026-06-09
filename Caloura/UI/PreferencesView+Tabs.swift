@@ -25,14 +25,13 @@ struct LicensePreferencesView: View {
                 Section("Activate License") {
                     TextField("License key", text: $keyInput)
                         .textFieldStyle(.roundedBorder)
+                        .onSubmit {
+                            activateLicense()
+                        }
 
                     HStack {
                         Button {
-                            isActivating = true
-                            Task {
-                                await license.activate(licenseKey: keyInput)
-                                isActivating = false
-                            }
+                            activateLicense()
                         } label: {
                             if isActivating {
                                 ProgressView()
@@ -129,6 +128,16 @@ struct LicensePreferencesView: View {
         let suffix = String(key.suffix(4))
         return "\(prefix)••••••••\(suffix)"
     }
+
+    private func activateLicense() {
+        guard !keyInput.trimmingCharacters(in: .whitespaces).isEmpty,
+              !isActivating else { return }
+        isActivating = true
+        Task {
+            await license.activate(licenseKey: keyInput)
+            isActivating = false
+        }
+    }
 }
 
 // MARK: - About View
@@ -194,7 +203,7 @@ struct AboutView: View {
                 }
                 .buttonStyle(.link)
 
-                Button("Twitter") {
+                Button("X") {
                     if let url = URL(string: "https://twitter.com/calouraapp") {
                         NSWorkspace.shared.open(url)
                     }

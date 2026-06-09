@@ -167,11 +167,11 @@ extension ScreenCaptureManager {
 
         switch result {
         case .authorized:
-            logger.info("SCK probe: authorized")
+            logger.debug("SCK probe: authorized")
             setSCKFailed(false, reason: nil)
             sckFailureCount = 0
         case .userDeclined:
-            logger.info("SCK probe: user declined")
+            logger.debug("SCK probe: user declined")
             if updatingFailureState {
                 setSCKFailed(true, reason: .permissionDenied)
                 logger.error("SCK permanently disabled (user declined)")
@@ -182,7 +182,7 @@ extension ScreenCaptureManager {
                 setSCKFailed(true, reason: .missingEntitlements)
             }
         case .transientFailure:
-            logger.info("SCK probe: transient failure")
+            logger.debug("SCK probe: transient failure")
             if updatingFailureState {
                 sckFailureCount += 1
                 if sckFailureCount >= maxTransientFailures {
@@ -237,7 +237,7 @@ extension ScreenCaptureManager {
             let nsError = error as NSError
             if nsError.domain == SCStreamError.errorDomain {
                 let rawCode = nsError.code
-                logger.info(
+                logger.debug(
                     "SCK probe error: domain=\(nsError.domain) code=\(rawCode)"
                 )
                 if let code = SCStreamError.Code(rawValue: rawCode),

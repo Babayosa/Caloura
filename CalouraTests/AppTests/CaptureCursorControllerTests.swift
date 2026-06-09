@@ -19,7 +19,7 @@ final class CaptureCursorControllerTests: XCTestCase {
         XCTAssertEqual(driver.pushCalls, 1)
         XCTAssertEqual(scheduler.scheduleCalls, 2)
         XCTAssertEqual(scheduler.pendingCount, 2)
-        XCTAssertEqual(scheduler.delays, [.milliseconds(1), .milliseconds(50)])
+        XCTAssertEqual(scheduler.delays, [.milliseconds(1), .milliseconds(350)])
 
         scheduler.runPendingActions(limit: 1)
 
@@ -136,7 +136,7 @@ final class CaptureCursorControllerTests: XCTestCase {
         )
         XCTAssertEqual(scheduler.pendingCount, 1)
         XCTAssertEqual(scheduler.scheduleCalls, 3)
-        XCTAssertEqual(scheduler.delays, [.milliseconds(1), .milliseconds(50), .milliseconds(50)])
+        XCTAssertEqual(scheduler.delays, [.milliseconds(1), .milliseconds(350), .milliseconds(350)])
 
         session.end()
         scheduler.runPendingActions()
