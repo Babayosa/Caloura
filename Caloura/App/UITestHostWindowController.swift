@@ -25,6 +25,7 @@ final class UITestHostWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
+        window.excludeFromScreenSharing()
         window.title = "Caloura UI Test Host"
         window.identifier = NSUserInterfaceItemIdentifier("ui-test-host-window")
         window.isReleasedWhenClosed = false
@@ -241,7 +242,8 @@ final class UITestHostWindowController: NSWindowController {
     @objc private func showPermissionRepair() {
         onboardingController.show(
             settings: AppSettings.shared,
-            initialState: .grantScreenRecording
+            initialState: .grantScreenRecording,
+            activateApp: true
         )
         updateState("permission-repair-visible", detail: "Onboarding repair window opened")
     }

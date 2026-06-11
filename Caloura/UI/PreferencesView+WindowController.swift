@@ -7,7 +7,7 @@ final class PreferencesWindowController {
 
     func show(tab: PreferencesTab? = nil) {
         if presenter.isVisible {
-            presenter.bringToFront()
+            presenter.bringToFront(activateApp: true)
             if let tab {
                 setTab(tab)
             }
@@ -21,7 +21,7 @@ final class PreferencesWindowController {
             minSize: PreferencesLayout.minContentSize,
             autosaveName: "PreferencesWindow"
         )
-        presenter.show(config: config) {
+        presenter.show(config: config, activateApp: true) {
             PreferencesView(selectedTab: tab)
         }
 

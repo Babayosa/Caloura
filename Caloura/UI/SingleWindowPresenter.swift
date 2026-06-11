@@ -14,10 +14,20 @@ final class SingleWindowPresenter<Content: View> {
         var styleMask: NSWindow.StyleMask = [.titled, .closable]
         var minSize: CGSize?
         var autosaveName: String?
+        /// Windows that display screenshot or PII content pass `.none` so
+        /// screen recorders and screen-sharing sessions never capture them.
+        /// `.readOnly` (the shareable default — `.readWrite` is deprecated
+        /// since macOS 15) keeps ordinary windows visible to screen sharing.
+        var sharingType: NSWindow.SharingType = .readOnly
     }
 
     private(set) var window: NSWindow?
+    private let activateApplication: () -> Void
     private var closeObserver: NSObjectProtocol?
+
+    init(activateApplication: @escaping () -> Void = { NSApplication.shared.activate() }) {
+        self.activateApplication = activateApplication
+    }
 
     var isVisible: Bool {
         window?.isVisible ?? false
@@ -31,11 +41,14 @@ final class SingleWindowPresenter<Content: View> {
     @discardableResult
     func show(
         config: WindowConfig,
+        activateApp: Bool,
         @ViewBuilder content: () -> Content
     ) -> Bool {
         if let existing = window, existing.isVisible {
             existing.makeKeyAndOrderFront(nil)
-            NSApplication.shared.activate()
+            if activateApp {
+                activateApplication()
+            }
             return false
         }
 
@@ -55,6 +68,7 @@ final class SingleWindowPresenter<Content: View> {
             backing: .buffered,
             defer: false
         )
+        newWindow.sharingType = config.sharingType
         newWindow.isReleasedWhenClosed = false
         newWindow.contentView = hostingView
         newWindow.title = config.title
@@ -68,7 +82,9 @@ final class SingleWindowPresenter<Content: View> {
 
         newWindow.center()
         newWindow.makeKeyAndOrderFront(nil)
-        NSApplication.shared.activate()
+        if activateApp {
+            activateApplication()
+        }
 
         self.window = newWindow
 
@@ -89,9 +105,11 @@ final class SingleWindowPresenter<Content: View> {
         window?.close()
     }
 
-    func bringToFront() {
+    func bringToFront(activateApp: Bool) {
         window?.makeKeyAndOrderFront(nil)
-        NSApplication.shared.activate()
+        if activateApp {
+            activateApplication()
+        }
     }
 
     private func handleWindowWillClose() {

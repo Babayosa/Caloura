@@ -10,15 +10,20 @@ final class HistoryWindowController {
         maxSamplesPerStage: 120, reportInterval: 20
     )
 
+    var debugWindow: NSWindow? {
+        presenter.window
+    }
+
     func show(appState: AppState) {
         let openStart = CFAbsoluteTimeGetCurrent()
 
         let config = SingleWindowPresenter<HistoryView>.WindowConfig(
             title: "Caloura History",
             size: CGSize(width: 600, height: 500),
-            styleMask: [.titled, .closable, .resizable, .miniaturizable]
+            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            sharingType: .none
         )
-        let didCreate = presenter.show(config: config) {
+        let didCreate = presenter.show(config: config, activateApp: true) {
             HistoryView(appState: appState)
         }
 

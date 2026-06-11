@@ -11,6 +11,10 @@ final class PinnedScreenshotManager {
     private var observers: [NSPanel: NSObjectProtocol] = [:]
     private var panelsByKey: [String: NSPanel] = [:]
 
+    var debugPanels: [NSPanel] {
+        pinnedWindows
+    }
+
     private init() {}
 
     private func dedupKey(for screenshot: ProcessedScreenshot) -> String {
@@ -84,6 +88,7 @@ final class PinnedScreenshotManager {
             backing: .buffered,
             defer: false
         )
+        panel.excludeFromScreenSharing()
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
