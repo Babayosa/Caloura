@@ -222,4 +222,4 @@
 **Mistake:** Ran `git commit` without `DEVELOPER_DIR`/`SDKROOT` exported; the pre-commit hook's `swift build` picked the CommandLineTools macOS 27 SDK (Swift 6.4) under the Xcode 6.2.3 toolchain and hung ~10 min before failing with "this SDK is not supported by the compiler".
 **Root cause:** Git hooks run in the committing shell's environment; the SDK workaround was only applied to explicit build/test commands, not to the commit invocation.
 **Rule:** On this machine, prefix `git commit` (and `--amend`) with `export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer SDKROOT=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk` so hook-run swift build/test use the matching toolchain.
-**Confidence:** low (1-2x)
+**Confidence:** medium (3-5x) — re-hit 2026-06-11 (task22-salvage): background-shell commit hung on the manifest compile against the CLT SDK; killed and re-ran with env exported.
