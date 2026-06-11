@@ -19,6 +19,33 @@ struct PermissionUIModel: Equatable {
     var isAlertCooldownActive: Bool = false
 }
 
+/// Where a publication originated. `.serializedFlow` writes come from inside
+/// a `serializedValidation` operation and always apply. `.passive` writes
+/// (passive refresh, prime, cooldown timer) are deferred while a serialized
+/// flow is in flight so they cannot overwrite in-progress flow state such as
+/// `.repairing` (INVARIANT-3).
+private enum PublicationSource {
+    case passive
+    case serializedFlow
+}
+
+/// What a publication wants to write: a full status/UI-model candidate, or
+/// just the alert-cooldown flag.
+private enum PublicationCandidate {
+    case model(status: ScreenRecordingState, identity: PermissionIdentity)
+    case alertCooldown(isActive: Bool)
+}
+
+/// Latest passive evidence observed while a serialized flow held the
+/// publication gate. Coalesced (last write wins) and re-evaluated against
+/// fresh store state when the flow completes, so the post-flow publication
+/// reflects both the newest CG signal and the flow's outcome (diagnosis,
+/// live validation).
+private struct DeferredPassiveEvidence {
+    let identity: PermissionIdentity
+    let cgGranted: Bool
+}
+
 @Observable @MainActor
 final class PermissionCoordinator {
     static let shared = PermissionCoordinator()
@@ -56,6 +83,8 @@ final class PermissionCoordinator {
     private let logger = Logger(subsystem: "com.caloura.app", category: "Permission")
 
     private var inFlightValidation: Task<ScreenRecordingState, Never>?
+    private var deferredPassiveEvidence: DeferredPassiveEvidence?
+    private var hasDeferredCooldownRefresh = false
     private var isShowingAlert = false
     private let pendingCaptureResumeTTLSeconds: TimeInterval = 120
     private var cooldownResetTask: Task<Void, Never>?
@@ -123,29 +152,7 @@ final class PermissionCoordinator {
     /// Perform a non-interactive permission check and update the published UI model.
     @discardableResult
     func refreshPassiveStatus() async -> ScreenRecordingState {
-        let identity = await identityProvider()
-        let timestamp = now()
-        clearExpiredPermissionRequestSessionIfNeeded(at: timestamp)
-        let cgGranted = passiveCheck()
-        let execPath = identity.executablePath
-        let signingType = identity.signingIdentityType
-        let passiveMsg = "passive_check cg_granted=\(cgGranted)"
-            + " path=\(execPath) signing=\(signingType)"
-        logger.info("\(passiveMsg, privacy: .public)")
-
-        #if DEBUG
-        if !cgGranted, identity.bundleIdentifier.contains(".debug") {
-            let warnMsg = "Debug bundle ID '\(identity.bundleIdentifier)'"
-                + " — System Settings toggle is for the release bundle ID"
-            logger.warning("\(warnMsg, privacy: .public)")
-        }
-        #endif
-
-        return publishPassiveStatus(
-            for: identity,
-            at: timestamp,
-            cgGranted: cgGranted
-        )
+        await refreshPassiveStatus(source: .passive)
     }
 
     func armPendingCaptureResume(mode: CaptureMode) {
@@ -190,11 +197,11 @@ final class PermissionCoordinator {
     func primeIfPermissionGranted() async -> ScreenRecordingState {
         let identity = await identityProvider()
         if isLiveValidatedIdentity(identity) {
-            return publishStatus(.working, identity: identity)
+            return publishStatus(.working, identity: identity, source: .passive)
         }
 
         guard passiveCheck() else {
-            return publishDenied(identity)
+            return publishDenied(identity, source: .passive)
         }
 
         let probeResult = await primeCheck()
@@ -203,13 +210,13 @@ final class PermissionCoordinator {
         )
 
         if probeResult == .authorized {
-            return publishWorkingValidated(identity)
+            return publishWorkingValidated(identity, source: .passive)
         }
         if probeResult == .configurationFailure {
-            return publishStatus(.configurationFailed, identity: identity)
+            return publishStatus(.configurationFailed, identity: identity, source: .passive)
         }
 
-        return publishStatus(.grantedNeedsValidation, identity: identity)
+        return publishStatus(.grantedNeedsValidation, identity: identity, source: .passive)
     }
 
     /// Run a full interactive validation (CG + SCK) triggered by an explicit user action.
@@ -230,7 +237,7 @@ final class PermissionCoordinator {
 
         guard cgGranted
             || shouldTrustLiveValidationWithoutCoreGraphics(at: timestamp) else {
-            return publishDenied(identity)
+            return publishDenied(identity, source: .serializedFlow)
         }
 
         let validationResult = await interactiveCheck()
@@ -239,14 +246,14 @@ final class PermissionCoordinator {
         )
 
         if validationResult == .authorized {
-            return publishWorkingValidated(identity)
+            return publishWorkingValidated(identity, source: .serializedFlow)
         }
         if validationResult == .configurationFailure {
-            return publishStatus(.configurationFailed, identity: identity)
+            return publishStatus(.configurationFailed, identity: identity, source: .serializedFlow)
         }
 
         // SCK failed — attempt auto-repair via replayd restart (best-effort on Tahoe)
-        _ = publishStatus(.repairing, identity: identity)
+        _ = publishStatus(.repairing, identity: identity, source: .serializedFlow)
         logger.info("auto_repair_start best_effort=true")
         let repairResult = await repairSCKAccess()
         logger.info(
@@ -254,17 +261,17 @@ final class PermissionCoordinator {
         )
 
         if repairResult == .authorized {
-            return publishWorkingValidated(identity)
+            return publishWorkingValidated(identity, source: .serializedFlow)
         }
 
         if repairResult == .userDeclined {
-            return publishDenied(identity, clearPermissionRequest: true)
+            return publishDenied(identity, clearPermissionRequest: true, source: .serializedFlow)
         }
         if repairResult == .configurationFailure {
-            return publishStatus(.configurationFailed, identity: identity)
+            return publishStatus(.configurationFailed, identity: identity, source: .serializedFlow)
         }
 
-        return publishExplicitFailure(for: identity)
+        return publishExplicitFailure(for: identity, source: .serializedFlow)
     }
 
     /// Prompt macOS to grant screen recording permission via the system dialog.
@@ -304,7 +311,7 @@ final class PermissionCoordinator {
         let identity = await identityProvider()
         let startedAt = now()
         guard hasFreshPermissionRequestSession(at: startedAt) else {
-            return await refreshPassiveStatus()
+            return await refreshPassiveStatus(source: .serializedFlow)
         }
 
         let deadline = startedAt.addingTimeInterval(timeoutSeconds)
@@ -313,7 +320,7 @@ final class PermissionCoordinator {
         while now() < deadline {
             if isLiveValidatedIdentity(identity) {
                 clearPermissionRequestSession()
-                return publishStatus(.working, identity: identity)
+                return publishStatus(.working, identity: identity, source: .serializedFlow)
             }
 
             let cgGranted = passiveCheck()
@@ -328,17 +335,17 @@ final class PermissionCoordinator {
 
                 switch validationResult {
                 case .authorized:
-                    return publishWorkingValidated(identity)
+                    return publishWorkingValidated(identity, source: .serializedFlow)
                 case .userDeclined:
-                    return publishDenied(identity, clearPermissionRequest: true)
+                    return publishDenied(identity, clearPermissionRequest: true, source: .serializedFlow)
                 case .configurationFailure:
-                    return publishStatus(.configurationFailed, identity: identity)
+                    return publishStatus(.configurationFailed, identity: identity, source: .serializedFlow)
                 case .transientFailure:
-                    _ = publishStatus(.grantedNeedsValidation, identity: identity)
+                    _ = publishStatus(.grantedNeedsValidation, identity: identity, source: .serializedFlow)
 
                     if cgGranted, !attemptedRepair {
                         attemptedRepair = true
-                        _ = publishStatus(.repairing, identity: identity)
+                        _ = publishStatus(.repairing, identity: identity, source: .serializedFlow)
                         logger.info("settings_return_auto_repair_start best_effort=true")
                         let repairResult = await repairSCKAccess()
                         let repairResultDescription = String(describing: repairResult)
@@ -348,13 +355,13 @@ final class PermissionCoordinator {
 
                         switch repairResult {
                         case .authorized:
-                            return publishWorkingValidated(identity)
+                            return publishWorkingValidated(identity, source: .serializedFlow)
                         case .userDeclined:
-                            return publishDenied(identity, clearPermissionRequest: true)
+                            return publishDenied(identity, clearPermissionRequest: true, source: .serializedFlow)
                         case .configurationFailure:
-                            return publishStatus(.configurationFailed, identity: identity)
+                            return publishStatus(.configurationFailed, identity: identity, source: .serializedFlow)
                         case .transientFailure:
-                            _ = publishStatus(.grantedNeedsValidation, identity: identity)
+                            _ = publishStatus(.grantedNeedsValidation, identity: identity, source: .serializedFlow)
                         }
                     }
                 }
@@ -372,17 +379,21 @@ final class PermissionCoordinator {
                 armPendingCaptureResume(mode: pendingMode)
             }
             markAutoRelaunchIssued()
-            _ = publishStatus(.repairing, identity: identity)
+            _ = publishStatus(.repairing, identity: identity, source: .serializedFlow)
             logger.info("settings_return_auto_relaunch with TCC reset")
             guard await resetTCCEntry() else {
                 clearPendingCaptureResume()
-                return publishExplicitFailure(for: identity, clearPermissionRequest: true)
+                return publishExplicitFailure(
+                    for: identity,
+                    clearPermissionRequest: true,
+                    source: .serializedFlow
+                )
             }
             relaunchApp()
             return .repairing
         }
 
-        return publishExplicitFailure(for: identity, clearPermissionRequest: true)
+        return publishExplicitFailure(for: identity, clearPermissionRequest: true, source: .serializedFlow)
     }
 
     /// Handle a capture failure due to missing permission, showing an alert if not rate-limited.
@@ -396,7 +407,7 @@ final class PermissionCoordinator {
     private func handleCapturePermissionFailureCore() async -> ScreenRecordingState {
         sckStateResetter()
         let identity = await identityProvider()
-        var status = await refreshPassiveStatus()
+        var status = await refreshPassiveStatus(source: .serializedFlow)
 
         // If CG is granted, attempt silent repair before showing any alert.
         // Repair is best-effort — on Tahoe, replayd restart may be blocked by SIP.
@@ -412,7 +423,7 @@ final class PermissionCoordinator {
             if repairResult == .authorized {
                 logger.info("silent_repair_success — no alert needed")
                 clearPendingCaptureResume()
-                _ = publishWorkingValidated(identity, clearPermissionRequest: false)
+                _ = publishWorkingValidated(identity, clearPermissionRequest: false, source: .serializedFlow)
                 return .working
             }
             // `.confirmRepairRelaunch` is destructive (TCC reset + forced
@@ -422,7 +433,7 @@ final class PermissionCoordinator {
             // problem — surface a non-blocking status instead of cascading
             // into a modal alert that greys the menu bar.
             logger.info("silent_repair_did_not_resolve — CG granted, treating as transient")
-            status = publishExplicitFailure(for: identity)
+            status = publishExplicitFailure(for: identity, source: .serializedFlow)
             clearPendingCaptureResume()
             statusMessageSink(nonBlockingMessage(for: status))
             updateCooldownInModel(cooldownActive: false)
@@ -439,10 +450,14 @@ final class PermissionCoordinator {
             "repair_gate_interactive result=\(String(describing: interactiveResult), privacy: .public)"
         )
         if interactiveResult == .authorized {
-            return publishWorkingValidated(identity)
+            return publishWorkingValidated(identity, source: .serializedFlow)
         }
         if interactiveResult == .configurationFailure {
-            let configurationStatus = publishStatus(.configurationFailed, identity: identity)
+            let configurationStatus = publishStatus(
+                .configurationFailed,
+                identity: identity,
+                source: .serializedFlow
+            )
             clearPendingCaptureResume()
             statusMessageSink(nonBlockingMessage(for: configurationStatus))
             updateCooldownInModel(cooldownActive: false)
@@ -470,7 +485,11 @@ final class PermissionCoordinator {
                 if await performTCCResetAndRelaunch() {
                     return .repairing
                 }
-                return publishExplicitFailure(for: identity, clearPermissionRequest: true)
+                return publishExplicitFailure(
+                    for: identity,
+                    clearPermissionRequest: true,
+                    source: .serializedFlow
+                )
             }
             // User declined the destructive repair. Do NOT fall through
             // to a second modal alert — that's two blocking prompts
@@ -560,50 +579,86 @@ private extension PermissionCoordinator {
         // defer ensures the in-flight slot clears even if the calling task is
         // cancelled mid-await. Without this, subsequent callers would co-await
         // a dead task forever, identical-shape regression to D4 cursor leak.
-        defer { inFlightValidation = nil }
+        // The slot must clear BEFORE the deferred-passive flush so the
+        // re-publication passes the gate it was deferred by (INVARIANT-3).
+        defer {
+            inFlightValidation = nil
+            flushDeferredPassivePublication()
+        }
         return await task.value
+    }
+
+    func refreshPassiveStatus(source: PublicationSource) async -> ScreenRecordingState {
+        let identity = await identityProvider()
+        let timestamp = now()
+        clearExpiredPermissionRequestSessionIfNeeded(at: timestamp)
+        let cgGranted = passiveCheck()
+        let execPath = identity.executablePath
+        let signingType = identity.signingIdentityType
+        let passiveMsg = "passive_check cg_granted=\(cgGranted)"
+            + " path=\(execPath) signing=\(signingType)"
+        logger.info("\(passiveMsg, privacy: .public)")
+
+        #if DEBUG
+        if !cgGranted, identity.bundleIdentifier.contains(".debug") {
+            let warnMsg = "Debug bundle ID '\(identity.bundleIdentifier)'"
+                + " — System Settings toggle is for the release bundle ID"
+            logger.warning("\(warnMsg, privacy: .public)")
+        }
+        #endif
+
+        return publishPassiveStatus(
+            for: identity,
+            at: timestamp,
+            cgGranted: cgGranted,
+            source: source
+        )
     }
 
     @discardableResult
     func publishPassiveStatus(
         for identity: PermissionIdentity,
         at timestamp: Date,
-        cgGranted: Bool
+        cgGranted: Bool,
+        source: PublicationSource
     ) -> ScreenRecordingState {
         let status = PermissionStatusCore.passiveStatus(
             cgGranted: cgGranted,
             context: makeStatusContext(for: identity, at: timestamp)
         )
-        return publishStatus(status, identity: identity)
+        return publishStatus(status, identity: identity, source: source)
     }
 
     @discardableResult
     func publishWorkingValidated(
         _ identity: PermissionIdentity,
-        clearPermissionRequest: Bool = true
+        clearPermissionRequest: Bool = true,
+        source: PublicationSource
     ) -> ScreenRecordingState {
         recordWorkingIdentity(identity)
         if clearPermissionRequest {
             clearPermissionRequestSession()
         }
-        return publishStatus(.working, identity: identity)
+        return publishStatus(.working, identity: identity, source: source)
     }
 
     @discardableResult
     func publishDenied(
         _ identity: PermissionIdentity,
-        clearPermissionRequest: Bool = false
+        clearPermissionRequest: Bool = false,
+        source: PublicationSource
     ) -> ScreenRecordingState {
         if clearPermissionRequest {
             clearPermissionRequestSession()
         }
-        return publishStatus(.denied, identity: identity)
+        return publishStatus(.denied, identity: identity, source: source)
     }
 
     @discardableResult
     func publishExplicitFailure(
         for identity: PermissionIdentity,
-        clearPermissionRequest: Bool = false
+        clearPermissionRequest: Bool = false,
+        source: PublicationSource
     ) -> ScreenRecordingState {
         if clearPermissionRequest {
             clearPermissionRequestSession()
@@ -612,26 +667,92 @@ private extension PermissionCoordinator {
             for: makeStatusContext(for: identity, at: now())
         )
         recordDiagnosedFailure(status, for: identity)
-        return publishStatus(status, identity: identity)
+        return publishStatus(status, identity: identity, source: source)
     }
 
     @discardableResult
     func publishStatus(
         _ status: ScreenRecordingState,
-        identity: PermissionIdentity
+        identity: PermissionIdentity,
+        source: PublicationSource
     ) -> ScreenRecordingState {
-        switch status {
-        case .working, .denied:
-            clearDiagnosedFailure()
-        case .grantedNeedsValidation,
-             .needsRelaunch,
-             .staleRecord,
-             .repairing,
-             .configurationFailed:
-            break
-        }
-        updateUIModel(status: status, identity: identity)
+        publish(.model(status: status, identity: identity), source: source)
         return status
+    }
+
+    /// The single publication path: every write to `permissionUIModel`
+    /// flows through here (the declaration default is the only exception).
+    /// Gate rules, in order:
+    /// 1. Diagnosis preservation is unchanged — `.working`/`.denied`
+    ///    publications clear the pinned diagnosis only when they actually
+    ///    apply (INVARIANT-5).
+    /// 2. While a serialized flow is in flight, `.passive` publications are
+    ///    deferred (coalesced into `deferredPassiveEvidence`) instead of
+    ///    overwriting in-progress flow state (INVARIANT-3).
+    /// 3. `.serializedFlow` publications always apply.
+    func publish(_ candidate: PublicationCandidate, source: PublicationSource) {
+        if source == .passive, inFlightValidation != nil {
+            deferPassivePublication(candidate)
+            return
+        }
+        switch candidate {
+        case let .model(status, identity):
+            switch status {
+            case .working, .denied:
+                clearDiagnosedFailure()
+            case .grantedNeedsValidation,
+                 .needsRelaunch,
+                 .staleRecord,
+                 .repairing,
+                 .configurationFailed:
+                break
+            }
+            updateUIModel(status: status, identity: identity)
+        case let .alertCooldown(isActive):
+            permissionUIModel.isAlertCooldownActive = isActive
+        }
+    }
+
+    func deferPassivePublication(_ candidate: PublicationCandidate) {
+        switch candidate {
+        case let .model(status, identity):
+            // Coalesce: the latest passive attempt wins. Re-sample the raw
+            // CG signal now so completion-time re-evaluation works from the
+            // evidence of this attempt, not a stale pre-flow capture.
+            deferredPassiveEvidence = DeferredPassiveEvidence(
+                identity: identity,
+                cgGranted: passiveCheck()
+            )
+            let deferMsg = "publication_deferred kind=model status=\(String(describing: status))"
+            logger.debug("\(deferMsg, privacy: .public)")
+        case .alertCooldown:
+            hasDeferredCooldownRefresh = true
+            logger.debug("publication_deferred kind=cooldown")
+        }
+    }
+
+    /// Re-evaluates evidence deferred while a serialized flow held the gate.
+    /// Runs against FRESH store state (diagnosis, live validation, request
+    /// session) so the flow's outcome is respected: e.g. evidence captured
+    /// before the flow validated `.working` still re-publishes `.working`,
+    /// and a pinned diagnosis survives exactly as it would for a sequential
+    /// passive refresh (INVARIANT-5).
+    func flushDeferredPassivePublication() {
+        defer { hasDeferredCooldownRefresh = false }
+        if let evidence = deferredPassiveEvidence {
+            deferredPassiveEvidence = nil
+            let status = PermissionStatusCore.passiveStatus(
+                cgGranted: evidence.cgGranted,
+                context: makeStatusContext(for: evidence.identity, at: now())
+            )
+            let flushMsg = "deferred_passive_republish status=\(String(describing: status))"
+            logger.info("\(flushMsg, privacy: .public)")
+            publish(.model(status: status, identity: evidence.identity), source: .passive)
+            return  // a model publication recomputes the cooldown flag from the store
+        }
+        if hasDeferredCooldownRefresh {
+            publish(.alertCooldown(isActive: isCooldownActive(at: now())), source: .passive)
+        }
     }
 
     func makeStatusContext(
@@ -665,7 +786,8 @@ private extension PermissionCoordinator {
     }
 
     func updateCooldownInModel(cooldownActive: Bool) {
-        permissionUIModel.isAlertCooldownActive = cooldownActive
+        // Only called from inside serialized flows, so it holds the gate.
+        publish(.alertCooldown(isActive: cooldownActive), source: .serializedFlow)
         if cooldownActive {
             scheduleCooldownReset()
         }
@@ -677,7 +799,8 @@ private extension PermissionCoordinator {
         cooldownResetTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled else { return }
-            self?.permissionUIModel.isAlertCooldownActive = false
+            // Timer fires outside any flow, so this is a passive publication.
+            self?.publish(.alertCooldown(isActive: false), source: .passive)
         }
     }
 
