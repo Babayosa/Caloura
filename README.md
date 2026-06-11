@@ -62,8 +62,8 @@ All shortcuts are configurable in Preferences.
 
 ## Requirements
 
-- macOS 14.0+
-- Xcode 15+ (for local development)
+- macOS 26.0+ (Tahoe)
+- Xcode 26 (for local development)
 
 ## Build And Test
 
@@ -75,16 +75,14 @@ xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug
 
 ## CI Test Coverage
 
-The GitHub Actions matrix runs `xcodebuild build` and lint on every push.
-A full `xcodebuild test` run is **intentionally omitted** from CI because the
-Caloura test suite includes ScreenCaptureKit-backed integration tests that
-require Screen Recording (TCC) authorization. macOS GitHub runners cannot
-grant TCC privileges to a transient runner-owned binary, so those tests would
-fail on every push without indicating a real regression.
+The `CI Checks` workflow runs on every PR and push to main: SwiftPM build,
+SwiftLint, `swift test`, then `xcodebuild test` (skipping only
+`CalouraUITests`, which needs a signed, TCC-authorized host app). The Xcode
+test step passes `CODE_SIGNING_ALLOWED=NO` because runners have no signing
+identity; never use that flag for local manual launch/testing.
 
-The local hooks in `scripts/lint.sh` and `scripts/test.sh` (invoked via the
-pre-commit hook templates in `~/Downloads/codexsetup/hooks/`) run the full
-suite on developer machines where TCC has been granted to the test bundle.
+The pre-commit hook runs lint, build, and the full suite on developer
+machines where TCC has been granted to the test bundle.
 The `Release Smoke` workflow exercises the signed packaging path (build,
 codesign, notarize, staple, quarantined launch) end-to-end on every tagged
 release.
@@ -101,13 +99,13 @@ Versioning is gated by `scripts/release.sh`:
 Guard-only check:
 
 ```bash
-RELEASE_GUARD_ONLY=1 RELEASE_TAG=v1.0.7 ./scripts/release.sh 1.0.7
+RELEASE_GUARD_ONLY=1 RELEASE_TAG=v<version> ./scripts/release.sh <version>
 ```
 
-For the public website/appcast release flow (v1.0.7 process), use:
+For the public website/appcast release flow (current version: see MARKETING_VERSION in project.yml), use:
 - app build + notarization: `scripts/release.sh`
 - manual-download DMG publish + Sparkle ZIP publish: `scripts/publish.sh`
-- public artifact verification: `scripts/public_download_qa.sh --version 1.0.7 verify`
+- public artifact verification: `scripts/public_download_qa.sh --version <version> verify`
 - local pre-release validation stays in `scripts/release_ready.sh`
 - live appcast validation happens in `scripts/publish.sh` after the site repo is updated
 - `Release Smoke` GitHub Actions runs the signed packaging flow on a pinned Xcode runner before publish
