@@ -26,3 +26,5 @@ enum TestEnvironment {
             xcTestCaseClassPresent
     }
 }
+
+// GATE-PROOF: this comment line is deliberately far far far over one hundred and twenty characters long so that it trips strict lint
