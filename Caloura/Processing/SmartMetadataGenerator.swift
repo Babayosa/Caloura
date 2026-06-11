@@ -32,6 +32,13 @@ struct SmartMetadataGenerator: MetadataGenerating {
     )
 
     func generate(ocrText: String, sourceApp: String?, windowTitle: String?) async -> ScreenshotMetadata? {
+        // FoundationModels' LanguageModelSession crashes intermittently
+        // (EXC_BREAKPOINT in model-catalog XPC) inside unsigned XCTest hosts
+        // and took the whole suite down with it. Metadata enrichment is
+        // best-effort by contract (nil on timeout/failure); a test host never
+        // gets a live session.
+        if TestEnvironment.isHostingXCTest { return nil }
+
         let trimmedOCR = String(ocrText.prefix(1000))
         guard !trimmedOCR.isEmpty else { return nil }
 
