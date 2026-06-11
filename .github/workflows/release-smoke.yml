@@ -18,6 +18,9 @@ concurrency:
 jobs:
   release-smoke:
     runs-on: macos-26
+    # Notarization usually completes in minutes; a hang must never run to the
+    # 6-hour GitHub ceiling again.
+    timeout-minutes: 60
     env:
       NOTARY_PROFILE: Caloura-Notarize
     steps:
@@ -186,12 +189,18 @@ jobs:
           xattr -p com.apple.quarantine "$INSTALL_PATH" >/dev/null
           spctl -a -vv "$INSTALL_PATH"
 
+          # Gatekeeper acceptance is verified above via spctl; the first launch
+          # of a quarantined app shows a user-consent dialog that cannot be
+          # clicked on a headless runner (run 27360780245 hung 6h here). Strip
+          # quarantine for the runtime probe only.
+          xattr -d com.apple.quarantine "$INSTALL_PATH"
           open -a "$INSTALL_PATH"
           sleep 5
           if ! pgrep -x Caloura >/dev/null; then
-            echo "ERROR: Caloura did not remain running after quarantined launch"
+            echo "ERROR: Caloura did not remain running after launch"
             exit 1
           fi
+          pkill -x Caloura || true
 
           /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INSTALL_PATH/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INSTALL_PATH/Contents/Info.plist"
