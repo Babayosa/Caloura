@@ -209,11 +209,12 @@ enum HistoryCrypto {
     // MARK: - Secure File I/O
 
     static func applicationSupportURL(filename: String) -> URL {
-        let fallback = URL(fileURLWithPath: NSHomeDirectory())
-            .appendingPathComponent("Library/Application Support/Caloura/\(filename)")
         guard let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
-        ).first else { return fallback }
+        ).first else {
+            return URL(fileURLWithPath: NSHomeDirectory())
+                .appendingPathComponent("Library/Application Support/Caloura/\(filename)")
+        }
         return appSupport.appendingPathComponent("Caloura").appendingPathComponent(filename)
     }
 

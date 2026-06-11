@@ -11,7 +11,6 @@ enum AppCategory: String {
 
 struct DetectedContext {
     let appName: String?
-    let windowTitle: String?
     let category: AppCategory
 }
 
@@ -53,17 +52,17 @@ struct ContextDetector {
     static func detectContext() -> DetectedContext {
         let workspace = NSWorkspace.shared
         guard let frontApp = workspace.frontmostApplication else {
-            return DetectedContext(appName: nil, windowTitle: nil, category: .other)
+            return DetectedContext(appName: nil, category: .other)
         }
 
         let appName = frontApp.localizedName
         let bundleID = frontApp.bundleIdentifier ?? ""
 
-        // Skip window title lookup for speed - category is determined by bundle ID
-        // Window title is only needed for lecture detection in browsers/video apps
+        // Window title lookup is intentionally skipped for speed - category is
+        // determined by bundle ID alone.
         let category = categorize(bundleID: bundleID)
 
-        return DetectedContext(appName: appName, windowTitle: nil, category: category)
+        return DetectedContext(appName: appName, category: category)
     }
 
     /// Categorize an app by bundle ID using precomputed map.

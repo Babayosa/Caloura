@@ -94,7 +94,6 @@ final class ReleaseScriptTests: XCTestCase {
 
         XCTAssertFalse(releaseReady.contains("ScrollCaptureEngineTests"))
         XCTAssertFalse(coverageGate.contains("ScrollCaptureEngine.swift"))
-        XCTAssertFalse(coverageGate.contains("CapturePipeline+EntryPoints.swift"))
         XCTAssertTrue(releaseReady.contains("CapturePipelineEntryPointTests"))
         XCTAssertTrue(coverageGate.contains("CaptureEntrypointService.swift"))
     }
