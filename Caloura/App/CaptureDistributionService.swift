@@ -167,7 +167,7 @@ final class CaptureDistributionService {
             try ClipboardManager.copyOCRText(text)
             appState.setStatusMessage("Copied OCR text")
         } catch {
-            appState.setStatusMessage(error.localizedDescription)
+            appState.setStatusMessage(UserFacingErrorMessage.message(for: error))
         }
     }
 
@@ -189,7 +189,7 @@ final class CaptureDistributionService {
                 }
             } catch {
                 await MainActor.run {
-                    appState.setStatusMessage(error.localizedDescription)
+                    appState.setStatusMessage(UserFacingErrorMessage.message(for: error))
                 }
             }
         }
@@ -226,7 +226,7 @@ final class CaptureDistributionService {
             } catch {
                 await MainActor.run {
                     appState.setStatusMessage(
-                        "Save failed: \(error.localizedDescription)"
+                        "Save failed: \(UserFacingErrorMessage.message(for: error))"
                     )
                 }
             }

@@ -143,7 +143,7 @@ struct RedactionReviewView: View {
             AppState.shared.statusMessage = "Redaction save cancelled"
             return
         } catch {
-            AppState.shared.statusMessage = "Overwrite failed: \(error.localizedDescription)"
+            AppState.shared.statusMessage = "Save failed: \(UserFacingErrorMessage.message(for: error))"
             return
         }
 
@@ -152,7 +152,7 @@ struct RedactionReviewView: View {
         do {
             try ClipboardManager.copyNSImage(nsImage)
         } catch {
-            AppState.shared.statusMessage = error.localizedDescription
+            AppState.shared.statusMessage = UserFacingErrorMessage.message(for: error)
             return
         }
 

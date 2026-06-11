@@ -126,7 +126,7 @@ struct BeautifyPreviewView: View {
             try ClipboardManager.copyNSImage(nsImage)
             AppState.shared.statusMessage = "Beautified image copied"
         } catch {
-            AppState.shared.statusMessage = error.localizedDescription
+            AppState.shared.statusMessage = UserFacingErrorMessage.message(for: error)
         }
     }
 
@@ -143,7 +143,7 @@ struct BeautifyPreviewView: View {
             } catch is CancellationError {
                 AppState.shared.statusMessage = "Beautify save cancelled"
             } catch {
-                AppState.shared.statusMessage = "Overwrite failed: \(error.localizedDescription)"
+                AppState.shared.statusMessage = "Save failed: \(UserFacingErrorMessage.message(for: error))"
             }
         }
     }

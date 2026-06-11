@@ -55,11 +55,7 @@ enum UpdateStateClassifier {
     }
 
     static func classifyFailure(_ snapshot: UpdateErrorSnapshot) -> UpdateState {
-        let message = snapshot.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        if message.isEmpty {
-            return .failed(errorSummary: "Update check failed.")
-        }
-        return .failed(errorSummary: message)
+        .failed(errorSummary: UserFacingErrorMessage.message(for: snapshot))
     }
 
     static func classifyCycleResult(_ snapshot: UpdateErrorSnapshot?) -> UpdateState? {

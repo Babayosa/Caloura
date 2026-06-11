@@ -250,7 +250,7 @@ struct HistoryView: View {
                 try ClipboardManager.copyNSImage(image)
                 appState.setStatusMessage("Copied image")
             } catch {
-                appState.setStatusMessage(error.localizedDescription)
+                appState.setStatusMessage(UserFacingErrorMessage.message(for: error))
             }
         }
     }
