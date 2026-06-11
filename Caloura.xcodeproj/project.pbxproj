@@ -27,6 +27,7 @@
 		1539266428286E79A9BB0D05 /* PermissionIdentityTrustedSigningKeyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5472F1919C2DACF760B98A10 /* PermissionIdentityTrustedSigningKeyTests.swift */; };
 		154346B203AA762EBDF63E24 /* ScreenCaptureManager+SCKCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 622EC5111DD6E34161E356C7 /* ScreenCaptureManager+SCKCapture.swift */; };
 		15AEAD7D462E6E83B19AB7F1 /* TestEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC0501D690F357C6EDE08A61 /* TestEnvironmentTests.swift */; };
+		1658A01D6379324EB118581C /* TemporaryFileTestHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE2E3AC0CB61CAB06AD0CCC /* TemporaryFileTestHelpers.swift */; };
 		17827DE046890F0AAA41F907 /* PermissionCoordinatorRepairFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CCF9B7BC7C7CBF3ADDF7092 /* PermissionCoordinatorRepairFlowTests.swift */; };
 		18FC5077ED993957AB84220E /* ClipboardManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A4275562F22E9EB6C9EA0EF /* ClipboardManagerTests.swift */; };
 		190AE47754F279BAD3844B1F /* PermissionIdentityProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C72393206D40357548F78EE /* PermissionIdentityProvider.swift */; };
@@ -58,6 +59,7 @@
 		426A103A29780EB8964594E3 /* WindowPickerManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D68B8FE5F39AA1365F80F99 /* WindowPickerManagerTests.swift */; };
 		445FE678CBFFD0971528F0F7 /* CaptureFreezeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B882EE891C5079DF4DDB6A31 /* CaptureFreezeService.swift */; };
 		457B5577C3B43AF1A23E6922 /* AppStateTestHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2DB97916397B9733F6EE106 /* AppStateTestHelpers.swift */; };
+		467782900F3D603D0AB9BBB2 /* TemporaryFileTestHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CE2E3AC0CB61CAB06AD0CCC /* TemporaryFileTestHelpers.swift */; };
 		46788602D7A04D4198510E74 /* SmartCropperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC6A57E8521570F4CEA4DF3 /* SmartCropperTests.swift */; };
 		46A965CBAAFDBE36378B56F0 /* RegionSelectionView+LayerSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = A43FB5ED63CBECBA161C9D1B /* RegionSelectionView+LayerSetup.swift */; };
 		46E249CEE165963A5815C288 /* SmartMetadataGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 047163D536A51D2BD963CF1A /* SmartMetadataGenerator.swift */; };
@@ -138,6 +140,7 @@
 		934D0FA2A77C6F2A3868F1C0 /* PerfBaselineMeasurement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A42601005DD95705971AB9B /* PerfBaselineMeasurement.swift */; };
 		949FC0FA2FB9ACE99A07FEE7 /* PermissionStatusCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 938F961AA1079FD62E69B4B9 /* PermissionStatusCore.swift */; };
 		95AD1DC5F4AEB647D84C813E /* PermissionRecoveryPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D0DBBACC5ECDAC1358864C2 /* PermissionRecoveryPlanner.swift */; };
+		95DAB8C05BF85077AD94856F /* ScreenCaptureScreenshotTargetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BABEA7BFA6C39C6E38CCD93 /* ScreenCaptureScreenshotTargetTests.swift */; };
 		9659EF15338E0C604A37C181 /* ScreenshotItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B131A95AA0CB9DB7610F6C91 /* ScreenshotItem.swift */; };
 		970C1D56A27B288B61551101 /* OnboardingPermissionPresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB762E322569A05C2A65F6E8 /* OnboardingPermissionPresentationTests.swift */; };
 		9750A2BD8C0216B4B60CFDC6 /* OnboardingFlowModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDB83F287A32B82D53F299F5 /* OnboardingFlowModelTests.swift */; };
@@ -391,8 +394,10 @@
 		87FA4951F6BC330736213FA0 /* LicenseManagerEdgeCaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseManagerEdgeCaseTests.swift; sourceTree = "<group>"; };
 		8A1479BF526E74ADB9B14A9E /* EmbeddingEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmbeddingEngine.swift; sourceTree = "<group>"; };
 		8ADC0DD7DB5CF97662A38AF4 /* UITestHostWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestHostWindowController.swift; sourceTree = "<group>"; };
+		8BABEA7BFA6C39C6E38CCD93 /* ScreenCaptureScreenshotTargetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenCaptureScreenshotTargetTests.swift; sourceTree = "<group>"; };
 		8C488C0C0841D99F91CA3D3B /* PermissionRecoveryPlannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionRecoveryPlannerTests.swift; sourceTree = "<group>"; };
 		8CCF9B7BC7C7CBF3ADDF7092 /* PermissionCoordinatorRepairFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionCoordinatorRepairFlowTests.swift; sourceTree = "<group>"; };
+		8CE2E3AC0CB61CAB06AD0CCC /* TemporaryFileTestHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemporaryFileTestHelpers.swift; sourceTree = "<group>"; };
 		8CE5251FDA86E8FF83105FB8 /* CaptureDistributionServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureDistributionServiceTests.swift; sourceTree = "<group>"; };
 		90F10135C15588D8617064C7 /* PermissionPublicationGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionPublicationGateTests.swift; sourceTree = "<group>"; };
 		938F961AA1079FD62E69B4B9 /* PermissionStatusCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionStatusCore.swift; sourceTree = "<group>"; };
@@ -663,6 +668,7 @@
 				6A42601005DD95705971AB9B /* PerfBaselineMeasurement.swift */,
 				D427D6C2D8A0FBC6B102C84C /* PermissionTestHelpers.swift */,
 				41505E9FA9246340EBFBD0A7 /* ScreenCapturePermissionDependencyHelpers.swift */,
+				8CE2E3AC0CB61CAB06AD0CCC /* TemporaryFileTestHelpers.swift */,
 				F95287D06FE22FCBA5285AB7 /* TestImageFactory.swift */,
 			);
 			path = Helpers;
@@ -786,6 +792,7 @@
 				FFC742B15AB698F9D83EBD89 /* ScreenCaptureManagerPermissionProbeTests.swift */,
 				CA94A0B889F44879224F15EC /* ScreenCaptureManagerPermissionTests.swift */,
 				A9B690D5DE5F570715725413 /* ScreenCaptureManagerTests.swift */,
+				8BABEA7BFA6C39C6E38CCD93 /* ScreenCaptureScreenshotTargetTests.swift */,
 				5D68B8FE5F39AA1365F80F99 /* WindowPickerManagerTests.swift */,
 			);
 			path = CaptureTests;
@@ -1266,6 +1273,7 @@
 				934D0FA2A77C6F2A3868F1C0 /* PerfBaselineMeasurement.swift in Sources */,
 				A7B43E99FB2E8A7A3A98DD30 /* PermissionTestHelpers.swift in Sources */,
 				DCAF52EEC81082E346BD6DCE /* ScreenCapturePermissionDependencyHelpers.swift in Sources */,
+				1658A01D6379324EB118581C /* TemporaryFileTestHelpers.swift in Sources */,
 				091A68222F07BD11A1CD53D6 /* TestImageFactory.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1362,10 +1370,12 @@
 				FB4B2C1CA17D698BE2961058 /* ScreenCaptureManagerPermissionTests.swift in Sources */,
 				5A05E39E553B9FED7CF42794 /* ScreenCaptureManagerTests.swift in Sources */,
 				BC4BF2A56D78643EB5AE255B /* ScreenCapturePermissionDependencyHelpers.swift in Sources */,
+				95DAB8C05BF85077AD94856F /* ScreenCaptureScreenshotTargetTests.swift in Sources */,
 				5B6E96EA9DF2EB70C65FDBE0 /* ScreenshotArtifactCoordinatorTests.swift in Sources */,
 				19CCBB9C35F4508A0BD841CC /* ScreenshotItemTests.swift in Sources */,
 				46788602D7A04D4198510E74 /* SmartCropperTests.swift in Sources */,
 				FC040C7BFD2C1F2F23F257A9 /* SmartMetadataGeneratorTests.swift in Sources */,
+				467782900F3D603D0AB9BBB2 /* TemporaryFileTestHelpers.swift in Sources */,
 				15AEAD7D462E6E83B19AB7F1 /* TestEnvironmentTests.swift in Sources */,
 				2A9B03BE44CFDE99489D3F0B /* TestImageFactory.swift in Sources */,
 				094C88F2EE79EA9E481355AE /* TimeoutTests.swift in Sources */,

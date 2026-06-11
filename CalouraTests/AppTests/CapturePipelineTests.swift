@@ -333,8 +333,7 @@ final class CapturePipelineTests: XCTestCase {
         saveExpectation.expectedFulfillmentCount = 2
         let ocrCounter = LockedCounter()
         let defaults = CapturePipelineTestHelpers.makeDefaults(#function)
-        let historyURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("pipeline-save-last-\(UUID().uuidString).json")
+        let historyURL = temporaryFileURL(prefix: "pipeline-save-last")
         let appState = AppState(defaults: defaults, historyStoreURL: historyURL)
         let settings = AppSettings(defaults: defaults)
 
@@ -441,7 +440,7 @@ final class CapturePipelineTests: XCTestCase {
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function,
             detectContext: {
-                DetectedContext(appName: "Xcode", windowTitle: nil, category: .code)
+                DetectedContext(appName: "Xcode", category: .code)
             },
             presetForCategory: { _ in
                 presetForCategoryCalled = true

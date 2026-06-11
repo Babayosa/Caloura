@@ -281,7 +281,7 @@ final class CaptureSystemTests: XCTestCase {
 
     // MARK: - Multi-screen coverage (Phase 3.6)
 
-    func testFullscreenSelectionOnSecondaryOverlayDismissesAllOverlays() async {
+    func testFullscreenSelectionOnSecondaryOverlayDismissesAllOverlays() async throws {
         // Synthesize a 2-screen layout via the injected overlayPresenter so
         // CI (single physical display) still exercises the multi-overlay
         // dismiss path: selecting from overlay[1] must close every overlay
@@ -290,8 +290,7 @@ final class CaptureSystemTests: XCTestCase {
         let session = recorder.beginSession(mode: .fullscreen)
         let cursor = CursorSpy()
         guard let realScreen = NSScreen.main ?? NSScreen.screens.first else {
-            XCTFail("Need at least one screen")
-            return
+            throw XCTSkip("No screen attached (headless runner); multi-screen system test requires a display")
         }
 
         let onSelectionExpectation = expectation(description: "selection delivered")
@@ -347,13 +346,12 @@ final class CaptureSystemTests: XCTestCase {
         recorder.finishSession(session)
     }
 
-    func testFullscreenCancelOnSecondaryOverlayDismissesAllOverlays() async {
+    func testFullscreenCancelOnSecondaryOverlayDismissesAllOverlays() async throws {
         let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 10, reportInterval: 50)
         let session = recorder.beginSession(mode: .fullscreen)
         let cursor = CursorSpy()
         guard let realScreen = NSScreen.main ?? NSScreen.screens.first else {
-            XCTFail("Need at least one screen")
-            return
+            throw XCTSkip("No screen attached (headless runner); multi-screen system test requires a display")
         }
 
         let onCancelExpectation = expectation(description: "cancel delivered")
@@ -483,7 +481,7 @@ final class CaptureSystemTests: XCTestCase {
         XCTAssertEqual(cursor.endCalls, 1)
     }
 
-    func testAreaCaptureMultiOverlayPresentationKeysExactlyOneWindow() {
+    func testAreaCaptureMultiOverlayPresentationKeysExactlyOneWindow() throws {
         // Even when present(windows:) receives multiple overlays
         // (multi-screen layout), exactly one becomes key. Other windows
         // are ordered front via orderFrontRegardless to avoid focus theft.
@@ -491,8 +489,7 @@ final class CaptureSystemTests: XCTestCase {
         let session = recorder.beginSession(mode: .area)
         let cursor = CursorSpy()
         guard let realScreen = NSScreen.main ?? NSScreen.screens.first else {
-            XCTFail("Need at least one screen")
-            return
+            throw XCTSkip("No screen attached (headless runner); multi-screen system test requires a display")
         }
         let coordinator = AreaCaptureSessionCoordinator(
             session: session,

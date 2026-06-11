@@ -20,6 +20,22 @@ func pollUntil(
     }
 }
 
+/// Bounded observation window for *negative* assertions: polls `condition`
+/// and returns as soon as it becomes true, or when `window` elapses.
+/// Unlike `pollUntil`, the timeout is the success path — the caller asserts
+/// afterwards that the condition never occurred.
+@MainActor
+func pollForViolation(
+    window: TimeInterval = 0.1,
+    interval: TimeInterval = 0.01,
+    _ condition: @escaping @MainActor () -> Bool
+) async {
+    let deadline = Date().addingTimeInterval(window)
+    while !condition() && Date() < deadline {
+        try? await Task.sleep(for: .seconds(interval))
+    }
+}
+
 actor AsyncGate {
     private var isOpen = false
     private var waiters: [CheckedContinuation<Void, Never>] = []

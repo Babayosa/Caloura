@@ -36,6 +36,16 @@ protocol FreezeShareableApplication {
 
 extension SCRunningApplication: FreezeShareableApplication {}
 
+/// Seam for testing screenshot display selection without constructing real
+/// `SCDisplay` instances (which have no public initializer).
+protocol ScreenshotShareableDisplay {
+    /// Display bounds in global display-space coordinates (matches
+    /// `CGDisplayBounds`).
+    var frame: CGRect { get }
+}
+
+extension SCDisplay: ScreenshotShareableDisplay {}
+
 extension ScreenCaptureManager {
 
     // MARK: - SCK Capture
@@ -73,7 +83,147 @@ extension ScreenCaptureManager {
         return CGDisplayBounds(resolved.displayID).integral
     }
 
+    struct SelfExcludedScreenshotTarget<
+        Display: ScreenshotShareableDisplay,
+        App: FreezeShareableApplication
+    > {
+        let display: Display
+        let excludedApplications: [App]
+    }
+
+    /// Resolve the single shareable display containing `rect` (display-space
+    /// coordinates) together with Caloura's own application to exclude from
+    /// the screenshot. Returns nil — meaning the caller must fall back to the
+    /// unfiltered rect capture — when the rect spans displays, no display
+    /// contains it, or Caloura is not yet in the shareable applications
+    /// (first capture after launch). Capture success beats stealth.
+    static func selfExcludedScreenshotTarget<
+        Display: ScreenshotShareableDisplay,
+        App: FreezeShareableApplication
+    >(
+        containing rect: CGRect,
+        displays: [Display],
+        applications: [App],
+        currentProcessID: pid_t,
+        currentBundleIdentifier: String?
+    ) -> SelfExcludedScreenshotTarget<Display, App>? {
+        guard let display = displays.first(where: {
+            $0.frame.contains(rect)
+        }) else {
+            return nil
+        }
+        let excludedApplications = freezeExcludedApplications(
+            in: applications,
+            currentProcessID: currentProcessID,
+            currentBundleIdentifier: currentBundleIdentifier
+        )
+        guard !excludedApplications.isEmpty else {
+            // Nothing to exclude: the legacy unfiltered call keeps pixel
+            // output identical.
+            return nil
+        }
+        return SelfExcludedScreenshotTarget(
+            display: display,
+            excludedApplications: excludedApplications
+        )
+    }
+
+    /// Configuration reproducing the legacy `captureImage(in:)` geometry for
+    /// a filtered display screenshot: `sourceRect` is the capture rect
+    /// translated into the display's local (top-left origin) point
+    /// coordinates, output dimensions are native pixels.
+    static func makeSelfExcludedScreenshotConfiguration(
+        rect: CGRect,
+        displayFrame: CGRect,
+        pointPixelScale: CGFloat
+    ) -> SCStreamConfiguration {
+        let configuration = SCStreamConfiguration()
+        configuration.sourceRect = CGRect(
+            x: rect.origin.x - displayFrame.origin.x,
+            y: rect.origin.y - displayFrame.origin.y,
+            width: rect.width,
+            height: rect.height
+        )
+        configuration.width = max(1, Int(ceil(rect.width * pointPixelScale)))
+        configuration.height = max(1, Int(ceil(rect.height * pointPixelScale)))
+        configuration.showsCursor = false
+        configuration.captureResolution = .best
+        configuration.shouldBeOpaque = true
+        return configuration
+    }
+
     private func sckCaptureImage(
+        in rect: CGRect
+    ) async throws -> CGImage {
+        if let image = await sckCaptureSelfExcludedImage(in: rect) {
+            return image
+        }
+        return try await sckCaptureUnfilteredImage(in: rect)
+    }
+
+    /// Filtered variant of the live screenshot path: captures `rect` through
+    /// an `SCContentFilter` that excludes Caloura's own application, so a
+    /// visible Caloura window never lands in the user's screenshot. Returns
+    /// nil whenever the filtered path is unavailable (rect spans displays,
+    /// shareable-content lookup failed, self not shareable, or the filtered
+    /// capture itself failed) — the caller then falls back to the legacy
+    /// unfiltered capture, because capture success beats stealth.
+    private func sckCaptureSelfExcludedImage(
+        in rect: CGRect
+    ) async -> CGImage? {
+        let shareableContent: SCShareableContent
+        do {
+            shareableContent = try await self.shareableContent()
+        } catch {
+            let desc = error.localizedDescription
+            logger.warning(
+                "Shareable content lookup failed; capturing without self-exclusion: \(desc)"
+            )
+            return nil
+        }
+
+        guard let target = Self.selfExcludedScreenshotTarget(
+            containing: rect,
+            displays: shareableContent.displays,
+            applications: shareableContent.applications,
+            currentProcessID: getpid(),
+            currentBundleIdentifier: Bundle.main.bundleIdentifier
+        ) else {
+            let desc = rect.debugDescription
+            logger.warning(
+                "No single-display self-excluding filter for rect \(desc); capturing without self-exclusion"
+            )
+            return nil
+        }
+
+        let filter = SCContentFilter(
+            display: target.display,
+            excludingApplications: target.excludedApplications,
+            exceptingWindows: []
+        )
+        let configuration = Self.makeSelfExcludedScreenshotConfiguration(
+            rect: rect,
+            displayFrame: target.display.frame,
+            pointPixelScale: CGFloat(filter.pointPixelScale)
+        )
+
+        do {
+            return try await captureFilteredScreenshot(
+                contentFilter: filter,
+                configuration: configuration
+            )
+        } catch {
+            // The unfiltered retry below either succeeds or rethrows through
+            // the normal SCK failure classification, so this error is only
+            // logged, never swallowed silently.
+            logger.warning(
+                "Self-excluding screenshot failed; retrying without self-exclusion: \(error.localizedDescription)"
+            )
+            return nil
+        }
+    }
+
+    private func sckCaptureUnfilteredImage(
         in rect: CGRect
     ) async throws -> CGImage {
         try await withCheckedThrowingContinuation { continuation in
@@ -133,9 +283,9 @@ extension ScreenCaptureManager {
         }) else {
             // First capture after launch: an agent app may not yet appear in
             // SCShareableContent.applications. Capturing without
-            // self-exclusion beats silently losing the freeze backdrop.
+            // self-exclusion beats silently losing the capture.
             logger.warning(
-                "Current app not in shareable applications; capturing freeze snapshot without self-exclusion"
+                "Current app not in shareable applications; capturing without self-exclusion"
             )
             return []
         }

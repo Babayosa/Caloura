@@ -34,8 +34,7 @@ final class CaptureRequestResolver {
         let detectedContext = detectContext()
         let captureContext = CaptureContext(
             mode: mode,
-            sourceAppName: detectedContext.appName,
-            sourceWindowTitle: detectedContext.windowTitle
+            sourceAppName: detectedContext.appName
         )
 
         let preset: CapturePreset
