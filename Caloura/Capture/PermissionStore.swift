@@ -198,6 +198,83 @@ final class PermissionStore {
         diagnosedFailure = nil
     }
 
+    // MARK: - Derived status context
+
+    /// One evidence snapshot per evaluation: every status decision reads
+    /// store state through this single gathering point, so the rules in
+    /// `PermissionStatusCore` always see mutually consistent values.
+    /// Calling it prunes an expired request session as a side effect of
+    /// the freshness check.
+    func statusContext(for identity: PermissionIdentity, at timestamp: Date) -> PermissionStatusContext {
+        PermissionStatusContext(
+            identity: identity,
+            hasFreshPermissionRequest: activeRequestSession(now: timestamp) != nil,
+            hasLiveValidatedIdentity: isLiveValidatedIdentity(identity),
+            isKnownWorkingIdentity: isKnownWorkingIdentity(identity),
+            lastWorkingExecutablePathMatches: lastWorkingIdentity().executablePath == identity.executablePath,
+            diagnosedFailureStatus: diagnosedFailureStatus(for: identity),
+            hasKnownWorkingMismatch: hasKnownWorkingMismatch(for: identity),
+            didAutoRelaunchAfterRequest: requestSession?.didAutoRelaunch == true
+        )
+    }
+
+    func isLiveValidatedIdentity(_ identity: PermissionIdentity) -> Bool {
+        liveValidatedFingerprint == identity.fingerprint
+    }
+
+    func isKnownWorkingIdentity(_ identity: PermissionIdentity) -> Bool {
+        guard let lastWorkingFingerprint = lastWorkingIdentity().fingerprint else {
+            return false
+        }
+        if lastWorkingFingerprint == identity.fingerprint {
+            return true
+        }
+        // Path-relaxed match: accept the record if the signing identity
+        // matches. DerivedData iteration changes executablePath but keeps
+        // signing info stable, so the prior grant still applies.
+        let storedSigningKey = PermissionIdentity.trustedSigningKey(
+            fromStoredFingerprint: lastWorkingFingerprint
+        )
+        return storedSigningKey == identity.trustedSigningKey
+    }
+
+    func hasKnownWorkingMismatch(for identity: PermissionIdentity) -> Bool {
+        guard let lastWorkingFingerprint = lastWorkingIdentity().fingerprint else {
+            return false
+        }
+        // A stale-record alert should only fire when the *signing identity*
+        // changed (different team / re-signed binary). Differences in the
+        // executable path alone (DerivedData iteration) are not stale —
+        // macOS continues to honor the grant for the same signed identity
+        // (INVARIANT-9).
+        let storedSigningKey = PermissionIdentity.trustedSigningKey(
+            fromStoredFingerprint: lastWorkingFingerprint
+        ) ?? lastWorkingFingerprint
+        return storedSigningKey != identity.trustedSigningKey
+    }
+
+    func diagnosedFailureStatus(for identity: PermissionIdentity) -> ScreenRecordingState? {
+        guard let diagnosedFailure, diagnosedFailure.identityFingerprint == identity.fingerprint else {
+            return nil
+        }
+        return diagnosedFailure.status
+    }
+
+    /// INVARIANT-1: after an explicit grant attempt (fresh request session)
+    /// or a live validation in this process, trust live SCK even while
+    /// CGPreflight still reports denied.
+    func shouldTrustLiveValidationWithoutCoreGraphics(at timestamp: Date) -> Bool {
+        activeRequestSession(now: timestamp) != nil || liveValidatedFingerprint != nil
+    }
+
+    /// One auto-relaunch per request session (settings-return deadline path).
+    func canAutoRelaunchAfterSettingsReturn(at timestamp: Date) -> Bool {
+        guard let session = activeRequestSession(now: timestamp) else {
+            return false
+        }
+        return !session.didAutoRelaunch
+    }
+
     // MARK: - Identity change
 
     /// Clears exactly the state an identity change invalidates: the

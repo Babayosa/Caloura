@@ -205,3 +205,15 @@
 - **Rule**: When a plan has a research/validation step before coding (e.g., Codex calls, deep research), complete it first. Even a detailed plan can have wrong assumptions that research would catch.
 - **Mistake**: Skipped Codex research calls in the permission fix plan and went straight to implementation. Research later revealed 4 additional gaps (replayd approval cache not cleared on TCC reset, SCK retry window too short, missing sckStateResetter in capture failure handler, blank image detection).
 - **Key insight**: Research validates assumptions. The 0-10 second TCC propagation finding changed the retry window from 1.6s to ~7s. The Sequoia replayd `ScreenCaptureApprovals.plist` finding revealed the nuclear reset button was broken.
+
+### 2026-06-10 — Pre-commit swift build fails only under sandboxed git commit [domain: process]
+**Mistake:** Assumed hook failure was caused by the staged change; retried commit twice.
+**Root cause:** Claude Code Bash sandbox + nested `swift build` resolves /Library/Developer/CommandLineTools SDK (macOS 27 / Swift 6.4) against Xcode 26's Swift 6.2.3 — SDK/compiler mismatch. Direct hook run and direct swift build pass.
+**Rule:** If pre-commit swift build fails with "SDK is not supported by the compiler" while `swift build` passes, run the commit with explicit `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer SDKROOT=$DEVELOPER_DIR/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk` and sandbox disabled. Never --no-verify.
+**Confidence:** low (1x)
+
+### 2026-06-11 — Staged files ride along across branch switches [domain: process]
+**Mistake:** Failed pre-commit attempts left files staged; switching branches and committing "one file" actually committed the whole stale index (PR #17 absorbed S1).
+**Root cause:** git add survives branch switches; `git commit` commits the index, not the named files I had in mind.
+**Rule:** After any failed commit + branch switch, run `git status` and `git diff --cached --stat` BEFORE the next commit.
+**Confidence:** low (1x)

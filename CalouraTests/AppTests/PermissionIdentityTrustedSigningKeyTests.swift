@@ -7,6 +7,9 @@ final class PermissionIdentityTrustedSigningKeyTests: XCTestCase {
     // MARK: PermissionIdentity.trustedSigningKey
 
     func testTrustedSigningKeyExcludesExecutablePath() {
+        // INVARIANT-9: stale-record detection keys on signing identity
+        // (trustedSigningKey), never the executable path — the key must
+        // not contain the path at all.
         let identity = PermissionIdentity(
             bundleIdentifier: "com.caloura.app",
             executablePath: "/Applications/Caloura.app/Contents/MacOS/Caloura",
@@ -72,6 +75,8 @@ final class PermissionIdentityTrustedSigningKeyTests: XCTestCase {
     // MARK: Stale-record behavior in the coordinator
 
     func testDerivedDataRelaunchDoesNotAppearStale() async {
+        // INVARIANT-9: a changed executable path with an identical signing
+        // identity must never be classified as a stale record.
         // Simulate: a previous build registered a known-working fingerprint
         // whose executablePath now differs (new DerivedData location) but
         // whose signing identity is identical.
