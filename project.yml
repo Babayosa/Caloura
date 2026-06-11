@@ -18,7 +18,7 @@ packages:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "2.4.2"
+    MARKETING_VERSION: "2.6.0"
     CURRENT_PROJECT_VERSION: "20"
     CALOURA_RELEASE_CHANNEL: stable
     SWIFT_STRICT_CONCURRENCY: complete
