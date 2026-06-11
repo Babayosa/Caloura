@@ -92,4 +92,30 @@ final class WindowPrivacyTests: XCTestCase {
         let panel = try XCTUnwrap(QuickAccessOverlay.shared.debugPanel)
         XCTAssertEqual(panel.sharingType, .none)
     }
+
+    func testCountdownOverlayCreatesNonShareablePanel() throws {
+        CountdownOverlay.shared.show(seconds: 3, onCancel: {})
+        defer { CountdownOverlay.shared.dismiss() }
+
+        let panel = try XCTUnwrap(CountdownOverlay.shared.debugPanel)
+        XCTAssertEqual(panel.sharingType, .none)
+    }
+
+    func testPinnedScreenshotWindowIsNonShareable() throws {
+        let image = TestImageFactory.makeTestImage(width: 120, height: 80)
+        let screenshot = ProcessedScreenshot(
+            image: NSImage(
+                cgImage: image,
+                size: NSSize(width: image.width, height: image.height)
+            ),
+            cgImage: image,
+            context: CaptureContext(mode: .area)
+        )
+
+        PinnedScreenshotManager.shared.pin(screenshot)
+        defer { PinnedScreenshotManager.shared.debugPanels.forEach { $0.close() } }
+
+        let panel = try XCTUnwrap(PinnedScreenshotManager.shared.debugPanels.last)
+        XCTAssertEqual(panel.sharingType, .none)
+    }
 }

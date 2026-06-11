@@ -11,6 +11,10 @@ final class PinnedScreenshotManager {
     private var observers: [NSPanel: NSObjectProtocol] = [:]
     private var panelsByKey: [String: NSPanel] = [:]
 
+    var debugPanels: [NSPanel] {
+        pinnedWindows
+    }
+
     private init() {}
 
     private func dedupKey(for screenshot: ProcessedScreenshot) -> String {

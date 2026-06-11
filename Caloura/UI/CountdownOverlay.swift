@@ -19,6 +19,10 @@ final class CountdownOverlay {
     private let state = CountdownState()
     private var onCancel: (() -> Void)?
 
+    var debugPanel: NSPanel? {
+        panel
+    }
+
     private init() {}
 
     func show(seconds: Int, onCancel: @escaping () -> Void) {
