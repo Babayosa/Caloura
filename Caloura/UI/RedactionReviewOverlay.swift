@@ -34,14 +34,39 @@ final class RedactionReviewController {
     }
 }
 
+@MainActor
+@Observable
+final class RedactionReviewModel {
+    private(set) var redactedImage: CGImage?
+    private(set) var isRedacting = false
+    private(set) var hasRedacted = false
+
+    @ObservationIgnored private let redact: (CGImage, [CGRect]) async -> CGImage
+
+    init(
+        redact: @escaping (CGImage, [CGRect]) async -> CGImage = {
+            await RedactionEngine.redact(cgImage: $0, regions: $1)
+        }
+    ) {
+        self.redact = redact
+    }
+
+    func applyRedaction(source: CGImage, regions: [CGRect]) async {
+        isRedacting = true
+        defer { isRedacting = false }
+        let result = await redact(source, regions)
+        guard !Task.isCancelled else { return }
+        redactedImage = result
+        hasRedacted = true
+    }
+}
+
 struct RedactionReviewView: View {
     let screenshot: ProcessedScreenshot
     let detections: [PIIDetection]
 
     @State private var selectedIndices: Set<Int>
-    @State private var redactedImage: CGImage?
-    @State private var isRedacting = false
-    @State private var hasRedacted = false
+    @State private var model = RedactionReviewModel()
 
     init(screenshot: ProcessedScreenshot, detections: [PIIDetection]) {
         self.screenshot = screenshot
@@ -53,7 +78,7 @@ struct RedactionReviewView: View {
     var body: some View {
         VStack(spacing: 12) {
             // Preview
-            Image(decorative: redactedImage ?? screenshot.cgImage, scale: 1.0)
+            Image(decorative: model.redactedImage ?? screenshot.cgImage, scale: 1.0)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -101,7 +126,7 @@ struct RedactionReviewView: View {
 
                 Spacer()
 
-                if hasRedacted {
+                if model.hasRedacted {
                     Button("Done") {
                         Task { await commitAndClose() }
                     }
@@ -113,14 +138,19 @@ struct RedactionReviewView: View {
                         Task { await applyRedaction() }
                     }
                     .buttonStyle(.bordered)
-                    .disabled(detections.isEmpty)
+                    .disabled(detections.isEmpty || model.isRedacting)
 
                     Button("Redact Selected (\(selectedIndices.count))") {
                         Task { await applyRedaction() }
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(selectedIndices.isEmpty || isRedacting)
+                    .disabled(selectedIndices.isEmpty || model.isRedacting)
                 }
+            }
+
+            if model.isRedacting {
+                ProgressView("Applying redaction...")
+                    .controlSize(.small)
             }
         }
         .padding()
@@ -128,16 +158,12 @@ struct RedactionReviewView: View {
     }
 
     private func applyRedaction() async {
-        isRedacting = true
         let regions = selectedIndices.map { detections[$0].boundingBox }
-        let result = await RedactionEngine.redact(cgImage: screenshot.cgImage, regions: regions)
-        redactedImage = result
-        isRedacting = false
-        hasRedacted = true
+        await model.applyRedaction(source: screenshot.cgImage, regions: regions)
     }
 
     private func commitAndClose() async {
-        guard let redactedImage else { return }
+        guard let redactedImage = model.redactedImage else { return }
 
         do {
             _ = try await ScreenshotArtifactCoordinator.shared.saveDerivedCapture(
@@ -149,7 +175,7 @@ struct RedactionReviewView: View {
             AppState.shared.statusMessage = "Redaction save cancelled"
             return
         } catch {
-            AppState.shared.statusMessage = "Overwrite failed: \(error.localizedDescription)"
+            AppState.shared.statusMessage = "Save failed: \(UserFacingErrorMessage.message(for: error))"
             return
         }
 
@@ -158,7 +184,7 @@ struct RedactionReviewView: View {
         do {
             try ClipboardManager.copyNSImage(nsImage)
         } catch {
-            AppState.shared.statusMessage = error.localizedDescription
+            AppState.shared.statusMessage = UserFacingErrorMessage.message(for: error)
             return
         }
 

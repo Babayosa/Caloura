@@ -191,7 +191,8 @@ struct PIIDetector {
         guard digits.count >= 13, digits.count <= 19 else { return false }
 
         var sum = 0
-        let reversed = digits.reversed().map { Int(String($0))! }
+        let reversed = digits.reversed().compactMap { Int(String($0)) }
+        guard reversed.count == digits.count else { return false }
         for (index, digit) in reversed.enumerated() {
             if index % 2 == 1 {
                 let doubled = digit * 2
@@ -215,9 +216,11 @@ struct PIIDetector {
     private static func validateSSN(_ ssn: String) -> Bool {
         let digits = ssn.filter(\.isWholeNumber)
         guard digits.count == 9 else { return false }
-        let area = Int(digits.prefix(3))!
-        let group = Int(digits.dropFirst(3).prefix(2))!
-        let serial = Int(digits.suffix(4))!
+        guard let area = Int(digits.prefix(3)),
+              let group = Int(digits.dropFirst(3).prefix(2)),
+              let serial = Int(digits.suffix(4)) else {
+            return false
+        }
         return area > 0 && area != 666 && area < 900 && group > 0 && serial > 0
     }
 
