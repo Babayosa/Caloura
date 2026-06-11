@@ -215,8 +215,27 @@ final class CaptureEntrypointService {
             self?.cancelDelayedCapture()
         }
 
+        // Owns this countdown cycle: if the cycle is still live when the
+        // task exits early (cancellation that didn't go through
+        // cancelDelayedCapture), the defer below resets everything itself.
+        // A newer cycle has a different request ID, so the defer can never
+        // clobber state owned by a successor countdown or capture.
+        let requestID = appState.currentCaptureRequestID
+
         sessionState.replaceDelayedCaptureTask(Task { @MainActor [weak self] in
             guard let self else { return }
+            var didHandOffToCapture = false
+            defer {
+                if !didHandOffToCapture, self.appState.currentCaptureRequestID == requestID {
+                    Self.logger.debug("Delayed capture: countdown task exited early — resetting countdown state")
+                    self.sessionState.clearDelayedCaptureTask()
+                    self.appState.isCountingDown = false
+                    self.appState.countdownRemaining = 0
+                    self.appState.isCapturing = false
+                    self.appState.currentCaptureRequestID = nil
+                    CountdownOverlay.shared.dismiss()
+                }
+            }
             for remaining in stride(from: delay, through: 1, by: -1) {
                 if Task.isCancelled { return }
                 self.appState.statusMessage = "Capturing in \(remaining)s..."
@@ -233,6 +252,7 @@ final class CaptureEntrypointService {
             self.sessionState.clearDelayedCaptureTask()
 
             guard !Task.isCancelled else { return }
+            didHandOffToCapture = true
 
             switch mode {
             case .area:
