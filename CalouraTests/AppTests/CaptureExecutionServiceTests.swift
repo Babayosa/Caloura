@@ -82,6 +82,26 @@ final class CaptureExecutionServiceTests: XCTestCase {
         XCTAssertFalse(harness.appState.isCapturing)
     }
 
+    func testHandleCaptureFailureResetsIsCapturingLocally() {
+        // Regression pin for audit finding: handleCaptureFailure must own the
+        // isCapturing reset itself. Today the flag is only rescued by the
+        // safety net at the end of performCapture — one refactor away from a
+        // stuck-true flag that wedges every future capture.
+        let harness = makeService(testName: #function)
+        harness.appState.isCapturing = true
+
+        harness.service.handleCaptureFailure(
+            CaptureError.captureFailed("test failure"),
+            performanceSession: nil
+        )
+
+        XCTAssertFalse(
+            harness.appState.isCapturing,
+            "handleCaptureFailure must reset isCapturing in the handler itself, "
+                + "not rely on the performCapture safety net"
+        )
+    }
+
     func testPerformCaptureDeferredSaveSchedulesEnrichmentAfterSave() async {
         let defaults = CapturePipelineTestHelpers.makeDefaults(#function)
         let settings = AppSettings(defaults: defaults)

@@ -325,13 +325,14 @@ final class CaptureExecutionService {
         finishPerformanceSession(performanceSession)
     }
 
-    private func handleCaptureFailure(
+    func handleCaptureFailure(
         _ error: Error,
         performanceSession: CapturePerformanceRecorder.Session?
     ) {
         let logMessage = captureFailureLogMessage(for: error)
         logger.error("Capture failed: \(logMessage, privacy: .public)")
         appState.statusMessage = captureFailureStatusMessage(for: error)
+        appState.isCapturing = false
         finishPerformanceSession(performanceSession)
     }
 
