@@ -77,3 +77,34 @@ Rework branch audit/permissions-rework pushed (design doc + S2 commit ebb0a29; S
 S3 (RecoveryPlanner) NOT started in code: interrupted agent only read files; tree clean, builds green.
 NEXT: (1) dispatch S3 per tasks/permissions-rework-design.md stage spec; (2) S4 facade slim; (3) open rework PR; (4) check release-smoke dispatch result (gh run list --workflow=release-smoke.yml); (5) remaining plan phases 2.x/3.x/5.x; Phase 4 license URL still blocked on DNS decision.
 REMINDER (user): put the signed app back — trash /Applications/Caloura.app && cp -Rp ~/.Trash/Caloura.app /Applications/
+
+## Permissions rework S4 (2026-06-11) — facade slim-down + docs
+- [x] Move store-derived status queries (statusContext, identity match, diagnosis, trust window) into PermissionStore
+- [x] Split serialized flow cores + recovery step executors into PermissionCoordinator+RecoveryExecution.swift
+- [x] Inline dead/thin forwarders (grep-verified across Caloura/ + CalouraTests/)
+- [x] PermissionCoordinator.swift ≤ ~400 lines
+- [x] Update codex/CODEMAP.md permission section
+- [x] xcodegen generate; swift build + swift test x2 green; swiftlint --strict clean
+- [x] Commit: [permissions-S4] Slim coordinator facade + architecture docs
+
+### S4 Review / Evidence
+- PermissionCoordinator.swift 998 -> 405 lines; +Publication.swift 91; +RecoveryExecution.swift 391; store-derived queries -> PermissionStore (statusContext + identity-match/diagnosis/trust-window)
+- swift test x2: Executed 750 tests, 0 failures (both runs); swiftlint --strict exit 0
+- Acceptance gap (pre-existing, not S4-fixable without editing tests): INVARIANT-2/4/8/9/11 have no `// INVARIANT-n` comment in tests (1,3,5,6,7,10 present)
+
+## Session resume (2026-06-11, post-limit) — S3/S4 landed, Phase 2 complete
+- [x] S3 PermissionRecoveryPlanner: pure 26-case decision table, 24 enumeration tests (75b8240); replayd fast-skip (H6) pinned; 750 tests x2 green
+- [x] S4 facade slim 998->405 lines + CODEMAP section (c17d654)
+- [x] All 11 invariants tagged `// INVARIANT-n` in asserting tests (79c0174): 2 new pins (history-never-bypasses-CG, only-working-completes-onboarding), API-surface test, tags added to existing asserting tests; 753 tests x2 green
+- [x] PR #18 (permissions rework S2-S4) — CI pass, MERGED
+- [x] 2.5 workflows hardened: all actions SHA-pinned (checkout v6.0.3 df4cb1c0..., setup-xcode v1.7.0 ed7a3b1f..., upload-artifact v4.6.2 ea165f8d...), concurrency groups (ci cancel-in-progress, release workflows not), PR #19 CI pass MERGED
+- [x] 2.3 savePresets do/catch + StatusMessageRouter surfacing; red test PresetManagerSaveFailureTests.testSavePresets_encodeFailure_surfacesStatusMessage; PR #20 CI pass MERGED
+- [x] 2.1 handleCaptureFailure resets isCapturing locally; red test CaptureExecutionServiceTests.testHandleCaptureFailureResetsIsCapturingLocally; PR #21 CI pass MERGED
+- [x] 2.4 freezeCaptureTarget fallback (empty exclusions when self missing from shareable apps); red test ScreenCaptureManagerFreezeTargetTests.testCurrentAppMissing_fallsBackToNoExclusions; PR #22 (CI failed ONLY on swiftlint image drift, see below)
+- [x] 2.2 captureDelayed defer-based countdown reset (guarded by handoff flag + request-ID match); red test CapturePipelineTests.testDelayedCaptureTaskDirectCancellation_resetsCountdownStateViaDefer; PR #23
+- [x] Tool-pin assertion caught real fleet drift: PR #22 run 27344560789 failed `swiftlint 0.63.3 != pinned 0.63.2` (mixed runner images). Root-cause fix PR #24: install pinned portable_swiftlint.zip + SHA256 check, drop swiftlint from Brewfile.
+- [ ] release-smoke dispatch (run 27325681345): parse fix WORKED; now fails on `Missing required secret: CALOURA_DEVELOPER_ID_CERT_P12_BASE64` — BLOCKED-BY-DECISION: user must add Developer ID signing secrets to repo (or accept smoke runs only locally).
+- [ ] Phase 3 perf: baseline agent dispatched (branch audit/perf-baseline)
+- [ ] Phase 4 license URL: still blocked on DNS decision (api.caloura.app)
+- [ ] Phase 5 polish
+REMINDER (user): put the signed app back — trash /Applications/Caloura.app && cp -Rp ~/.Trash/Caloura.app /Applications/
