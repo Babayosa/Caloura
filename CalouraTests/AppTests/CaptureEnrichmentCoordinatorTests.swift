@@ -77,7 +77,10 @@ final class CaptureEnrichmentCoordinatorTests: XCTestCase {
         await fulfillment(of: [twoStarted], timeout: 1.0)
         let startedLabels = await tracker.startedLabels()
         let maxConcurrentAtStart = await tracker.maxConcurrentSeen()
-        XCTAssertEqual(startedLabels, ["first", "second"])
+        // Both slots fill concurrently, so start order between the two is
+        // nondeterministic; the invariant is membership, not sequence.
+        XCTAssertEqual(Set(startedLabels), ["first", "second"])
+        XCTAssertEqual(startedLabels.count, 2)
         XCTAssertEqual(maxConcurrentAtStart, 2)
 
         await releaseRunning.open()
