@@ -6,6 +6,10 @@ final class RedactionReviewController {
     static let shared = RedactionReviewController()
     private let presenter = SingleWindowPresenter<RedactionReviewView>()
 
+    var debugWindow: NSWindow? {
+        presenter.window
+    }
+
     func show(screenshot: ProcessedScreenshot, detections: [PIIDetection]) {
         presenter.show(
             config: .init(
@@ -13,8 +17,10 @@ final class RedactionReviewController {
                 size: CGSize(width: 600, height: 500),
                 styleMask: [.titled, .closable, .resizable],
                 minSize: CGSize(width: 480, height: 400),
-                autosaveName: "CalouraRedactionReview"
-            )
+                autosaveName: "CalouraRedactionReview",
+                sharingType: .none
+            ),
+            activateApp: true
         ) {
             RedactionReviewView(
                 screenshot: screenshot,

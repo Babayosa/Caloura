@@ -6,6 +6,10 @@ final class BeautifyPreviewController {
     static let shared = BeautifyPreviewController()
     private let presenter = SingleWindowPresenter<BeautifyPreviewView>()
 
+    var debugWindow: NSWindow? {
+        presenter.window
+    }
+
     func show(screenshot: ProcessedScreenshot) {
         presenter.show(
             config: .init(
@@ -13,8 +17,10 @@ final class BeautifyPreviewController {
                 size: CGSize(width: 640, height: 520),
                 styleMask: [.titled, .closable, .resizable],
                 minSize: CGSize(width: 480, height: 400),
-                autosaveName: "CalouraBeautifyPreview"
-            )
+                autosaveName: "CalouraBeautifyPreview",
+                sharingType: .none
+            ),
+            activateApp: true
         ) {
             BeautifyPreviewView(screenshot: screenshot)
         }
