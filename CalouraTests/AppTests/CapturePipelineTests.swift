@@ -441,7 +441,7 @@ final class CapturePipelineTests: XCTestCase {
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function,
             detectContext: {
-                DetectedContext(appName: "Xcode", windowTitle: nil, category: .code)
+                DetectedContext(appName: "Xcode", category: .code)
             },
             presetForCategory: { _ in
                 presetForCategoryCalled = true

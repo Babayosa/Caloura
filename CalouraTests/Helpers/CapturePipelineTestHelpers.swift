@@ -78,7 +78,7 @@ enum CapturePipelineTestHelpers {
             captureManager: captureManager,
             capturePerformanceRecorder: recorder,
             detectContext: detectContext ?? {
-                DetectedContext(appName: "TestApp", windowTitle: "TestWindow", category: .other)
+                DetectedContext(appName: "TestApp", category: .other)
             },
             processImage: processImage ?? { cgImage, context, _ in
                 makeProcessed(cgImage: cgImage, mode: context.mode)

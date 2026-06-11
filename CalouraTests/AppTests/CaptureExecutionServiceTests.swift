@@ -247,7 +247,7 @@ final class CaptureExecutionServiceTests: XCTestCase {
         CaptureRequestResolver(
             settings: settings,
             detectContext: {
-                DetectedContext(appName: "TestApp", windowTitle: "TestWindow", category: .other)
+                DetectedContext(appName: "TestApp", category: .other)
             },
             presetForCategory: { _ in nil },
             presetByName: { _ in nil }
