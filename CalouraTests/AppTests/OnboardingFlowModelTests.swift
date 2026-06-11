@@ -47,6 +47,33 @@ final class OnboardingFlowModelTests: XCTestCase {
         )
     }
 
+    func testOnlyWorkingStatusMapsToCompletedFlowState() {
+        // INVARIANT-8: only `.working` completes onboarding — no other
+        // permission status may ever map to the `.completed` flow state.
+        let allStatuses: [ScreenRecordingState] = [
+            .denied, .grantedNeedsValidation, .working,
+            .needsRelaunch, .staleRecord, .repairing, .configurationFailed
+        ]
+
+        for status in allStatuses {
+            for hasCompletedOnboarding in [false, true] {
+                let flowState = onboardingFlowState(
+                    for: status,
+                    hasCompletedOnboarding: hasCompletedOnboarding
+                )
+                if status == .working && hasCompletedOnboarding {
+                    XCTAssertEqual(flowState, .completed)
+                } else {
+                    XCTAssertNotEqual(
+                        flowState,
+                        .completed,
+                        "only .working may complete onboarding; \(status) must not"
+                    )
+                }
+            }
+        }
+    }
+
     func testInstallStateDetectionUsesApplicationsPath() {
         XCTAssertEqual(
             AppMover.installState(forBundlePath: "/Applications/Caloura.app"),
