@@ -1,6 +1,49 @@
 import Foundation
 
-struct HistorySearchModel {
+final class HistorySearchModel {
+
+    private struct CacheKey: Equatable {
+        let items: [ScreenshotItem]
+        let searchText: String
+        let semanticResults: Set<UUID>
+        let semanticSearchEnabled: Bool
+    }
+
+    private var cachedKey: CacheKey?
+    private var cachedResult: [ScreenshotItem] = []
+
+    /// Number of full filter scans performed by this instance.
+    /// Test seam for asserting one scan per render-equivalent access pattern.
+    private(set) var scanCount = 0
+
+    /// Memoizing wrapper around the static filter: re-scans only when an
+    /// input changed, so repeated accesses within one SwiftUI body pass
+    /// (and across renders with unchanged inputs) cost one scan total.
+    func filteredScreenshots(
+        from items: [ScreenshotItem],
+        searchText: String,
+        semanticResults: Set<UUID>,
+        semanticSearchEnabled: Bool
+    ) -> [ScreenshotItem] {
+        let key = CacheKey(
+            items: items,
+            searchText: searchText,
+            semanticResults: semanticResults,
+            semanticSearchEnabled: semanticSearchEnabled
+        )
+        if key == cachedKey {
+            return cachedResult
+        }
+        scanCount += 1
+        cachedResult = Self.filteredScreenshots(
+            from: items,
+            searchText: searchText,
+            semanticResults: semanticResults,
+            semanticSearchEnabled: semanticSearchEnabled
+        )
+        cachedKey = key
+        return cachedResult
+    }
 
     /// Filter screenshots by text query with optional semantic result fallback.
     /// Returns all items when `searchText` is empty.
