@@ -54,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if TestEnvironment.isHostingXCTest { return }
         if let captureObserver {
             NotificationCenter.default.removeObserver(captureObserver)
         }
@@ -63,7 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        if isUITestHostEnabled { return }
+        if TestEnvironment.isHostingXCTest || isUITestHostEnabled { return }
 
         // Skip the first activation — applicationDidFinishLaunching already checks.
         if isInitialLaunch {
@@ -82,6 +83,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Hard gate: a test host must never run live launch side effects.
+        // AppMover once replaced the installed app from an unsigned test run.
+        if TestEnvironment.isHostingXCTest { return }
+
         if isUITestHostEnabled {
             Self.cleanupStaleTempFilesInBackground()
             NSApp.setActivationPolicy(.regular)
