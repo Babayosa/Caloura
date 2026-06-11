@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		00F2B2D5A7EA888499E2E99C /* CapturePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC3E8A84DF9CCD9D210B6C62 /* CapturePipeline.swift */; };
+		0158B9AB262F060DC18BD691 /* PermissionCoordinator+RecoveryExecution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B92CB241A91265818284319 /* PermissionCoordinator+RecoveryExecution.swift */; };
 		06C04A4BEDF38D42DDD20588 /* ReleaseScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBC74CEACA72F0277A0FBC91 /* ReleaseScriptTests.swift */; };
 		07CDE71F03D5217A48548659 /* PerformanceMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE439828D0BB4DF539481B41 /* PerformanceMetricsTests.swift */; };
 		08AC2860039D39AFF21AD20D /* CaptureEnrichmentCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AB0CDED74DDDAB6DA502FA5 /* CaptureEnrichmentCoordinator.swift */; };
@@ -161,6 +162,7 @@
 		B2D46DAF71EA9FDD444A4E1D /* ScreenCaptureManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1DD9D277EFECD2B891B3667 /* ScreenCaptureManager.swift */; };
 		B4CCE70F525AEF5D791D2ABD /* OnboardingPermissionPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E08ED85FC39578853188E24 /* OnboardingPermissionPresentation.swift */; };
 		B4E7A00207F4B4EE35EF98B5 /* AppSettings+License.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8C76BB5712F273C86C56EEA /* AppSettings+License.swift */; };
+		B57885ED2D624575A05E6A32 /* PermissionCoordinator+Publication.swift in Sources */ = {isa = PBXBuildFile; fileRef = 750593E5FEA286E8A4ED549E /* PermissionCoordinator+Publication.swift */; };
 		B6F2DEB21F0072D13E7522DE /* MarkdownExporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5111148C3CD871846C3792E /* MarkdownExporterTests.swift */; };
 		B76CBA382AA2FCFDD10161F4 /* HistoryView+Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 298541E7E00E0950BD434FC1 /* HistoryView+Components.swift */; };
 		B79591DAD850D58CDA0911BC /* OCREngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC5E17AF8283788E1FA494B5 /* OCREngine.swift */; };
@@ -257,6 +259,7 @@
 		061E1E6D4EB8165400F7A253 /* HistorySearchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistorySearchModel.swift; sourceTree = "<group>"; };
 		0B35B51155AAE742D5361359 /* PermissionCoordinatorCoreNormalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionCoordinatorCoreNormalizationTests.swift; sourceTree = "<group>"; };
 		0B8872C4995AF76343335E2F /* PinnedScreenshotWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinnedScreenshotWindow.swift; sourceTree = "<group>"; };
+		0B92CB241A91265818284319 /* PermissionCoordinator+RecoveryExecution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PermissionCoordinator+RecoveryExecution.swift"; sourceTree = "<group>"; };
 		0BDAAAD3523B4F415BF63ED3 /* LicenseTestHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseTestHelpers.swift; sourceTree = "<group>"; };
 		0C255E601F1D29B6C793D21A /* PreferencesView+Tabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PreferencesView+Tabs.swift"; sourceTree = "<group>"; };
 		0CEC807563A7D8771A81FF17 /* FakeCaptureSessions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeCaptureSessions.swift; sourceTree = "<group>"; };
@@ -353,6 +356,7 @@
 		734277A60C0B95BA7A460864 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		738A2E3154EEF2E676ED7973 /* AppIntents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppIntents.framework; path = System/Library/Frameworks/AppIntents.framework; sourceTree = SDKROOT; };
 		74FAD5F086A3E075881B59B8 /* OCREngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCREngineTests.swift; sourceTree = "<group>"; };
+		750593E5FEA286E8A4ED549E /* PermissionCoordinator+Publication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PermissionCoordinator+Publication.swift"; sourceTree = "<group>"; };
 		751AC4D337724BAA79EEC98B /* PermissionIdentityProviderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionIdentityProviderTests.swift; sourceTree = "<group>"; };
 		761C0501FF605DE3B70832ED /* URLSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = URLSchemeHandler.swift; sourceTree = "<group>"; };
 		764C6C1C3A6A9EAB8A9DC743 /* LicenseManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LicenseManager.swift; sourceTree = "<group>"; };
@@ -777,6 +781,8 @@
 				98941373548AAF90D63D62E3 /* CaptureOverlayWindowPool.swift */,
 				F31D0DC5D9DA42FB99DAD527 /* PermissionCooldownPolicy.swift */,
 				3E2E642614FBDA33CE62ED0E /* PermissionCoordinator.swift */,
+				750593E5FEA286E8A4ED549E /* PermissionCoordinator+Publication.swift */,
+				0B92CB241A91265818284319 /* PermissionCoordinator+RecoveryExecution.swift */,
 				4BF0CC2969C21A31C53099E5 /* PermissionIdentity.swift */,
 				1C72393206D40357548F78EE /* PermissionIdentityProvider.swift */,
 				5D0DBBACC5ECDAC1358864C2 /* PermissionRecoveryPlanner.swift */,
@@ -1155,6 +1161,8 @@
 				E95DADB99718F9676CEA774E /* PIIDetector.swift in Sources */,
 				90CF01E75327819D0768518A /* PerformanceMetrics.swift in Sources */,
 				5D7FCD2D042DEDC135D0DF53 /* PermissionCooldownPolicy.swift in Sources */,
+				B57885ED2D624575A05E6A32 /* PermissionCoordinator+Publication.swift in Sources */,
+				0158B9AB262F060DC18BD691 /* PermissionCoordinator+RecoveryExecution.swift in Sources */,
 				50C4E01D5B0B17A986DB9243 /* PermissionCoordinator.swift in Sources */,
 				3C6019DB78F3D56E27E827D2 /* PermissionIdentity.swift in Sources */,
 				190AE47754F279BAD3844B1F /* PermissionIdentityProvider.swift in Sources */,

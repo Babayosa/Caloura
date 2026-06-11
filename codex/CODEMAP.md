@@ -30,13 +30,22 @@ Caloura is a macOS menu-bar screenshot tool. The app routes user actions (menu-b
 
 3. **Capture execution**
    - `Caloura/Capture/ScreenCaptureManager.swift` — ScreenCaptureKit primary, `screencapture` CLI fallback, CoreGraphics fallback.
-   - `Caloura/Capture/PermissionCoordinator.swift` — permission status + UI model for onboarding.
 
-4. **Context + presets**
+4. **Screen Recording permissions** (every flow: evidence acquisition → planner decision → step execution → gated publication)
+   - `Caloura/Capture/PermissionStore.swift` — single owner of all durable (UserDefaults) + session permission state: last-working identity, pending capture resume, alert/relaunch cooldowns, request session, live-validated fingerprint, pinned diagnosis. `statusContext(for:at:)` gathers one evidence snapshot per evaluation (`PermissionStatusContext`).
+   - `Caloura/Capture/PermissionStatusCore.swift` — pure rules: evidence snapshot → `ScreenRecordingState` + `PermissionUIModel` (guidance text, banners, messages).
+   - `Caloura/Capture/PermissionRecoveryPlanner.swift` — pure decision table: (state × evidence × cooldowns) → `PermissionRecoveryStep` for the capture-failure and settings-return recovery flows; no side effects.
+   - `Caloura/Capture/PermissionCoordinator.swift` — facade and the ONLY publication path: `publish(_:source:)` serializes flows, defers passive publications while a flow holds the gate, and preserves pinned diagnoses. Public API used by `CalouraApp`, `CapturePipeline`, `OnboardingView`, `AppCommandController`.
+   - `Caloura/Capture/PermissionCoordinator+Publication.swift` — evidence acquisition (`refreshPassiveStatus(source:)`) + convenience publishers feeding the gate.
+   - `Caloura/Capture/PermissionCoordinator+RecoveryExecution.swift` — serialized flow cores + executors for the planner's recovery steps (alerts, replayd repair, TCC reset, relaunch) via the injected effector closures.
+   - `Caloura/Capture/PermissionIdentity.swift` + `PermissionIdentityProvider.swift` — signing-identity fingerprinting (stale-record detection keys on signing identity, never executable path).
+   - `Caloura/Capture/PermissionCooldownPolicy.swift` — alert + auto-repair-relaunch cooldown thresholds.
+
+5. **Context + presets**
    - `Caloura/Context/*` — preset definitions and context detection.
    - `Caloura/Models/CaptureContext.swift` — capture context model.
 
-5. **Processing + distribution**
+6. **Processing + distribution**
    - `Caloura/Processing/ImageProcessor.swift` — image conversion/encoding.
    - `Caloura/Processing/SmartCropper.swift` — Vision-based smart crop.
    - `Caloura/Processing/OCREngine.swift` — OCR pipeline.
@@ -44,17 +53,17 @@ Caloura is a macOS menu-bar screenshot tool. The app routes user actions (menu-b
    - `Caloura/Distribution/FileOrganizer.swift` — file saving / directory layout.
    - `Caloura/Distribution/MarkdownExporter.swift` — markdown output + citations.
 
-6. **State + persistence**
+7. **State + persistence**
    - `Caloura/Models/AppState.swift` — app state + encrypted history persistence.
    - `Caloura/Models/AppSettings.swift` — debounced settings + trial clock + license persistence.
    - `Caloura/Security/HistoryCrypto.swift` — AES-GCM encryption + permission audits.
    - `Caloura/Security/KeychainHelper.swift` — legacy keychain migration helper.
 
-7. **Licensing + updates**
+8. **Licensing + updates**
    - `Caloura/App/LicenseManager.swift` — license state and trial tracking.
    - `Caloura/App/UpdateManager.swift` — Sparkle update integration.
 
-8. **UI surfaces**
+9. **UI surfaces**
    - `Caloura/UI/PreferencesView.swift` — settings tabs, license, updates.
    - `Caloura/UI/OnboardingView.swift` + `Caloura/UI/OnboardingFlowModel.swift` — onboarding steps.
    - `Caloura/UI/HistoryView.swift` — history browser (encrypted items).
