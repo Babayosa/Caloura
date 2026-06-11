@@ -27,6 +27,15 @@ private let sharedFreezeCIContext: CIContext = {
     ])
 }()
 
+/// Seam for testing freeze-target application matching without constructing
+/// real `SCRunningApplication` instances (which have no public initializer).
+protocol FreezeShareableApplication {
+    var processID: pid_t { get }
+    var bundleIdentifier: String { get }
+}
+
+extension SCRunningApplication: FreezeShareableApplication {}
+
 extension ScreenCaptureManager {
 
     // MARK: - SCK Capture
@@ -99,25 +108,38 @@ extension ScreenCaptureManager {
             )
         }
 
-        guard let bundleIdentifier = Bundle.main.bundleIdentifier else {
-            throw CaptureError.captureFailed(
-                "Failed to resolve the current app bundle identifier"
-            )
-        }
-
-        guard let currentApplication = shareableContent.applications.first(where: {
-            $0.processID == getpid() || $0.bundleIdentifier == bundleIdentifier
-        }) else {
-            throw CaptureError.captureFailed(
-                "Failed to resolve Caloura in shareable applications"
-            )
-        }
+        let excludedApplications = Self.freezeExcludedApplications(
+            in: shareableContent.applications,
+            currentProcessID: getpid(),
+            currentBundleIdentifier: Bundle.main.bundleIdentifier
+        )
 
         return FrozenDisplayCaptureTarget(
             resolvedScreen: resolvedScreen,
             display: display,
-            excludedApplications: [currentApplication]
+            excludedApplications: excludedApplications
         )
+    }
+
+    static func freezeExcludedApplications<App: FreezeShareableApplication>(
+        in applications: [App],
+        currentProcessID: pid_t,
+        currentBundleIdentifier: String?
+    ) -> [App] {
+        guard let currentApplication = applications.first(where: {
+            $0.processID == currentProcessID
+                || (currentBundleIdentifier != nil
+                    && $0.bundleIdentifier == currentBundleIdentifier)
+        }) else {
+            // First capture after launch: an agent app may not yet appear in
+            // SCShareableContent.applications. Capturing without
+            // self-exclusion beats silently losing the freeze backdrop.
+            logger.warning(
+                "Current app not in shareable applications; capturing freeze snapshot without self-exclusion"
+            )
+            return []
+        }
+        return [currentApplication]
     }
 
     func makeFreezeSnapshotConfiguration(
