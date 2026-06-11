@@ -56,7 +56,9 @@ struct ScreenCapturePermissionDependencies: Sendable {
         cgRequest: @escaping @Sendable () -> Bool,
         sckAccessProbe: @escaping @Sendable () async -> ScreenCaptureAccessProbeResult,
         runRepairTool: @escaping @Sendable (URL, [String]) async throws -> Void,
-        presentAlert: @escaping @MainActor @Sendable (ScreenCaptureManager.PermissionState) async -> ScreenCapturePermissionAlertAction,
+        presentAlert: @escaping @MainActor @Sendable (
+            ScreenCaptureManager.PermissionState
+        ) async -> ScreenCapturePermissionAlertAction,
         openURL: @escaping @MainActor @Sendable (URL) -> Void,
         relaunchApplication: @escaping @MainActor @Sendable (URL) async throws -> Void,
         terminateApplication: @escaping @MainActor @Sendable () -> Void,

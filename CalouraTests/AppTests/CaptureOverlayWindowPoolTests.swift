@@ -23,8 +23,8 @@ final class CaptureOverlayWindowPoolTests: XCTestCase {
         let second = pool.acquire(cursorController: nil)
 
         XCTAssertEqual(first.count, second.count)
-        for (a, b) in zip(first, second) {
-            XCTAssertTrue(a === b, "Expected same window instance on second acquire")
+        for (firstWindow, secondWindow) in zip(first, second) {
+            XCTAssertTrue(firstWindow === secondWindow, "Expected same window instance on second acquire")
         }
 
         pool.tearDown()
@@ -38,8 +38,8 @@ final class CaptureOverlayWindowPoolTests: XCTestCase {
         let second = pool.acquire(cursorController: nil)
 
         XCTAssertEqual(first.count, second.count)
-        for (a, b) in zip(first, second) {
-            XCTAssertFalse(a === b, "Expected new window instances after tearDown")
+        for (firstWindow, secondWindow) in zip(first, second) {
+            XCTAssertFalse(firstWindow === secondWindow, "Expected new window instances after tearDown")
         }
 
         pool.tearDown()
@@ -58,8 +58,8 @@ final class CaptureOverlayWindowPoolTests: XCTestCase {
         let second = pool.acquire(cursorController: nil)
 
         XCTAssertEqual(first.count, second.count)
-        for (a, b) in zip(first, second) {
-            XCTAssertTrue(a === b, "Expected same window instances reused after release")
+        for (firstWindow, secondWindow) in zip(first, second) {
+            XCTAssertTrue(firstWindow === secondWindow, "Expected same window instances reused after release")
         }
 
         pool.tearDown()
@@ -74,8 +74,11 @@ final class CaptureOverlayWindowPoolTests: XCTestCase {
         let second = pool.acquire(cursorController: spyB)
 
         XCTAssertEqual(first.count, second.count)
-        for (a, b) in zip(first, second) {
-            XCTAssertTrue(a === b, "Expected same window instances when only cursor controller changes")
+        for (firstWindow, secondWindow) in zip(first, second) {
+            XCTAssertTrue(
+                firstWindow === secondWindow,
+                "Expected same window instances when only cursor controller changes"
+            )
         }
 
         pool.tearDown()

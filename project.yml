@@ -74,7 +74,6 @@ targets:
         LSMinimumSystemVersion: "26.0"
         LSUIElement: true
         NSScreenCaptureUsageDescription: "Caloura needs screen recording access to capture screenshots."
-        NSAccessibilityUsageDescription: "Caloura needs Accessibility access to simulate scrolling for Scroll Capture."
         CalouraReleaseChannel: "$(CALOURA_RELEASE_CHANNEL)"
         CalouraRequireSignedEntitlement: "$(CALOURA_REQUIRE_SIGNED_ENTITLEMENT)"
         CalouraLicenseEntitlementURL: "$(CALOURA_LICENSE_ENTITLEMENT_URL)"

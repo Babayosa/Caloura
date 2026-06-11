@@ -127,27 +127,27 @@ final class RedactionEngineTests: XCTestCase {
     // MARK: - unionRects
 
     func testUnionRects_overlappingRectsMergeIntoSingleCover() {
-        let a = CGRect(x: 0, y: 0, width: 10, height: 10)
-        let b = CGRect(x: 5, y: 5, width: 10, height: 10)
-        let merged = RedactionEngine.unionRects([a, b])
+        let rectA = CGRect(x: 0, y: 0, width: 10, height: 10)
+        let rectB = CGRect(x: 5, y: 5, width: 10, height: 10)
+        let merged = RedactionEngine.unionRects([rectA, rectB])
         XCTAssertEqual(merged.count, 1, "overlapping rects must merge")
         XCTAssertEqual(merged.first, CGRect(x: 0, y: 0, width: 15, height: 15))
     }
 
     func testUnionRects_disjointRectsKeepBoth() {
-        let a = CGRect(x: 0, y: 0, width: 10, height: 10)
-        let b = CGRect(x: 100, y: 100, width: 10, height: 10)
-        let merged = RedactionEngine.unionRects([a, b])
+        let rectA = CGRect(x: 0, y: 0, width: 10, height: 10)
+        let rectB = CGRect(x: 100, y: 100, width: 10, height: 10)
+        let merged = RedactionEngine.unionRects([rectA, rectB])
         XCTAssertEqual(merged.count, 2)
     }
 
     func testUnionRects_transitiveChainCollapses() {
         // A∩B exists, B∩C exists, but A∩C does NOT — chain must still collapse
         // so seams between adjacent fills cannot leak the original content.
-        let a = CGRect(x: 0, y: 0, width: 10, height: 10)
-        let b = CGRect(x: 5, y: 0, width: 10, height: 10)
-        let c = CGRect(x: 12, y: 0, width: 10, height: 10)
-        let merged = RedactionEngine.unionRects([a, b, c])
+        let rectA = CGRect(x: 0, y: 0, width: 10, height: 10)
+        let rectB = CGRect(x: 5, y: 0, width: 10, height: 10)
+        let rectC = CGRect(x: 12, y: 0, width: 10, height: 10)
+        let merged = RedactionEngine.unionRects([rectA, rectB, rectC])
         XCTAssertEqual(merged.count, 1, "chain A↔B↔C must collapse to one rect")
         XCTAssertEqual(merged.first, CGRect(x: 0, y: 0, width: 22, height: 10))
     }

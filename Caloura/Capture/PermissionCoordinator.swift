@@ -384,8 +384,9 @@ final class PermissionCoordinator {
                         _ = publishStatus(.repairing, identity: identity)
                         logger.info("settings_return_auto_repair_start best_effort=true")
                         let repairResult = await repairSCKAccess()
+                        let repairResultDescription = String(describing: repairResult)
                         logger.info(
-                            "settings_return_auto_repair_result result=\(String(describing: repairResult), privacy: .public)"
+                            "settings_return_auto_repair_result result=\(repairResultDescription, privacy: .public)"
                         )
 
                         switch repairResult {
@@ -494,8 +495,9 @@ final class PermissionCoordinator {
         if interactiveResult == .transientFailure,
            cooldownPolicy.canAttemptAutoRepairRelaunch(),
            isShowingAlert {
+            let statusDescription = String(describing: status)
             logger.info(
-                "permission_alert_suppressed reason=inflight_repair status=\(String(describing: status), privacy: .public)"
+                "permission_alert_suppressed reason=inflight_repair status=\(statusDescription, privacy: .public)"
             )
         }
         if interactiveResult == .transientFailure,

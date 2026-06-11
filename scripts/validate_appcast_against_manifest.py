@@ -34,11 +34,8 @@ def find_sign_update() -> str:
     for candidate in candidates:
         if candidate.is_file():
             return str(candidate)
-    from shutil import which
-
-    resolved = which("sign_update")
-    if resolved:
-        return resolved
+    # No PATH fallback: an attacker-controlled sign_update earlier in PATH
+    # could vouch for a tampered artifact. Only the pinned locations count.
     raise SystemExit("sign_update not found; build the project or install Sparkle.")
 
 
