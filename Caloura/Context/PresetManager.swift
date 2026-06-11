@@ -1,4 +1,10 @@
 import Foundation
+import os.log
+
+private let logger = Logger(
+    subsystem: "com.caloura.app",
+    category: "PresetManager"
+)
 
 enum CopyMode: String, Codable {
     case image = "Image"
@@ -67,8 +73,15 @@ final class PresetManager {
 
     private let presetsKey = "capturePresets"
     private var isInitializing = true
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let encodePresets: ([CapturePreset]) throws -> Data
 
-    private init() {
+    init(
+        defaults: UserDefaults = .standard,
+        encodePresets: @escaping ([CapturePreset]) throws -> Data = { try JSONEncoder().encode($0) }
+    ) {
+        self.defaults = defaults
+        self.encodePresets = encodePresets
         loadPresets()
         ensureBuiltInPresets()
         isInitializing = false
@@ -137,13 +150,19 @@ final class PresetManager {
     }
 
     private func savePresets() {
-        if let data = try? JSONEncoder().encode(presets) {
-            UserDefaults.standard.set(data, forKey: presetsKey)
+        do {
+            let data = try encodePresets(presets)
+            defaults.set(data, forKey: presetsKey)
+        } catch {
+            logger.error(
+                "Failed to encode presets for saving: \(error.localizedDescription)"
+            )
+            StatusMessageRouter.sink("Failed to save presets")
         }
     }
 
     private func loadPresets() {
-        guard let data = UserDefaults.standard.data(forKey: presetsKey),
+        guard let data = defaults.data(forKey: presetsKey),
               let loaded = try? JSONDecoder().decode([CapturePreset].self, from: data) else {
             return
         }

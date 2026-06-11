@@ -66,6 +66,7 @@ extension ScreenCaptureManager {
     /// Returns true if SCK works after the restart.
     func repairSCKAccess() async -> ScreenCaptureAccessProbeResult {
         logger.info("Attempting replayd restart")
+        var kickstartExitedNonZero = false
         do {
             try await permissionDependencies.runRepairTool(
                 URL(filePath: "/bin/launchctl"),
@@ -77,6 +78,15 @@ extension ScreenCaptureManager {
         } catch {
             let desc = error.localizedDescription
             logger.warning("replayd restart failed: \(desc)")
+            kickstartExitedNonZero = true
+        }
+        let followUp = PermissionRecoveryPlanner.replaydFollowUpStep(
+            kickstartExitedNonZero: kickstartExitedNonZero
+        )
+        guard followUp == .probeSCKAfterReplaydSettle else {
+            // .skipReplaydProbe — H6 fast-skip: the restart did nothing, so
+            // the settle wait would be pure latency. Stay best-effort and
+            // report a transient failure (INVARIANT-7).
             return .transientFailure
         }
         try? await Task.sleep(for: .milliseconds(500))

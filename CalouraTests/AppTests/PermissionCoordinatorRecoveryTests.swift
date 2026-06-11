@@ -6,6 +6,9 @@ import XCTest
 final class PermissionCoordinatorRecoveryTests: XCTestCase {
 
     func testRepeatedPermissionAlertsClearIsShowingAlertBetweenCalls() async {
+        // INVARIANT-4: stateful flags use defer-based clearing — the
+        // isShowingAlert flag must clear on every scope exit so later
+        // failures stay observable instead of being silently suppressed.
         // Regression: isShowingAlert was assigned `= false` directly after
         // the await. If the surrounding task was cancelled mid-await, the
         // assignment never ran and every subsequent permission failure was
@@ -46,6 +49,8 @@ final class PermissionCoordinatorRecoveryTests: XCTestCase {
     }
 
     func testSerializedValidationClearsInFlightSlotBetweenCalls() async {
+        // INVARIANT-4: in-flight Task slots use defer-based clearing so a
+        // stuck slot can never make every later caller co-await a dead task.
         // Regression: inFlightValidation was assigned `= nil` directly after
         // `await task.value`. If the awaiting task was cancelled, the
         // assignment never ran and subsequent callers co-awaited a dead

@@ -1,314 +1,79 @@
-# Caloura — Production Release Plan
-
-**Branch:** `codex/task-09-release-grade-hardening` (13,277 additions across 121 files)
-**Date:** 2026-03-06
-**Status:** Codex completed tasks 06-08, task 09 in progress (hit limit). This plan finishes it.
-
----
-
-## Current State
-
-| Check | Status |
-|-------|--------|
-| `swift build` | PASS |
-| `swiftlint lint --quiet` | PASS (warnings only) |
-| `swift test` (441 tests) | PASS |
-| `xcodebuild build` | PASS (zero warnings) |
-| `xcodebuild test` | PASS |
-| `xcodebuild test` (UI tests) | PASS (5 tests) |
-| `release_ready.sh --guard-only` | FAIL at `CALOURA_LICENSE_ENTITLEMENT_URL` |
-| Developer ID cert | PRESENT |
-| Notarization profile | PRESENT + working |
-| Sparkle EdDSA key | PRESENT (appcast has signed entries) |
-| caloura-site repo | PRESENT |
-
-### Audit Summary (4 parallel deep audits completed)
-
-- **New source files (21 files):** All clean, production-ready, no TODOs/FIXMEs. Integration complete.
-- **Major refactored files (17 files):** 5 bugs found, 9 design concerns, 6 minor issues.
-- **Release scripts (12 files):** 2 bugs, several portability/config issues.
-- **Test suite (30+ files):** Excellent quality. ~10 timing-sensitive flaky risks, 3 global-state pollution issues.
-
----
-
-## Phase 0: Merge Codex Work to Main
-
-- [ ] **0.1** Review the full diff one more time for any missed issues
-- [ ] **0.2** Merge `codex/task-09-release-grade-hardening` into `main`
-- [ ] **0.3** Push to origin
-- [ ] **0.4** Clean up local codex branches (`codex/task-06-*`, `codex/task-07-*`, `codex/task-08-*`, `codex/task-09-*`)
-
----
-
-## Phase 1: Release-Blocking Fixes (MUST DO)
-
-### 1.1 Version Bump
-
-The live appcast already has v1.1.0 (build 13) and v1.2.0 (build 14). The project is
-still at v1.1.0 / build 13. The next release must be at least v1.3.0 / build 15.
-
-- [ ] **1.1a** Bump `MARKETING_VERSION` in `project.yml` to `"1.3.0"` (or chosen version)
-- [ ] **1.1b** Bump `CURRENT_PROJECT_VERSION` in `project.yml` to `"15"`
-- [ ] **1.1c** Run `xcodegen generate` to regenerate the Xcode project
-- [ ] **1.1d** Verify `swift build` and `xcodebuild build` still pass
-
-### 1.2 License Entitlement Backend Decision
-
-The release script requires `CALOURA_LICENSE_ENTITLEMENT_URL` and
-`CALOURA_LICENSE_ENTITLEMENT_PUBLIC_KEY` in the Release config. Two paths:
-
-**Option A — Deploy a license backend (recommended for security):**
-- [ ] Build a minimal backend (e.g. Cloudflare Worker, Vercel Edge, or Lambda) that:
-  - Accepts POST `{ "license_key": "..." }`
-  - Validates against Gumroad API
-  - Returns a signed token: `base64url(claims).base64url(Ed25519_signature)`
-  - Signs with a Curve25519 private key (app has the public key)
-- [ ] Generate a Curve25519 key pair
-- [ ] Set `CALOURA_LICENSE_ENTITLEMENT_URL` to the backend URL in project.yml Release config
-- [ ] Set `CALOURA_LICENSE_ENTITLEMENT_PUBLIC_KEY` to the base64-encoded public key
-- [ ] Test the full activate flow end-to-end
-
-**Option B — Skip signed backend for now (ship faster):**
-- [ ] Change `release.sh` `check_release_license_configuration` to NOT require
-      the URL/key when `CALOURA_REQUIRE_SIGNED_ENTITLEMENT=NO`
-- [ ] Set `CALOURA_REQUIRE_SIGNED_ENTITLEMENT: NO` in project.yml Release config
-- [ ] Allow Gumroad fallback in Release builds (remove the `#if DEBUG` guard around
-      `verifyWithGumroadFallback` or add a `CALOURA_ALLOW_GUMROAD_FALLBACK` build setting)
-- [ ] Document this as tech debt to revisit before significant user growth
-
-### 1.3 Fix `release_ready.sh` — `rg` Dependency
-
-`check_log_for_warnings` uses `rg` (ripgrep) which isn't installed. Replace with `grep`.
-
-- [ ] **1.3a** Replace `rg -n "warning:"` with `grep -n "warning:"` in `release_ready.sh`
-      (lines 108, 218)
-- [ ] **1.3b** Verify the script runs cleanly past the warning check
-
-### 1.4 Fix `release.sh` — Hardcoded `/tmp` Path
-
-Line 279 uses `/tmp/caloura-spctl.txt` instead of a `mktemp`-generated path.
-
-- [ ] **1.4a** Replace with `mktemp` (consistent with `ZIP_VERIFY_DIR` pattern)
-
-### 1.5 Appcast `minimumSystemVersion` for New Release
-
-The app now requires macOS 26.0. When the new version is published, the appcast entry
-must have `<sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>`.
-
-- [ ] **1.5a** Verify `caloura-site/release.sh` reads `LSMinimumSystemVersion` from the
-      built app's Info.plist (or hardcodes it). If it hardcodes 14.0, fix it.
-- [ ] **1.5b** Old appcast entries (1.0.0-1.2.0) should KEEP `14.0` so users on older
-      macOS still see their installed version in the feed. Only the new entry gets `26.0`.
-- [ ] **1.5c** Test: existing user on macOS 14 should NOT be offered the 26.0-only update
-
-### 1.6 Fix `release.sh` — notarytool `--page-size` Flag
-
-Line 249 uses `xcrun notarytool history --page-size 1` but the flag doesn't exist in
-the current Xcode toolchain.
-
-- [ ] **1.6a** Remove `--page-size 1` — just run `notarytool history` directly
-
-### 1.7 Fix `project.yml` Stale Metadata
-
-- [ ] **1.7a** Update `xcodeVersion: "15.0"` to `"26.0"` (must match Xcode for macOS 26)
-- [ ] **1.7b** Update `SWIFT_VERSION: "5.9"` to `"6.0"` (Xcode 26 ships Swift 6.x,
-      and `SWIFT_STRICT_CONCURRENCY: complete` implies Swift 6)
-
----
-
-## Phase 2: Code Bug Fixes (SHOULD DO)
-
-### 2.1 `isCapturing` Stuck During Permission Alert
-
-In `CapturePipeline.swift`, the `CaptureError.noPermission` catch path calls
-`await handlePermissionFailure()` while `appState.isCapturing` is still `true`.
-The UI appears stuck during the alert. User cannot re-try capture while alert is up.
-
-- [ ] **2.1a** Set `appState.isCapturing = false` before calling `handlePermissionFailure()`
-
-### 2.2 Double OCR Enrichment on Manual Save
-
-`CapturePipeline+Distribution.swift` `performQuickAction(.save)` calls
-`addToHistoryWithOCR` even when `autoSaveToDisk` already triggered it.
-
-- [ ] **2.2a** Guard: skip `addToHistoryWithOCR` if the screenshot already has OCR text
-      or is already in the enrichment queue
-
-### 2.3 `syncLaunchAtLoginState` Redundant Register
-
-`CalouraApp.swift` calls `SMAppService.mainApp.register()` even when status is
-already `.enabled`. Also doesn't handle `.requiresApproval` status.
-
-- [ ] **2.3a** Only call `register()` when status is not `.enabled`
-- [ ] **2.3b** Handle `.requiresApproval` explicitly (don't flip setting to false)
-
-### 2.4 `UpdateManager.controller` is Implicitly Unwrapped Optional
-
-`UpdateManager.swift:87` — `private var controller: (any UpdateControlling)!`
-IUO is a crash risk if init path ever changes.
-
-- [ ] **2.4a** Refactor to non-optional `let` (may require restructuring init)
-
-### 2.5 `isAlertCooldownActive` Never Resets
-
-`PermissionCoordinator.swift` — `updateCooldownInModel(cooldownActive: true)` is called
-but `updateCooldownInModel(cooldownActive: false)` is never called. The published model
-property stays `true` forever after first cooldown, even after 45s expires.
-
-- [ ] **2.5a** Add a timer or check to reset `isAlertCooldownActive = false` after cooldown
-
-### 2.6 URLSchemeHandler `save` Action Silently No-ops
-
-`URLSchemeHandler.swift:70-71` — When `then=save` is passed via URL scheme but
-`autoSaveToDisk` is off, the save is silently skipped with no feedback.
-
-- [ ] **2.6a** Dispatch an explicit save command (or at minimum log a warning)
-
-### 2.7 Two Divergent Relaunch Mechanisms
-
-`ScreenCaptureManager+Permission.swift:145` uses `runRepairTool` + `/usr/bin/open -n`
-while `relaunchApp()` at line 105 uses the `relaunchApplication` dependency.
-
-- [ ] **2.7a** Unify to use the same relaunch mechanism for testability
-
-### 2.8 `sckFailed` Public Var
-
-`ScreenCaptureManager.swift:132` — `var sckFailed: Bool` has no access control.
-Any module code can flip it, bypassing `handleSCKFailure` logic.
-
-- [ ] **2.8a** Change to `private(set) var sckFailed`
-
----
-
-## Phase 3: Test Stability (SHOULD DO)
-
-### 3.1 Timing-Dependent Tests (~10 tests at risk)
-
-Several tests use wall-clock delays that may flake under CI load:
-
-- [ ] **3.1a** `testCancelDelayedCapture_clearsCountdownState` — increase poll timeout
-      or use `XCTestExpectation` with a longer timeout
-- [ ] **3.1b** `testPreviewPhase_transitionsFromPendingToComplete` — replace `Task.sleep`
-      with `XCTestExpectation` or `pollUntil` with assertion on timeout failure
-- [ ] **3.1c** `testRevalidation_ambiguousResponseRetriesBeforeExpiry` — increase the
-      50ms expiry window to at least 500ms
-- [ ] **3.1d** `testHistoryWithOCR_preservesEnrichmentForRapidCaptures` — increase the
-      80ms delay differential
-- [ ] **3.1e** `testRefreshState_futureRefreshSchedulesDelayedRevalidation` — same 50ms
-      window issue as 3.1c
-- [ ] **3.1f** `ScreenCaptureManagerPermissionTests` — replace 20ms/50ms `Task.sleep`
-      with `pollUntil` or expectations
-- [ ] **3.1g** `UpdateManagerTests` — replace `waitForMainQueuePropagation()` (20ms sleep)
-      with proper expectation-based waiting
-- [ ] **3.1h** `testPersistenceIntegrity_afterRapidAdds` — replace unconditional 1s sleep
-      with debounce-aware polling
-
-### 3.2 Global State Pollution
-
-- [ ] **3.2a** `URLSchemeHandlerTests.testHandle_presetNormalization` — restore
-      `AppSettings.shared.activePreset` in tearDown
-- [ ] **3.2b** `CaptureSystemTests.testRelaunchApp_failureUpdatesStatusMessage` — restore
-      `AppState.shared.statusMessage` in tearDown
-- [ ] **3.2c** `URLSchemeHandler.lastHandledDate` — should be `private(set)` to prevent
-      accidental external mutation beyond test setup
-
-### 3.3 Missing Test Coverage
-
-- [ ] **3.3a** Add isolated unit tests for `CaptureEnrichmentCoordinator` (queue ordering,
-      concurrency limit, deduplication, cancellation)
-- [ ] **3.3b** Add a positive-case OCR test with a known-text image fixture (even if
-      assertion is loose due to Vision non-determinism)
-
-### 3.4 `pollUntil` Ergonomics
-
-- [ ] **3.4a** Consider making `pollUntil` fail on timeout (call `XCTFail` with a message)
-      rather than silently returning — current behavior masks the real failure location
-
----
-
-## Phase 4: Polish (NICE TO DO)
-
-### 4.1 SwiftLint Warnings
-
-- [ ] **4.1a** Split `AppSettings` into extensions to reduce type body length below 300
-- [ ] **4.1b** Replace blanket `swiftlint:disable` in `ScrollCaptureEngineTests` with
-      targeted `next` / `this` directives
-
-### 4.2 Access Control Tightening
-
-- [ ] **4.2a** Mark `CapturePipeline.overlayWindows`, `screenOverlays`,
-      `areaCaptureSession`, `fullscreenCaptureSession` as `private(set)` or `internal`
-- [ ] **4.2b** Mark `isSameObject` and `elapsedMilliseconds` helpers as `private`
-- [ ] **4.2c** `URLSchemeHandler.lastHandledDate` — add `private(set)` or `internal`
-
-### 4.3 UI Test Host Safety
-
-- [ ] **4.3a** Replace `fatalError()` in `UITestHostWindowController.makePreviewImage`
-      with a fallback solid-color image
-
-### 4.4 Minor Code Cleanup
-
-- [ ] **4.4a** `UpdateManager.finishUpdateCycle` — simplify `error.map { ... } ?? nil`
-      to `error.flatMap { ... }`
-- [ ] **4.4b** `ScrollCaptureEngine+Defaults.swift` — add comments for CGEvent scroll
-      phase magic integers (1=began, 2=changed, 4=ended)
-- [ ] **4.4c** `ScrollCaptureHelpers.swift` — add comment explaining `@unchecked Sendable`
-      pointer lifetime guarantee (CFData retains the pointer)
-- [ ] **4.4d** `AppSettings.scrollToTopMigratedV1` — move migration key to `Keys` enum
-- [ ] **4.4e** `WindowPickerManager` — add `picker.remove(self)` in `deinit`
-- [ ] **4.4f** Add `NSHumanReadableCopyright` to Info.plist
-
-### 4.5 Project Config Cleanup
-
-- [ ] **4.5a** Remove duplicate `MACOSX_DEPLOYMENT_TARGET` in `project.yml` (already set
-      via `deploymentTarget.macOS`)
-- [ ] **4.5b** `ExportOptions.plist` — align `signingStyle: automatic` with Release config
-      `CODE_SIGN_STYLE: Manual` (or document why they differ)
-- [ ] **4.5c** `public_download_qa.sh` — make trial simulation dates relative to `date`
-      instead of hardcoded past dates
-
----
-
-## Phase 5: Release Build + Publish
-
-- [ ] **5.1** Run full `scripts/release_ready.sh` (not `--guard-only`)
-- [ ] **5.2** Verify the release build archive succeeds
-- [ ] **5.3** Verify notarization succeeds
-- [ ] **5.4** Verify Gatekeeper + stapler validation passes
-- [ ] **5.5** Run `scripts/publish.sh <version>` to publish to caloura.app
-- [ ] **5.6** Verify appcast.xml has the new entry with `minimumSystemVersion=26.0`
-- [ ] **5.7** Download the published zip and verify it launches on macOS 26
-- [ ] **5.8** Verify Sparkle update check finds the new version
-- [ ] **5.9** Upload zip to Gumroad manually
-- [ ] **5.10** Tag the release commit: `git tag v<version> && git push --tags`
-
----
-
-## Phase 6: Post-Release
-
-- [ ] **6.1** Update `tasks/lessons.md` with any new findings
-- [ ] **6.2** Archive completed codex task docs to `tasks/archive/`
-- [ ] **6.3** If Option B was chosen for licensing, create a tracking issue for the
-      signed entitlement backend
-
----
-
-## Decision Log
-
-| Decision | Options | Chosen | Rationale |
-|----------|---------|--------|-----------|
-| Next version | 1.3.0 / 2.0.0 | TBD | 1.3.0 if incremental; 2.0.0 if marketing the refactor |
-| License backend | Option A (backend) / Option B (Gumroad fallback) | TBD | A is more secure; B ships faster |
-| Merge strategy | Merge commit / Squash | TBD | Squash loses granular history; merge preserves it |
-
----
-
-## Evidence (to be filled as work progresses)
-
-| Step | Evidence | Date |
-|------|----------|------|
-| Phase 0 merge | | |
-| Phase 1 fixes | | |
-| Phase 2 fixes | | |
-| Phase 3 tests | | |
-| Phase 5 release | | |
+# Caloura — Audit Remediation (tasks/audit-2026-06-09-full.md)
+
+**Started:** 2026-06-10 · **Contract:** /goal phases 0–5, evidence-first, one finding per branch/commit, main stays releasable.
+**Key discovery:** runner image `macos-26` carries Xcode 26.4.1 (default) + 26.5, NOT 26.0 → workflows need runner label fix AND `xcode-version: "^26.0"` range together.
+Prior plan archived → `tasks/archive/todo-2026-03-06-task09-release-plan.md`.
+
+## Phase 0 — Safety net
+- [x] 0.1 Fix CI runners: `macos-26` in ci.yml/release-smoke.yml/release-guard.yml + `xcode-version: ^26.0` (one change, single root cause)
+- [x] 0.2 Brewfile replaces phantom `swiftlint@0.63.2` pins; rename misleading "with coverage" step
+- [x] 0.3 coverage_gate.py wired into ci.yml via -resultBundlePath; artifact upload
+- [x] 0.4 swiftlint --strict; add CalouraSystemTests/CalouraUITests to .swiftlint.yml included
+- [x] 0.5 Gate-proof: 3 throwaway PRs (lint warning / deleted LicenseManager test / broken build) each observed RED; record run URLs; delete branches
+- [x] 0.6 release-guard (smoke: parse fix merged PR #16, dispatch pending) + release-smoke green via workflow_dispatch
+
+## Phase 1 — Branch-critical + quick wins
+- [x] 1.1 sharingType == .none tests for PinnedScreenshotWindow + CountdownOverlay (observed red with excludeFromScreenSharing() commented out, then green)
+- [x] 1.2 README/plan.md truth pass (macOS 26, Xcode 26, real CI description, v2.4.2); execute every documented command
+- [x] 1.3 .gitignore += releases/; remove NSAccessibilityUsageDescription (project.yml); kSecAttrSynchronizable=false in KeychainHelper.writeData; drop which() fallback in validate_appcast_against_manifest.py find_sign_update
+
+## Phase 2 — Correctness (failing test BEFORE each fix)
+- [ ] 2.1 handleCaptureFailure resets isCapturing (CaptureExecutionService)
+- [ ] 2.2 defer-based reset in captureDelayed countdown task (CaptureEntrypointService)
+- [ ] 2.3 savePresets do/catch + log + status (PresetManager)
+- [ ] 2.4 freezeCaptureTarget fallback instead of throw (ScreenCaptureManager+SCKCapture)
+- [ ] 2.5 SHA-pin actions + concurrency groups (workflows stay green)
+
+## Phase 3 — Performance (baseline FIRST, before/after numbers)
+- [ ] 3.0 Baseline: perf_audit.sh + signpost evidence, capture w/ 50-item history
+- [ ] 3.1 EmbeddingStore → actor; 4 call sites; termination flush bounded; new save/load ordering test
+- [ ] 3.2 Single-pass .accurate OCR (OCREngine.recognizeTextWithBoundingBoxes); exactly one VNRecognizeTextRequest per enrichment
+- [ ] 3.3 HistoryView.filteredScreenshots computed once per body
+- [ ] 3.4 Re-measure: no main-thread file I/O during capture; perf_audit budgets pass
+
+## Phase 4 — License URL (GATED: only if api.caloura.app DNS confirmed available; else report blocked-by-decision)
+- [ ] 4.1 Vanity domain in project.yml; Debug build verifies live worker on both hostnames
+
+## Phase 5 — Polish
+- [ ] 5.1 Dedup: orderedPresentationScreens, HistoryWindowController metrics, deletingPathExtension, fileExtension(for:), crosshair geometry
+- [ ] 5.2 codex/CODEMAP.md refresh (+ StatusMessageRouter seam); archive plan.md
+- [ ] 5.3 Dead code: DetectedContext.windowTitle, HistoryCrypto eager fallback URL, vacuous ReleaseScriptTests assertion
+- [ ] 5.4 Test hygiene: AsyncGate instead of 50ms sleep, addTeardownBlock temp cleanup, XCTSkip headless system tests, drop NSCache actor wrapper
+
+## Review / Evidence
+- 0.1 PR #5 merged (c75661b). First green CI since 2026-04-28: run 27320567683 (build-test pass 3m53s). Root cause verified in logs of run 25078035743: "Could not find Xcode version that satisfied version spec: '26.0'" on macos-14. macos-26 image ships Xcode 26.4.1/26.5 → ^26.0 range required.
+- 0.2 PR #6 merged. Version assertion proven live: first run failed loudly (run 27321838249: "swiftlint 0.63.2 != pinned 0.63.3") → pin corrected to image-preinstalled 0.63.2 → green run 27321925569.
+- 1.1 task-22 d22a89f. Red-proof: with excludeFromScreenSharing() commented out, testCountdownOverlayCreatesNonShareablePanel + testPinnedScreenshotWindowIsNonShareable fail (NSWindowSharingType 1 != 0); green restored, 6/6.
+- 1.2 PR #7 merged. Executed: xcodegen generate ✓, xcodebuild build ✓, RELEASE_GUARD_ONLY=1 RELEASE_TAG=v2.4.2 ./scripts/release.sh 2.4.2 ✓ (guard checks pass).
+- 1.3 PR #8 merged (4 atomic commits). KeychainHelperTests 9/9 green after sync-flag change.
+- flake: testEnqueue_limitsConcurrentJobs asserted start ORDER of 2 concurrent jobs; failed PR #9 CI (run 27322059940, ["second","first"]) and 2 local pre-commit runs. Fixed in PR #11 (set-membership assertion), 5/5 green repeats.
+- In flight: PR #9 (coverage gate, rerun after #11), PR #10 (strict lint + 41 fixes), PR #11 (flake fix).
+
+## ⚠️ ACTION NEEDED (user)
+Test runs (unsigned test host) fired AppMover and replaced /Applications/Caloura.app with an unsigned DEBUG build; your signed 2.5.0 is intact at ~/.Trash/Caloura.app. Sandbox denied my restore. Run:
+  trash /Applications/Caloura.app && cp -Rp ~/.Trash/Caloura.app /Applications/
+Root-cause fix (test host can never trigger AppMover) landed separately — see evidence log.
+
+- 0.3 PR #9 merged. Gate live: first run caught a REAL gap (ScreenCaptureManager+Permission 70.11% < 85 headless) -> covered via DI seams to 91.38%, run 27324137758 green.
+- 0.4 PR #10 merged: --strict + 41 violations fixed properly; size rules warning==old error (sanctioned hard-cap form; PermissionCoordinator split deferred per contract).
+- 0.5 GATE-PROOFS (all red, recorded, branches deleted): lint run 27324885375 (identifier_name error, exit 2); coverage run 27324885783 (UpdateManager.swift 31.29% < 85); build run 27324630230 (emit-module fail). Note: first lint proof was invalid (comment line; ignores_comments:true) and LicenseManager kept >=90% via redundant suites — both proofs strengthened. PR #15/#13/#14 closed unmerged.
+- 0.6 release-guard workflow_dispatch run 27324842720 SUCCESS (30s). release-smoke: was UNPARSEABLE since creation (runner.temp in job-level env -> 0s failures on every tag push) — fixed in PR #16 (merged), re-dispatched.
+- Flake root cause #2 (the big one): FoundationModels LanguageModelSession EXC_BREAKPOINT inside unsigned XCTest hosts (crash report xctest-2026-06-11-011546.ips) — SmartMetadataGenerator now short-circuits in test hosts (PR #17). 3 consecutive full-suite runs green; previously ~50% crash rate.
+- Test-host safety: PR #12 merged (TestEnvironment hard gate; AppMover can never fire in tests).
+- Permissions rework S1 committed on audit/permissions-rework: PermissionStore (24 tests), 722 green, coordinator 875->802.
+
+## Permissions rework S2 — publication gate (DONE, uncommitted on audit/permissions-rework)
+- [x] Single publish(_ candidate:source:) path; route ALL permissionUIModel writes (updateUIModel via publishStatus, updateCooldownInModel, cooldown timer)
+- [x] Gate: diagnosis preservation unchanged (INVARIANT-5); .passive deferred to deferredPassiveEvidence while inFlightValidation != nil; .serializedFlow always applies
+- [x] Flow completion re-evaluates deferred slot with FRESH store context via PermissionStatusCore.passiveStatus, published through the same gate
+- [x] Internal flow calls to refreshPassiveStatus rerouted as .serializedFlow (behavior-preserving)
+- [x] New CalouraTests/CaptureTests/PermissionPublicationGateTests.swift (4 tests, INVARIANT-3/5 tagged)
+- [x] swift build + swift test x2 + swiftlint --strict green; 13 existing permission test files UNMODIFIED
+
+S2 evidence: swift build "Build complete! (7.44s)"; swift test x2 = 726 tests 0 failures both runs (722 existing + 4 new); swiftlint lint --quiet --strict exit 0; git diff --name-only CalouraTests/ = empty (no test files modified). Remaining raw permissionUIModel writes: line 67 declaration default, line 712 + updateUIModel (927) both inside publish() apply branch only.
+
+## STOPPED 2026-06-11 ~01:50 — session usage limit (resets 2:50am NY)
+Rework branch audit/permissions-rework pushed (design doc + S2 commit ebb0a29; S1 rode into main via PR #17 — see PR comment).
+S3 (RecoveryPlanner) NOT started in code: interrupted agent only read files; tree clean, builds green.
+NEXT: (1) dispatch S3 per tasks/permissions-rework-design.md stage spec; (2) S4 facade slim; (3) open rework PR; (4) check release-smoke dispatch result (gh run list --workflow=release-smoke.yml); (5) remaining plan phases 2.x/3.x/5.x; Phase 4 license URL still blocked on DNS decision.
+REMINDER (user): put the signed app back — trash /Applications/Caloura.app && cp -Rp ~/.Trash/Caloura.app /Applications/

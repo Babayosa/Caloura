@@ -514,6 +514,43 @@ extension CapturePipelineTests {
         )
     }
 
+    func testDelayedCaptureTaskDirectCancellation_resetsCountdownStateViaDefer() async {
+        // Regression pin for audit finding: the countdown task in
+        // captureDelayed must own its cleanup via defer. If the task is
+        // cancelled directly (not through cancelDelayedCapture, which cleans
+        // up on the caller side), every early `return` leaks isCountingDown,
+        // countdownRemaining, isCapturing, and the task slot — wedging all
+        // future captures behind beginCaptureIfIdle().
+        let pipeline = CapturePipelineTestHelpers.makePipeline(
+            testName: #function,
+            delaySleeper: { _ in
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+            }
+        )
+
+        pipeline.entrypointService.captureDelayed(seconds: 10, mode: .area)
+        XCTAssertTrue(pipeline.appState.isCountingDown)
+        XCTAssertTrue(pipeline.appState.isCapturing)
+
+        guard let task = pipeline.sessionState.delayedCaptureTask else {
+            return XCTFail("Expected an in-flight delayed capture task")
+        }
+        task.cancel()
+        await task.value
+
+        XCTAssertFalse(
+            pipeline.appState.isCountingDown,
+            "cancelled countdown task must reset isCountingDown via defer"
+        )
+        XCTAssertEqual(pipeline.appState.countdownRemaining, 0)
+        XCTAssertFalse(
+            pipeline.appState.isCapturing,
+            "cancelled countdown task must release the capture-in-progress flag"
+        )
+        XCTAssertNil(pipeline.appState.currentCaptureRequestID)
+        XCTAssertNil(pipeline.sessionState.delayedCaptureTask)
+    }
+
     func testCancelDelayedCapture_clearsCountdownState() async {
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function

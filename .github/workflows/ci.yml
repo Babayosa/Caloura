@@ -6,15 +6,19 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-test:
     runs-on: macos-26
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Pin Xcode
-        uses: maxim-lobanov/setup-xcode@v1
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           # Range, not exact: hosted images ship 26.4.1+/26.5, never 26.0.
           # An exact "26.0" pin is what kept CI red from 2026-04-28 to 06-10.
@@ -26,7 +30,18 @@ jobs:
           swift --version
 
       - name: Install tools
-        run: HOMEBREW_NO_AUTO_UPDATE=1 brew bundle --file=Brewfile
+        run: |
+          HOMEBREW_NO_AUTO_UPDATE=1 brew bundle --file=Brewfile
+          # Runner images drift between brew swiftlint versions mid-fleet, so
+          # install the pinned release binary (checksum-verified) instead of
+          # trusting whatever the image preinstalled.
+          source scripts/ci_tool_versions.env
+          curl -fsSL -o /tmp/portable_swiftlint.zip \
+            "https://github.com/realm/SwiftLint/releases/download/${SWIFTLINT_VERSION}/portable_swiftlint.zip"
+          echo "${SWIFTLINT_ZIP_SHA256}  /tmp/portable_swiftlint.zip" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/swiftlint-bin"
+          unzip -o -q /tmp/portable_swiftlint.zip -d "$RUNNER_TEMP/swiftlint-bin"
+          echo "$RUNNER_TEMP/swiftlint-bin" >> "$GITHUB_PATH"
 
       - name: Verify tool versions
         run: |
@@ -78,7 +93,7 @@ jobs:
 
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-report
           path: .build/coverage/
