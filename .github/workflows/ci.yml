@@ -64,6 +64,22 @@ jobs:
             -derivedDataPath .build/DerivedData-ci \
             -destination 'platform=macOS' \
             -skip-testing:CalouraUITests \
+            -enableCodeCoverage YES \
+            -resultBundlePath .build/ci.xcresult \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
+
+      - name: Coverage gate
+        run: |
+          python3 scripts/coverage_gate.py \
+            --xcresult .build/ci.xcresult \
+            --output-dir .build/coverage
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: .build/coverage/
+          if-no-files-found: ignore
