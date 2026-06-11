@@ -257,7 +257,8 @@ struct FileOrganizer {
     }
 }
 
-private extension String {
+extension String {
+    /// Shared path-extension helper (used by FileOrganizer and ScreenshotArtifactCoordinator).
     var deletingPathExtension: String {
         (self as NSString).deletingPathExtension
     }

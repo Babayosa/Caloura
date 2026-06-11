@@ -74,7 +74,7 @@ final class ScreenSelectionOverlayWindow: NSPanel {
         onScreenSelected: @escaping (NSScreen) -> Void,
         onCancelled: @escaping () -> Void
     ) -> [ScreenSelectionOverlayWindow] {
-        let screens = orderedPresentationScreens()
+        let screens = CaptureOverlayWindow.orderedPresentationScreens()
         var overlays: [ScreenSelectionOverlayWindow] = []
         overlays.reserveCapacity(screens.count)
 
@@ -107,16 +107,5 @@ final class ScreenSelectionOverlayWindow: NSPanel {
         }
 
         return overlays
-    }
-
-    private static func orderedPresentationScreens() -> [NSScreen] {
-        let screens = NSScreen.screens
-        guard let mouseScreen = screens.first(where: { screen in
-            NSMouseInRect(NSEvent.mouseLocation, screen.frame, false)
-        }) else {
-            return screens
-        }
-
-        return [mouseScreen] + screens.filter { $0 != mouseScreen }
     }
 }

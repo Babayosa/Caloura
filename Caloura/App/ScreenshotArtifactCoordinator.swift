@@ -167,9 +167,3 @@ final class ScreenshotArtifactCoordinator {
         return "\(baseName)-\(suffix).\(ext)"
     }
 }
-
-private extension String {
-    var deletingPathExtension: String {
-        (self as NSString).deletingPathExtension
-    }
-}

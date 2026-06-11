@@ -6,7 +6,7 @@ private let historyLogger = Logger(subsystem: "com.caloura.app", category: "Hist
 @MainActor
 final class HistoryWindowController {
     private let presenter = SingleWindowPresenter<HistoryView>()
-    private var performanceMetrics = PerformanceMetricsAggregator(
+    private let metricsRecorder = CaptureMetricsRecorder(
         maxSamplesPerStage: 120, reportInterval: 20
     )
 
@@ -25,28 +25,12 @@ final class HistoryWindowController {
         guard didCreate else { return }
         OnboardingTipsController.shared.showIfNeeded(.history)
 
-        let openMilliseconds = (CFAbsoluteTimeGetCurrent() - openStart) * 1000
+        let openMilliseconds = metricsRecorder.elapsedMilliseconds(since: openStart)
         historyLogger.debug(
             "history_window_open_ms=\(openMilliseconds, privacy: .public)"
         )
-        let stageName = PerformanceMetricStage.historyWindowOpen.rawValue
-        let sampleMsg = "metric_sample stage=\(stageName)"
-            + " ms=\(openMilliseconds)"
-        historyLogger.info("\(sampleMsg, privacy: .public)")
-        if let summary = performanceMetrics.record(
+        metricsRecorder.recordMetric(
             stage: .historyWindowOpen, milliseconds: openMilliseconds
-        ) {
-            let sumStage = summary.stage.rawValue
-            let sampleCount = summary.sampleCount
-            let latest = summary.latestMilliseconds
-            let p50 = summary.p50Milliseconds
-            let p95 = summary.p95Milliseconds
-            let summaryMsg = "metric_summary stage=\(sumStage)"
-                + " samples=\(sampleCount)"
-                + " latest_ms=\(latest)"
-                + " p50_ms=\(p50)"
-                + " p95_ms=\(p95)"
-            historyLogger.info("\(summaryMsg, privacy: .public)")
-        }
+        )
     }
 }

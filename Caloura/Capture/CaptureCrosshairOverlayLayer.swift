@@ -96,45 +96,18 @@ final class CaptureCrosshairOverlayLayer {
     }
 
     private func layoutSegments(_ segments: [CALayer], at point: CGPoint, thickness: CGFloat, pixel: CGFloat) {
-        let armLength = CaptureCrosshairMetrics.armLength
-        let gap = CaptureCrosshairMetrics.gap
-        let centered = snap(point.x - thickness / 2, pixel: pixel)
-        let middle = snap(point.y - thickness / 2, pixel: pixel)
-
-        segments[0].frame = CGRect(
-            x: snap(point.x - armLength, pixel: pixel),
-            y: middle,
-            width: snap(armLength - gap, pixel: pixel),
-            height: thickness
+        let frames = CaptureCrosshairMetrics.segmentFrames(
+            at: point, thickness: thickness, pixel: pixel
         )
-        segments[1].frame = CGRect(
-            x: snap(point.x + gap, pixel: pixel),
-            y: middle,
-            width: snap(armLength - gap, pixel: pixel),
-            height: thickness
-        )
-        segments[2].frame = CGRect(
-            x: centered,
-            y: snap(point.y - armLength, pixel: pixel),
-            width: thickness,
-            height: snap(armLength - gap, pixel: pixel)
-        )
-        segments[3].frame = CGRect(
-            x: centered,
-            y: snap(point.y + gap, pixel: pixel),
-            width: thickness,
-            height: snap(armLength - gap, pixel: pixel)
-        )
+        for (segment, frame) in zip(segments, frames) {
+            segment.frame = frame
+        }
     }
 
     private func snap(_ point: CGPoint, scale: CGFloat) -> CGPoint {
         CGPoint(
-            x: snap(point.x, pixel: 1 / scale),
-            y: snap(point.y, pixel: 1 / scale)
+            x: CaptureCrosshairMetrics.snap(point.x, pixel: 1 / scale),
+            y: CaptureCrosshairMetrics.snap(point.y, pixel: 1 / scale)
         )
-    }
-
-    private func snap(_ value: CGFloat, pixel: CGFloat) -> CGFloat {
-        (value / pixel).rounded() * pixel
     }
 }

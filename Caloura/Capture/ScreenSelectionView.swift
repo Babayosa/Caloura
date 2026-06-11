@@ -169,45 +169,18 @@ final class ScreenSelectionView: NSView {
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         let pixel = 1 / max(scale, 1)
         let thickness = pixelWidth * pixel
-        let armLength = CaptureCrosshairMetrics.armLength
-        let gap = CaptureCrosshairMetrics.gap
         let snappedPoint = CGPoint(
-            x: snap(point.x, pixel: pixel),
-            y: snap(point.y, pixel: pixel)
+            x: CaptureCrosshairMetrics.snap(point.x, pixel: pixel),
+            y: CaptureCrosshairMetrics.snap(point.y, pixel: pixel)
         )
-        let centered = snap(snappedPoint.x - thickness / 2, pixel: pixel)
-        let middle = snap(snappedPoint.y - thickness / 2, pixel: pixel)
-        let segmentLength = snap(armLength - gap, pixel: pixel)
 
         color.setFill()
-        NSBezierPath(rect: CGRect(
-            x: snap(snappedPoint.x - armLength, pixel: pixel),
-            y: middle,
-            width: segmentLength,
-            height: thickness
-        )).fill()
-        NSBezierPath(rect: CGRect(
-            x: snap(snappedPoint.x + gap, pixel: pixel),
-            y: middle,
-            width: segmentLength,
-            height: thickness
-        )).fill()
-        NSBezierPath(rect: CGRect(
-            x: centered,
-            y: snap(snappedPoint.y - armLength, pixel: pixel),
-            width: thickness,
-            height: segmentLength
-        )).fill()
-        NSBezierPath(rect: CGRect(
-            x: centered,
-            y: snap(snappedPoint.y + gap, pixel: pixel),
-            width: thickness,
-            height: segmentLength
-        )).fill()
-    }
-
-    private func snap(_ value: CGFloat, pixel: CGFloat) -> CGFloat {
-        (value / pixel).rounded() * pixel
+        let frames = CaptureCrosshairMetrics.segmentFrames(
+            at: snappedPoint, thickness: thickness, pixel: pixel
+        )
+        for frame in frames {
+            NSBezierPath(rect: frame).fill()
+        }
     }
 
     // MARK: - Mouse Events
