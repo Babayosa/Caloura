@@ -7,7 +7,10 @@ final class CaptureDistributionServiceTests: XCTestCase {
 
     func testPerformQuickActionSave_skipsEnrichmentWhenPreviewAlreadyPending() async {
         let saveCalled = expectation(description: "save called")
-        let appState = makeAppState(testName: #function)
+        let appState = makeAppState(
+            testName: #function,
+            historyURL: temporaryFileURL(prefix: "distribution-\(#function)")
+        )
         let screenshot = makeScreenshot()
         appState.setCapturePreviewPhase(.enrichmentPending, for: screenshot.id)
         var enrichmentCalls = 0
@@ -42,7 +45,10 @@ final class CaptureDistributionServiceTests: XCTestCase {
 
     func testSaveLastCapture_skipsEnrichmentWhenScreenshotAlreadyHasOCRText() async {
         let saveCalled = expectation(description: "save called")
-        let appState = makeAppState(testName: #function)
+        let appState = makeAppState(
+            testName: #function,
+            historyURL: temporaryFileURL(prefix: "distribution-\(#function)")
+        )
         let screenshot = makeScreenshot(ocrText: "recognized text")
         appState.lastScreenshot = screenshot
         var enrichmentCalls = 0
@@ -77,10 +83,8 @@ final class CaptureDistributionServiceTests: XCTestCase {
 }
 
 @MainActor
-private func makeAppState(testName: String) -> AppState {
+private func makeAppState(testName: String, historyURL: URL) -> AppState {
     let defaults = CapturePipelineTestHelpers.makeDefaults(testName)
-    let historyURL = FileManager.default.temporaryDirectory
-        .appendingPathComponent("distribution-\(testName)-\(UUID().uuidString).json")
     return AppState(defaults: defaults, historyStoreURL: historyURL)
 }
 

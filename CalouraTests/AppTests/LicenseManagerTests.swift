@@ -242,8 +242,7 @@ final class LicenseManagerTests: XCTestCase {
     }
 
     private func makeTestBundle(infoDictionary: [String: Any]) throws -> Bundle {
-        let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("caloura-license-tests-\(UUID().uuidString)")
+        let rootURL = temporaryDirectoryURL(prefix: "caloura-license-tests")
         let bundleURL = rootURL.appendingPathComponent("LicenseTest.bundle")
         let contentsURL = bundleURL.appendingPathComponent("Contents")
         try FileManager.default.createDirectory(at: contentsURL, withIntermediateDirectories: true)

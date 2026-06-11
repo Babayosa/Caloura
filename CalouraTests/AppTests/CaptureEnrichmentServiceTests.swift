@@ -75,8 +75,7 @@ final class CaptureEnrichmentServiceTests: XCTestCase {
         settings.semanticSearchEnabled = semanticSearchEnabled
         settings.smartMetadataEnabled = smartMetadataEnabled
 
-        let temp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("enrichment-\(testName)-\(UUID()).json")
+        let temp = temporaryFileURL(prefix: "enrichment-\(testName)")
         let appState = AppState(defaults: defaults, historyStoreURL: temp)
         return EnrichmentWiring(appState: appState, settings: settings, recorder: CallRecorder())
     }
@@ -416,13 +415,15 @@ final class CaptureEnrichmentServiceTests: XCTestCase {
         await pollUntil(timeout: 2.0) {
             appState.previewPhase(for: processed.id) == .enrichmentComplete
         }
-        // Give the polling observer a couple more ticks to confirm no
-        // double-emit follows the terminal value.
-        try? await Task.sleep(for: .milliseconds(50))
-
         let terminals: Set<CapturePreviewPhase> = [
             .enrichmentComplete, .enrichmentFailed, .piiScanFailed
         ]
+        // Bounded window for the negative half of the assertion: returns
+        // early (failing fast below) if a double-emit follows the terminal
+        // value; the window expiring with exactly one emission is success.
+        await pollForViolation {
+            recorder.phaseEmissions.filter { terminals.contains($0) }.count > 1
+        }
         let terminalCount = recorder.phaseEmissions.filter { terminals.contains($0) }.count
         XCTAssertEqual(
             terminalCount, 1,
