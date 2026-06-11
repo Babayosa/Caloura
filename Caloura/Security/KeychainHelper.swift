@@ -70,6 +70,9 @@ enum KeychainHelper {
 
         let addQuery = baseQuery.merging([
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            // Explicit: the history root key must never sync to iCloud Keychain,
+            // even if a future OS changes the implicit default.
+            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
             kSecValueData as String: data
         ]) { _, newValue in newValue }
 

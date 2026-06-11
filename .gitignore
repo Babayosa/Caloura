@@ -10,3 +10,5 @@ certs/
 build/
 .codex/environments/environment.toml
 scripts/__pycache__/
+
+releases/
