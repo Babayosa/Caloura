@@ -17,8 +17,7 @@ final class CaptureEnrichmentServicePIIFailureTests: XCTestCase {
         settings.semanticSearchEnabled = false
         settings.smartMetadataEnabled = false
 
-        let temp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("enrichment-pii-\(UUID()).json")
+        let temp = temporaryFileURL(prefix: "enrichment-pii")
         let appState = AppState(defaults: defaults, historyStoreURL: temp)
         let service = CaptureEnrichmentService(
             appState: appState,
@@ -62,8 +61,7 @@ final class CaptureEnrichmentServicePIIFailureTests: XCTestCase {
         settings.semanticSearchEnabled = false
         settings.smartMetadataEnabled = false
 
-        let temp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("enrichment-disabled-\(UUID()).json")
+        let temp = temporaryFileURL(prefix: "enrichment-disabled")
         let appState = AppState(defaults: defaults, historyStoreURL: temp)
         let service = CaptureEnrichmentService(
             appState: appState,

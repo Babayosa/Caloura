@@ -1,7 +1,10 @@
 import SwiftUI
-import os.log
+import os
 
-private actor HistoryThumbnailStore {
+/// `NSCache` is documented thread-safe, so cache reads/writes need no actor
+/// hop (`@unchecked Sendable` is scoped to it). Only the hit-rate counters
+/// need synchronization, handled by `metricsLock`.
+private final class HistoryThumbnailStore: @unchecked Sendable {
     static let shared = HistoryThumbnailStore()
 
     private let cache: NSCache<NSString, NSImage> = {
@@ -11,18 +14,17 @@ private actor HistoryThumbnailStore {
         return cache
     }()
 
-    private var requests = 0
-    private var hits = 0
+    private struct Metrics {
+        var requests = 0
+        var hits = 0
+    }
+
+    private let metricsLock = OSAllocatedUnfairLock(initialState: Metrics())
     private let reportInterval = 50
 
     func cachedImage(forKey key: String) -> NSImage? {
-        let cacheKey = key as NSString
-        let cached = cache.object(forKey: cacheKey)
-        requests += 1
-        if cached != nil {
-            hits += 1
-        }
-        maybeReportMetrics()
+        let cached = cache.object(forKey: key as NSString)
+        recordRequest(hit: cached != nil)
         return cached
     }
 
@@ -34,14 +36,19 @@ private actor HistoryThumbnailStore {
         cache.setObject(image, forKey: key as NSString, cost: cost)
     }
 
-    private func maybeReportMetrics() {
-        guard requests % reportInterval == 0 else { return }
-        let currentRequests = requests
-        let currentHits = hits
-        let ratio = (Double(currentHits) / Double(max(currentRequests, 1))) * 100.0
+    private func recordRequest(hit: Bool) {
+        let report: Metrics? = metricsLock.withLock { metrics in
+            metrics.requests += 1
+            if hit {
+                metrics.hits += 1
+            }
+            return metrics.requests % reportInterval == 0 ? metrics : nil
+        }
+        guard let report else { return }
+        let ratio = (Double(report.hits) / Double(max(report.requests, 1))) * 100.0
         let cacheMsg = "thumbnail_cache_summary"
-            + " requests=\(currentRequests)"
-            + " hits=\(currentHits)"
+            + " requests=\(report.requests)"
+            + " hits=\(report.hits)"
             + " hit_rate_pct=\(ratio)"
         historyLogger.info("\(cacheMsg, privacy: .public)")
     }
@@ -421,7 +428,7 @@ struct HistoryGridItem: View {
 
     private func loadThumbnailAsync() async -> NSImage? {
         let cacheKey = "\(item.id.uuidString)|\(item.filePath)"
-        if let cached = await HistoryThumbnailStore.shared.cachedImage(forKey: cacheKey) {
+        if let cached = HistoryThumbnailStore.shared.cachedImage(forKey: cacheKey) {
             return cached
         }
 
@@ -445,7 +452,7 @@ struct HistoryGridItem: View {
                 return (thumbnail, cost)
             }
             guard let generatedThumbnail else { return nil }
-            await HistoryThumbnailStore.shared.store(
+            HistoryThumbnailStore.shared.store(
                 generatedThumbnail.image,
                 forKey: cacheKey,
                 cost: generatedThumbnail.cost
