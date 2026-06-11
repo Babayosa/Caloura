@@ -110,9 +110,13 @@ jobs:
             --keychain "$SIGNING_KEYCHAIN"
 
       - name: Install tools
+        run: HOMEBREW_NO_AUTO_UPDATE=1 brew bundle --file=Brewfile
+
+      - name: Verify tool versions
         run: |
-          HOMEBREW_NO_AUTO_UPDATE=1 brew install swiftlint@0.63.2 xcodegen@2.42.0 || \
-          HOMEBREW_NO_AUTO_UPDATE=1 brew install swiftlint xcodegen
+          source scripts/ci_tool_versions.env
+          [ "$(swiftlint version)" = "$SWIFTLINT_VERSION" ] || { echo "::error::swiftlint drift"; exit 1; }
+          [ "$(xcodegen version | awk '{print $2}')" = "$XCODEGEN_VERSION" ] || { echo "::error::xcodegen drift"; exit 1; }
 
       - name: Resolve release version
         id: version

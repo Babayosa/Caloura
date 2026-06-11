@@ -26,9 +26,22 @@ jobs:
           swift --version
 
       - name: Install tools
+        run: HOMEBREW_NO_AUTO_UPDATE=1 brew bundle --file=Brewfile
+
+      - name: Verify tool versions
         run: |
-          HOMEBREW_NO_AUTO_UPDATE=1 brew install swiftlint@0.63.2 xcodegen@2.42.0 || \
-          HOMEBREW_NO_AUTO_UPDATE=1 brew install swiftlint xcodegen
+          source scripts/ci_tool_versions.env
+          installed_swiftlint="$(swiftlint version)"
+          installed_xcodegen="$(xcodegen version | awk '{print $2}')"
+          if [ "$installed_swiftlint" != "$SWIFTLINT_VERSION" ]; then
+            echo "::error::swiftlint $installed_swiftlint != pinned $SWIFTLINT_VERSION (update scripts/ci_tool_versions.env deliberately)"
+            exit 1
+          fi
+          if [ "$installed_xcodegen" != "$XCODEGEN_VERSION" ]; then
+            echo "::error::xcodegen $installed_xcodegen != pinned $XCODEGEN_VERSION (update scripts/ci_tool_versions.env deliberately)"
+            exit 1
+          fi
+          echo "Tool versions verified: swiftlint $installed_swiftlint, xcodegen $installed_xcodegen"
 
       - name: SwiftPM build
         run: swift build
@@ -36,7 +49,7 @@ jobs:
       - name: SwiftLint
         run: swiftlint lint --quiet
 
-      - name: SwiftPM tests with coverage
+      - name: SwiftPM tests
         run: swift test
 
       - name: Generate Xcode project
