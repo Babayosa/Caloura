@@ -71,3 +71,9 @@ Root-cause fix (test host can never trigger AppMover) landed separately — see 
 - [x] swift build + swift test x2 + swiftlint --strict green; 13 existing permission test files UNMODIFIED
 
 S2 evidence: swift build "Build complete! (7.44s)"; swift test x2 = 726 tests 0 failures both runs (722 existing + 4 new); swiftlint lint --quiet --strict exit 0; git diff --name-only CalouraTests/ = empty (no test files modified). Remaining raw permissionUIModel writes: line 67 declaration default, line 712 + updateUIModel (927) both inside publish() apply branch only.
+
+## STOPPED 2026-06-11 ~01:50 — session usage limit (resets 2:50am NY)
+Rework branch audit/permissions-rework pushed (design doc + S2 commit ebb0a29; S1 rode into main via PR #17 — see PR comment).
+S3 (RecoveryPlanner) NOT started in code: interrupted agent only read files; tree clean, builds green.
+NEXT: (1) dispatch S3 per tasks/permissions-rework-design.md stage spec; (2) S4 facade slim; (3) open rework PR; (4) check release-smoke dispatch result (gh run list --workflow=release-smoke.yml); (5) remaining plan phases 2.x/3.x/5.x; Phase 4 license URL still blocked on DNS decision.
+REMINDER (user): put the signed app back — trash /Applications/Caloura.app && cp -Rp ~/.Trash/Caloura.app /Applications/
