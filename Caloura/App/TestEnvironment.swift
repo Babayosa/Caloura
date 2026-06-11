@@ -27,4 +27,5 @@ enum TestEnvironment {
     }
 }
 
-// GATE-PROOF: this comment line is deliberately far far far over one hundred and twenty characters long so that it trips strict lint
+// GATE-PROOF: real violation below (identifier > 60 chars, warning level)
+let gateProofDeliberatelyOverlongIdentifierNameThatTripsTheSixtyCharacterWarning = true
