@@ -424,7 +424,8 @@ private struct ContextualTipContent {
             return ContextualTipContent(
                 symbol: "clock.arrow.circlepath",
                 title: "History keeps recent captures searchable",
-                body: "Open History to find, preview, and reuse the screenshots you just took without capturing them again."
+                body: "Open History to find, preview, and reuse the screenshots "
+                    + "you just took without capturing them again."
             )
         case .edit:
             return ContextualTipContent(
@@ -437,7 +438,8 @@ private struct ContextualTipContent {
             return ContextualTipContent(
                 symbol: "square.and.arrow.up.circle.fill",
                 title: "Sharing is built into the first workflow",
-                body: "Copy, save, Markdown, and citation actions are available immediately after capture from Quick Access and the menu."
+                body: "Copy, save, Markdown, and citation actions are available "
+                    + "immediately after capture from Quick Access and the menu."
             )
         }
     }

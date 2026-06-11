@@ -10,9 +10,9 @@ private let logger = Logger(
     category: "ScreenCapture"
 )
 
-/// Shared CIContext reused across all freeze snapshots. `CIContext` init is
-/// GPU-context setup (~10–50ms); allocating one per capture was a measurable
-/// freeze-latency tax.
+// Shared CIContext reused across all freeze snapshots. `CIContext` init is
+// GPU-context setup (~10–50ms); allocating one per capture was a measurable
+// freeze-latency tax.
 // Extended-linear sRGB keeps wide-gamut (P3) and EDR pixel values unclipped
 // through the CIContext pipeline. The output color space on `createCGImage`
 // still tags the image with the display's native space (usually P3), so the

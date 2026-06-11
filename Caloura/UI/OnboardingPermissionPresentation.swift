@@ -77,7 +77,8 @@ struct OnboardingPermissionPresentation: Equatable {
             showsResetRelaunchButton = false
         case .staleRecord:
             statusHeadline = "macOS trusts a different Caloura copy"
-            statusMessage = uiModel.guidanceText ?? "Use /Applications/Caloura.app, then refresh Screen Recording for that copy."
+            statusMessage = uiModel.guidanceText
+                ?? "Use /Applications/Caloura.app, then refresh Screen Recording for that copy."
             showsGrantButton = false
             showsCheckAgainButton = true
             showsRepairButton = true
