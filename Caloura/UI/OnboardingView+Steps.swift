@@ -13,6 +13,32 @@ private func onboardingShortcutDisplay(
     return description.isEmpty ? fallback : description
 }
 
+/// Splits a shortcut description into keycap badges: modifier symbols become
+/// one badge each, while letter/number runs (e.g. "F19") stay together.
+func onboardingShortcutKeycaps(from keys: String) -> [String] {
+    var keycaps: [String] = []
+    var word = ""
+
+    for character in keys {
+        if character.isLetter || character.isNumber {
+            word.append(character)
+        } else {
+            if !word.isEmpty {
+                keycaps.append(word)
+                word = ""
+            }
+            if !character.isWhitespace && character != "+" {
+                keycaps.append(String(character))
+            }
+        }
+    }
+
+    if !word.isEmpty {
+        keycaps.append(word)
+    }
+    return keycaps.isEmpty ? [keys] : keycaps
+}
+
 extension OnboardingView {
 
     var installStep: some View {
@@ -433,10 +459,11 @@ extension OnboardingView {
         action: String,
         description: String
     ) -> some View {
-        HStack {
+        let keycaps = onboardingShortcutKeycaps(from: keys)
+        return HStack {
             HStack(spacing: 3) {
-                ForEach(Array(keys), id: \.self) { key in
-                    Text(String(key))
+                ForEach(Array(keycaps.enumerated()), id: \.offset) { _, key in
+                    Text(key)
                         .font(.system(.body, design: .rounded).weight(.medium))
                         .frame(minWidth: 28, minHeight: 28)
                         .background(

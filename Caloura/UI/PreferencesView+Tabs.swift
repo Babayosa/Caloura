@@ -194,7 +194,7 @@ struct AboutView: View {
                 }
                 .buttonStyle(.link)
 
-                Button("Twitter") {
+                Button("X") {
                     if let url = URL(string: "https://twitter.com/calouraapp") {
                         NSWorkspace.shared.open(url)
                     }
