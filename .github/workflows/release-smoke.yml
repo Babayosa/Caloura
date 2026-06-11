@@ -16,10 +16,14 @@ jobs:
     runs-on: macos-26
     env:
       NOTARY_PROFILE: Caloura-Notarize
-      SIGNING_KEYCHAIN: ${{ runner.temp }}/caloura-signing.keychain-db
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # runner.* is not a valid context in job-level env (the whole workflow
+      # failed to parse, 0s failures on every tag push). Compute it in-step.
+      - name: Resolve signing keychain path
+        run: echo "SIGNING_KEYCHAIN=$RUNNER_TEMP/caloura-signing.keychain-db" >> "$GITHUB_ENV"
 
       # Fail fast (<30s) on missing secrets before any expensive setup. A
       # tag push that lacks signing credentials should not waste 8+ minutes
