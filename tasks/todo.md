@@ -123,3 +123,4 @@ REMINDER (user): put the signed app back — trash /Applications/Caloura.app && 
 
 ### 3.1 Review / Evidence
 See checklist above; baseline (merged main, PerfBaselineEmbeddingStoreTests): save 3.413 ms / load 5.454 ms median.
+Commit a84ebb1, PR #28 (https://github.com/Babayosa/Caloura/pull/28). Hook gotcha recorded in lessons (SDK env must be exported for git commit).
