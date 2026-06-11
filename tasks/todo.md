@@ -124,3 +124,22 @@ REMINDER (user): put the signed app back — trash /Applications/Caloura.app && 
 ### 3.1 Review / Evidence
 See checklist above; baseline (merged main, PerfBaselineEmbeddingStoreTests): save 3.413 ms / load 5.454 ms median.
 Commit a84ebb1, PR #28 (https://github.com/Babayosa/Caloura/pull/28). Hook gotcha recorded in lessons (SDK env must be exported for git commit).
+
+## Stealth + release-readiness wave (2026-06-11 afternoon)
+- [x] Signed Caloura.app restored to /Applications (TeamIdentifier NG4ML6Q47T verified)
+- [x] task-22 branch reconciled: stealth system was NEVER on main (zero sharingType). Ports: PR #34 (WindowPrivacy + sharingType all windows + activateApp focus fix, red-proofed, 792 tests), PR #33 (SCK live-capture self-exclusion filter, red-proofed), PR #35 (UX salvage: UserFacingErrorMessage, defer-flag leaks in Beautify/Redaction, PIIDetector crash fix red-proofed via signal-5 repro, BeautifyTheme safe UUID, keycaps). Do-not-port list honored (.fast OCR probe, old coordinator, 350ms delay, encrypted diagnostics).
+- [x] Phase 5 PRs #30 (dead code), #31 (test hygiene), #32 (CODEMAP) — locally verified, 778 green
+- [x] RC integration preview (local rc-preview cc606ab): all 6 branches merge cleanly (only pbxproj conflicts — resolve via xcodegen regen); 824 tests green; strict lint clean; Debug build SUCCEEDED with normal signing
+- [x] RUNTIME validation: UI tests 6/6 (1 cold-launch flake passed on rerun); direct launch → correct installRequired gate, single clean funnel log line, clean SIGTERM exit, zero crash reports; permission pipeline publishes denied correctly for unauthorized debug identity with correct debug-bundle-ID diagnostic
+- [ ] BLOCKED ON USER: GitHub Actions billing failure (all runs die in 2-5s) — fix Billing & plans, then merge order: #30 #31 #32 #33 #34 #35 (xcodegen regen on pbxproj conflicts; export DEVELOPER_DIR/SDKROOT on commit)
+- [ ] BLOCKED ON USER (optional): release-smoke needs Developer ID secrets in repo; api.caloura.app DNS decision (Phase 4)
+- [ ] After merges: final main CI green, then release pipeline (version bump + scripts/release.sh; publish only on explicit user go)
+
+## RELEASE COMPLETE — v2.6.0 (2026-06-11)
+- [x] Repo PUBLIC (clean secret scan; user accepted workers.dev URL + yahoo author email in history)
+- [x] All PRs merged through #38; main CI green throughout
+- [x] v2.6.0 published via publish.sh: notarized DMG + Sparkle ZIP live at caloura.app, real release notes patched into appcast
+- [x] All 6 signing secrets configured; release-smoke GREEN headless (run 27381475791) after two real fixes it caught: missing swiftlint on newest image (PR #37), quarantined-launch Gatekeeper hang (PR #38, + 60min job cap)
+- [x] v2.6.0 tag pushed (main app-code byte-identical to released commit 77476eb)
+- [x] /Applications has signed notarized 2.6.0; agent worktrees cleaned by user
+- Parked: Dependabot #4 (Sparkle 2.9.1, merge post-release), Phase 4 api.caloura.app DNS
