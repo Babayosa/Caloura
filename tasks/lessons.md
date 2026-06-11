@@ -217,3 +217,9 @@
 **Root cause:** git add survives branch switches; `git commit` commits the index, not the named files I had in mind.
 **Rule:** After any failed commit + branch switch, run `git status` and `git diff --cached --stat` BEFORE the next commit.
 **Confidence:** low (1x)
+
+### 2026-06-11 — Pre-commit hook inherits the caller's env: export SDK workaround before git commit [domain: process]
+**Mistake:** Ran `git commit` without `DEVELOPER_DIR`/`SDKROOT` exported; the pre-commit hook's `swift build` picked the CommandLineTools macOS 27 SDK (Swift 6.4) under the Xcode 6.2.3 toolchain and hung ~10 min before failing with "this SDK is not supported by the compiler".
+**Root cause:** Git hooks run in the committing shell's environment; the SDK workaround was only applied to explicit build/test commands, not to the commit invocation.
+**Rule:** On this machine, prefix `git commit` (and `--amend`) with `export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer SDKROOT=/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk` so hook-run swift build/test use the matching toolchain.
+**Confidence:** low (1-2x)

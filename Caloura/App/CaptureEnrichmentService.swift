@@ -151,12 +151,12 @@ final class CaptureEnrichmentService {
             },
             storeEmbedding: { screenshotID, vector, textHash in
                 let store = await MainActor.run { appState.embeddingStore }
-                store.add(
+                await store.add(
                     screenshotID: screenshotID,
                     vector: vector,
                     textHash: textHash
                 )
-                store.save()
+                await store.save()
 
                 await MainActor.run {
                     appState.markEmbeddingVersion(

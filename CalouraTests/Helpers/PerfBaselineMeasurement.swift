@@ -37,6 +37,7 @@ enum PerfBaselineMeasurement {
     static func measureAsync(
         warmup: Int = 1,
         iterations: Int,
+        isolation: isolated (any Actor)? = #isolation,
         _ block: () async throws -> Void
     ) async rethrows -> Stats {
         for _ in 0..<warmup {

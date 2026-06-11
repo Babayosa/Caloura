@@ -108,3 +108,19 @@ REMINDER (user): put the signed app back — trash /Applications/Caloura.app && 
 - [ ] Phase 4 license URL: still blocked on DNS decision (api.caloura.app)
 - [ ] Phase 5 polish
 REMINDER (user): put the signed app back — trash /Applications/Caloura.app && cp -Rp ~/.Trash/Caloura.app /Applications/
+
+## Item 3.1 — EmbeddingStore I/O off the main actor (branch audit/perf-embeddingstore-actor)
+- [x] BEFORE numbers from PerfBaselineEmbeddingStoreTests on this machine: save median 3.711 ms, load median 5.942 ms (main thread)
+- [x] Failing isolation test EmbeddingStoreIsolationTests.testSaveAndLoad_executeOffTheMainThread_whenInvokedFromMainActor — red: "XCTAssertFalse failed - save() I/O must not execute on the main thread when invoked from a main-actor context" (and same for load())
+- [x] Convert EmbeddingStore class → actor (drop @unchecked Sendable + NSLock); persistence format unchanged (payload struct, encryption purpose, write path identical; round-trip + plaintext-guard tests green)
+- [x] Call sites: AppState deleteScreenshot + prune → persistEmbeddingRemovals (fire-and-forget Task, batch remove+save), clearHistory → Task { await clear() }, AppState+History loadPersistedState → await load() (callers still await before semantic search), CaptureEnrichmentService storeEmbedding → structured await add+save, EmbeddingEngine.search → await findSimilar
+- [x] New ordering test EmbeddingStoreTests.testConcurrentAddAndSave_finalFileContainsAllEntries (+ testRemoveBatch)
+- [x] Existing tests: await syntax only, all assertions preserved
+- [x] AFTER numbers: awaited off-main round-trip save median 3.666 ms / load 5.904 ms (actor executor); main-actor fire-and-forget enqueue median 0.001 ms
+- [x] swift test ×2 = 774 tests 0 failures both runs (re-run on final code); xcodebuild app build SUCCEEDED; swiftlint --strict exit 0
+- [x] Red-team: lost-save-at-quit window accepted per audit prescription (last-write-wins; enrichment add+save stays structured); orphan embedding entries from an unsaved removal are harmless (filtered by history intersection) and bounded
+- [x] Commit + push + PR
+
+### 3.1 Review / Evidence
+See checklist above; baseline (merged main, PerfBaselineEmbeddingStoreTests): save 3.413 ms / load 5.454 ms median.
+Commit a84ebb1, PR #28 (https://github.com/Babayosa/Caloura/pull/28). Hook gotcha recorded in lessons (SDK env must be exported for git commit).

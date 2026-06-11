@@ -45,10 +45,10 @@ final class EmbeddingEngineTests: XCTestCase {
         let store = EmbeddingStore(storeURL: storeURL)
 
         if let mathVec = await EmbeddingEngine.embed("calculus derivatives integration math homework") {
-            store.add(screenshotID: UUID(), vector: mathVec, textHash: "math")
+            await store.add(screenshotID: UUID(), vector: mathVec, textHash: "math")
         }
         if let catVec = await EmbeddingEngine.embed("cute cat sitting on the couch photo") {
-            store.add(screenshotID: UUID(), vector: catVec, textHash: "cat")
+            await store.add(screenshotID: UUID(), vector: catVec, textHash: "cat")
         }
 
         let results = await EmbeddingEngine.search(
@@ -57,6 +57,6 @@ final class EmbeddingEngineTests: XCTestCase {
         if results.count >= 2 {
             XCTAssertGreaterThan(results[0].similarity, results[1].similarity)
         }
-        store.clear()
+        await store.clear()
     }
 }
