@@ -39,7 +39,7 @@ final class PermissionCoordinator {
 
     private(set) var permissionUIModel = PermissionUIModel()
 
-    private let defaults: UserDefaults
+    private let store: PermissionStore
     private let passiveCheck: PassiveCheck
     private let primeCheck: PrimeCheck
     private let interactiveCheck: InteractiveCheck
@@ -57,32 +57,9 @@ final class PermissionCoordinator {
 
     private var inFlightValidation: Task<ScreenRecordingState, Never>?
     private var isShowingAlert = false
-    private var cooldownPolicy: PermissionCooldownPolicy
-    private let permissionRequestLifetimeSeconds: TimeInterval = 180
     private let pendingCaptureResumeTTLSeconds: TimeInterval = 120
     private var cooldownResetTask: Task<Void, Never>?
-    private var liveValidatedIdentityFingerprint: String?
-    private var recentPermissionRequestSession: PermissionRequestSession?
-    private var diagnosedFailure: DiagnosedFailure?
     private var pendingCaptureResumeRequiresRelaunch = false
-
-    private enum Keys {
-        static let lastWorkingIdentityFingerprint = "permissionLastWorkingIdentityFingerprint"
-        static let lastWorkingExecutablePath = "permissionLastWorkingExecutablePath"
-        static let pendingCaptureResumeRequestedAt = "permissionPendingCaptureResumeRequestedAt"
-        static let pendingCaptureResumeMode = "permissionPendingCaptureResumeMode"
-        static let lastAutoRepairRelaunchAt = "permissionLastAutoRepairRelaunchAt"
-    }
-
-    private struct PermissionRequestSession {
-        let startedAt: Date
-        var didAutoRelaunch = false
-    }
-
-    private struct DiagnosedFailure {
-        let identityFingerprint: String
-        let status: ScreenRecordingState
-    }
 
     @MainActor
     private final class AlertDecisionBox {
@@ -91,7 +68,7 @@ final class PermissionCoordinator {
 
     init(defaults: UserDefaults = .standard) {
         let alertDecision = AlertDecisionBox()
-        self.defaults = defaults
+        self.store = PermissionStore(defaults: defaults)
         self.passiveCheck = { ScreenCaptureManager.shared.passivePermissionGranted() }
         self.primeCheck = { await ScreenCaptureManager.shared.primeSCKAccessIfPossible() }
         self.interactiveCheck = { await ScreenCaptureManager.shared.validateSCKAccessUserInitiated() }
@@ -109,10 +86,6 @@ final class PermissionCoordinator {
         self.resetTCCEntry = { await ScreenCaptureManager.shared.resetTCCEntry() }
         self.relaunchApp = { ScreenCaptureManager.shared.relaunchApp() }
         self.sckStateResetter = { ScreenCaptureManager.shared.resetSCKState() }
-        self.cooldownPolicy = PermissionCooldownPolicy(
-            defaults: defaults,
-            lastAutoRepairRelaunchKey: Keys.lastAutoRepairRelaunchAt
-        )
     }
 
     init(
@@ -131,7 +104,7 @@ final class PermissionCoordinator {
         relaunchApp: @escaping Relauncher = { },
         sckStateResetter: @escaping SCKStateResetter = { }
     ) {
-        self.defaults = defaults
+        self.store = PermissionStore(defaults: defaults)
         self.passiveCheck = passiveCheck
         self.primeCheck = primeCheck
         self.interactiveCheck = interactiveCheck
@@ -145,11 +118,6 @@ final class PermissionCoordinator {
         self.resetTCCEntry = resetTCCEntry
         self.relaunchApp = relaunchApp
         self.sckStateResetter = sckStateResetter
-        self.cooldownPolicy = PermissionCooldownPolicy(
-            defaults: defaults,
-            lastAutoRepairRelaunchKey: Keys.lastAutoRepairRelaunchAt,
-            now: now
-        )
     }
 
     /// Perform a non-interactive permission check and update the published UI model.
@@ -182,14 +150,12 @@ final class PermissionCoordinator {
 
     func armPendingCaptureResume(mode: CaptureMode) {
         pendingCaptureResumeRequiresRelaunch = false
-        defaults.set(now(), forKey: Keys.pendingCaptureResumeRequestedAt)
-        defaults.set(mode.rawValue, forKey: Keys.pendingCaptureResumeMode)
+        store.armPendingResume(mode: mode, at: now())
     }
 
     func clearPendingCaptureResume() {
         pendingCaptureResumeRequiresRelaunch = false
-        defaults.removeObject(forKey: Keys.pendingCaptureResumeRequestedAt)
-        defaults.removeObject(forKey: Keys.pendingCaptureResumeMode)
+        store.clearPendingResume()
     }
 
     func clearPendingCaptureResumeIfNoRelaunchPending() {
@@ -200,30 +166,21 @@ final class PermissionCoordinator {
     }
 
     func takePendingCaptureResumeIfFresh() -> CaptureMode? {
-        defer { clearPendingCaptureResume() }
-        guard let requestedAt = defaults.object(forKey: Keys.pendingCaptureResumeRequestedAt) as? Date else {
-            return nil
-        }
-        guard now().timeIntervalSince(requestedAt) <= pendingCaptureResumeTTLSeconds else {
-            return nil
-        }
-        guard let rawMode = defaults.string(forKey: Keys.pendingCaptureResumeMode),
-              let mode = CaptureMode(rawValue: rawMode) else {
-            return nil
-        }
-        recentPermissionRequestSession = PermissionRequestSession(
-            startedAt: requestedAt,
-            didAutoRelaunch: true
-        )
         pendingCaptureResumeRequiresRelaunch = false
-        return mode
+        guard let pending = store.takePendingResumeIfFresh(
+            ttl: pendingCaptureResumeTTLSeconds,
+            now: now()
+        ) else {
+            return nil
+        }
+        store.beginRequestSession(at: pending.requestedAt, didAutoRelaunch: true)
+        return pending.mode
     }
 
     func coreGraphicsPreflightIsAuthoritative() -> Bool {
         let timestamp = now()
-        clearExpiredPermissionRequestSessionIfNeeded(at: timestamp)
-        return recentPermissionRequestSession == nil
-            && liveValidatedIdentityFingerprint == nil
+        return store.activeRequestSession(now: timestamp) == nil
+            && store.liveValidatedFingerprint == nil
     }
 
     /// Perform a non-blocking live validation once CoreGraphics already
@@ -313,8 +270,8 @@ final class PermissionCoordinator {
     /// Prompt macOS to grant screen recording permission via the system dialog.
     func requestPermissionFromSystem() -> Bool {
         logger.info("request_permission user_initiated=true")
-        clearDiagnosedFailure()
-        recentPermissionRequestSession = PermissionRequestSession(startedAt: now())
+        store.clearDiagnosedFailure()
+        store.beginRequestSession(at: now())
         return permissionRequester()
     }
 
@@ -493,7 +450,7 @@ final class PermissionCoordinator {
         }
 
         if interactiveResult == .transientFailure,
-           cooldownPolicy.canAttemptAutoRepairRelaunch(),
+           canAttemptAutoRepairRelaunch(),
            isShowingAlert {
             let statusDescription = String(describing: status)
             logger.info(
@@ -501,9 +458,9 @@ final class PermissionCoordinator {
             )
         }
         if interactiveResult == .transientFailure,
-           cooldownPolicy.canAttemptAutoRepairRelaunch(),
+           canAttemptAutoRepairRelaunch(),
            !isShowingAlert {
-            cooldownPolicy.markAutoRepairRelaunchAttempted()
+            markAutoRepairRelaunchAttempted()
             isShowingAlert = true
             // defer clears across cancellation — see CLAUDE.md "Stateful flags require recovery API + diagnostic log + defer-based clear".
             defer { isShowingAlert = false }
@@ -522,7 +479,7 @@ final class PermissionCoordinator {
             logger.info("user_declined_repair_relaunch — surfacing status only")
             clearPendingCaptureResume()
             statusMessageSink(nonBlockingMessage(for: status))
-            cooldownPolicy.markBlockingAlertShown(at: now())
+            store.noteBlockingAlertShown(at: now())
             updateCooldownInModel(cooldownActive: true)
             return status
         }
@@ -560,7 +517,7 @@ final class PermissionCoordinator {
         } else {
             clearPendingCaptureResume()
         }
-        cooldownPolicy.markBlockingAlertShown(at: now)
+        store.noteBlockingAlertShown(at: now)
         updateCooldownInModel(cooldownActive: true)
         return status
     }
@@ -587,7 +544,7 @@ extension PermissionCoordinator {
     /// using this value, and `scheduleCooldownReset` clears the model flag
     /// when the timer fires — so this method does not need a write side effect.
     func isCooldownActive(at timestamp: Date) -> Bool {
-        cooldownPolicy.isCooldownActive(at: timestamp)
+        store.isAlertCooldownActive(now: timestamp)
     }
 }
 
@@ -689,7 +646,7 @@ private extension PermissionCoordinator {
             lastWorkingExecutablePathMatches: lastWorkingExecutablePathMatches(identity),
             diagnosedFailureStatus: diagnosedFailureStatus(for: identity),
             hasKnownWorkingMismatch: hasKnownWorkingMismatch(for: identity),
-            didAutoRelaunchAfterRequest: recentPermissionRequestSession?.didAutoRelaunch == true
+            didAutoRelaunchAfterRequest: store.requestSession?.didAutoRelaunch == true
         )
     }
 
@@ -716,7 +673,7 @@ private extension PermissionCoordinator {
 
     func scheduleCooldownReset() {
         cooldownResetTask?.cancel()
-        let seconds = cooldownPolicy.alertCooldownSeconds
+        let seconds = store.alertCooldownSeconds
         cooldownResetTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled else { return }
@@ -725,11 +682,7 @@ private extension PermissionCoordinator {
     }
 
     func knownWorkingFingerprint() -> String? {
-        guard let fingerprint = defaults.string(forKey: Keys.lastWorkingIdentityFingerprint),
-              !fingerprint.isEmpty else {
-            return nil
-        }
-        return fingerprint
+        store.lastWorkingIdentity().fingerprint
     }
 
     func isKnownWorkingIdentity(_ identity: PermissionIdentity) -> Bool {
@@ -749,15 +702,11 @@ private extension PermissionCoordinator {
     }
 
     func isLiveValidatedIdentity(_ identity: PermissionIdentity) -> Bool {
-        liveValidatedIdentityFingerprint == identity.fingerprint
+        store.liveValidatedFingerprint == identity.fingerprint
     }
 
     func lastWorkingExecutablePath() -> String? {
-        guard let path = defaults.string(forKey: Keys.lastWorkingExecutablePath),
-              !path.isEmpty else {
-            return nil
-        }
-        return path
+        store.lastWorkingIdentity().executablePath
     }
 
     func lastWorkingExecutablePathMatches(_ identity: PermissionIdentity) -> Bool {
@@ -766,56 +715,45 @@ private extension PermissionCoordinator {
 
     func shouldTrustLiveValidationWithoutCoreGraphics(at timestamp: Date) -> Bool {
         hasFreshPermissionRequestSession(at: timestamp)
-            || liveValidatedIdentityFingerprint != nil
+            || store.liveValidatedFingerprint != nil
     }
 
     func hasFreshPermissionRequestSession(at timestamp: Date) -> Bool {
-        guard let session = recentPermissionRequestSession else {
-            return false
-        }
-        return timestamp.timeIntervalSince(session.startedAt) <= permissionRequestLifetimeSeconds
+        store.activeRequestSession(now: timestamp) != nil
     }
 
     func clearExpiredPermissionRequestSessionIfNeeded(at timestamp: Date) {
-        guard !hasFreshPermissionRequestSession(at: timestamp) else {
-            return
-        }
-        recentPermissionRequestSession = nil
+        _ = store.activeRequestSession(now: timestamp)
     }
 
     func clearPermissionRequestSession() {
-        recentPermissionRequestSession = nil
+        store.clearRequestSession()
     }
 
     func pendingCaptureResumeMode() -> CaptureMode? {
-        guard let rawMode = defaults.string(forKey: Keys.pendingCaptureResumeMode) else {
-            return nil
-        }
-        return CaptureMode(rawValue: rawMode)
+        store.pendingResumeMode()
     }
 
     func canAttemptAutoRepairRelaunch() -> Bool {
-        cooldownPolicy.canAttemptAutoRepairRelaunch()
+        store.canAutoRepairRelaunch(now: now())
     }
 
     func markAutoRepairRelaunchAttempted() {
-        cooldownPolicy.markAutoRepairRelaunchAttempted()
+        store.markAutoRepairRelaunchAttempted(at: now())
     }
 
     func canAutoRelaunchAfterSettingsReturn(at timestamp: Date) -> Bool {
-        guard hasFreshPermissionRequestSession(at: timestamp),
-              let session = recentPermissionRequestSession else {
+        guard let session = store.activeRequestSession(now: timestamp) else {
             return false
         }
         return !session.didAutoRelaunch
     }
 
     func markAutoRelaunchIssued() {
-        guard var session = recentPermissionRequestSession else {
+        guard store.requestSession != nil else {
             return
         }
-        session.didAutoRelaunch = true
-        recentPermissionRequestSession = session
+        store.markRequestSessionAutoRelaunched()
         pendingCaptureResumeRequiresRelaunch = true
     }
 
@@ -834,14 +772,11 @@ private extension PermissionCoordinator {
     }
 
     func recordWorkingIdentity(_ identity: PermissionIdentity) {
-        clearDiagnosedFailure()
-        liveValidatedIdentityFingerprint = identity.fingerprint
-        defaults.set(identity.fingerprint, forKey: Keys.lastWorkingIdentityFingerprint)
-        defaults.set(identity.executablePath, forKey: Keys.lastWorkingExecutablePath)
+        store.recordWorkingIdentity(identity)
     }
 
     func diagnosedFailureStatus(for identity: PermissionIdentity) -> ScreenRecordingState? {
-        guard let diagnosedFailure,
+        guard let diagnosedFailure = store.diagnosedFailure,
               diagnosedFailure.identityFingerprint == identity.fingerprint else {
             return nil
         }
@@ -852,14 +787,16 @@ private extension PermissionCoordinator {
         guard status == .needsRelaunch || status == .staleRecord else {
             return
         }
-        diagnosedFailure = DiagnosedFailure(
-            identityFingerprint: identity.fingerprint,
-            status: status
+        store.setDiagnosedFailure(
+            PermissionStore.DiagnosedFailure(
+                identityFingerprint: identity.fingerprint,
+                status: status
+            )
         )
     }
 
     func clearDiagnosedFailure() {
-        diagnosedFailure = nil
+        store.clearDiagnosedFailure()
     }
 
     func updateUIModel(status: ScreenRecordingState, identity: PermissionIdentity) {
