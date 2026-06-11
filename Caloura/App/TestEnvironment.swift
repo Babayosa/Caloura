@@ -26,3 +26,5 @@ enum TestEnvironment {
             xcTestCaseClassPresent
     }
 }
+
+this is not swift
