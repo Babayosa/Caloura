@@ -365,6 +365,10 @@ struct ArrowHeadShape: Shape {
 final class AnnotationWindowController {
     private let presenter = SingleWindowPresenter<AnnotationOverlayView>()
 
+    var debugWindow: NSWindow? {
+        presenter.window
+    }
+
     func show(image: NSImage, onSave: @escaping (NSImage) -> Void) {
         let imageSize = image.size
         let maxDimension: CGFloat = 800
@@ -381,9 +385,10 @@ final class AnnotationWindowController {
         let config = SingleWindowPresenter<AnnotationOverlayView>.WindowConfig(
             title: "Annotate Screenshot",
             size: windowSize,
-            styleMask: [.titled, .closable, .resizable]
+            styleMask: [.titled, .closable, .resizable],
+            sharingType: .none
         )
-        presenter.show(config: config) {
+        presenter.show(config: config, activateApp: true) {
             AnnotationOverlayView(
                 image: image,
                 onSave: { [weak self] annotatedImage in

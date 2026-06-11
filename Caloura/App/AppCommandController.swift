@@ -133,7 +133,8 @@ final class AppCommandController {
         if AppMover.currentInstallState != .inApplications {
             onboardingController.show(
                 settings: AppSettings.shared,
-                initialState: .installRequired
+                initialState: .installRequired,
+                activateApp: true
             )
             return
         }
@@ -156,7 +157,8 @@ final class AppCommandController {
 
             onboardingController.show(
                 settings: AppSettings.shared,
-                initialState: state
+                initialState: state,
+                activateApp: true
             )
         }
     }

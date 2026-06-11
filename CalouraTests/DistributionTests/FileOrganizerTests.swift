@@ -41,25 +41,19 @@ final class FileOrganizerTests: XCTestCase {
     }
 
     func testEnsureBaseDirectory() throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CalouraTest_\(UUID().uuidString)").path
+        let tempDir = temporaryDirectoryURL(prefix: "CalouraTest").path
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: tempDir))
 
         try FileOrganizer.ensureBaseDirectory(tempDir)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: tempDir))
-
-        // Cleanup
-        try? FileManager.default.removeItem(atPath: tempDir)
     }
 
     // MARK: - Save writes to disk
 
     func testSave_writesFileToDisk() async throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let tempDir = temporaryDirectoryURL(prefix: "CalouraTest")
 
         let context = CaptureContext(
             mode: .area,
@@ -81,9 +75,7 @@ final class FileOrganizerTests: XCTestCase {
     // MARK: - Creates subfolder
 
     func testSave_createsSubfolder() async throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let tempDir = temporaryDirectoryURL(prefix: "CalouraTest")
 
         let context = CaptureContext(
             mode: .area,
@@ -119,9 +111,7 @@ final class FileOrganizerTests: XCTestCase {
     // MARK: - Path Traversal Safety
 
     func testSave_pathTraversal_dotDotSubfolder_throws() async {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let tempDir = temporaryDirectoryURL(prefix: "CalouraTest")
 
         let context = CaptureContext(
             mode: .area,
@@ -145,9 +135,7 @@ final class FileOrganizerTests: XCTestCase {
     }
 
     func testSave_pathTraversal_normalThenDotDot_throws() async {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let tempDir = temporaryDirectoryURL(prefix: "CalouraTest")
 
         let context = CaptureContext(
             mode: .area,
@@ -171,9 +159,7 @@ final class FileOrganizerTests: XCTestCase {
     }
 
     func testSave_normalSubfolder_succeeds() async throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let tempDir = temporaryDirectoryURL(prefix: "CalouraTest")
 
         let context = CaptureContext(
             mode: .area,
@@ -195,9 +181,7 @@ final class FileOrganizerTests: XCTestCase {
     func testSave_pathTraversal_encodedSlash_noEscape() async throws {
         // %2F is percent-encoded slash — URL(fileURLWithPath:) does NOT decode it,
         // so it becomes a literal directory name component, staying within base.
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let tempDir = temporaryDirectoryURL(prefix: "CalouraTest")
 
         let context = CaptureContext(
             mode: .area,
@@ -218,9 +202,7 @@ final class FileOrganizerTests: XCTestCase {
     }
 
     func testSave_pathTraversal_deepDotDot_throws() async {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let tempDir = temporaryDirectoryURL(prefix: "CalouraTest")
 
         let context = CaptureContext(
             mode: .area,
@@ -246,9 +228,7 @@ final class FileOrganizerTests: XCTestCase {
     // MARK: - File Permissions
 
     func testSave_fileHasRestrictedPermissions() async throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let tempDir = temporaryDirectoryURL(prefix: "CalouraTest")
 
         let context = CaptureContext(
             mode: .area,
@@ -269,9 +249,7 @@ final class FileOrganizerTests: XCTestCase {
     }
 
     func testSave_directoryHasRestrictedPermissions() async throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let tempDir = temporaryDirectoryURL(prefix: "CalouraTest")
 
         let context = CaptureContext(
             mode: .area,
@@ -295,9 +273,7 @@ final class FileOrganizerTests: XCTestCase {
     // MARK: - JPEG Format
 
     func testSave_jpegFormat_createsFile() async throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let tempDir = temporaryDirectoryURL(prefix: "CalouraTest")
 
         let context = CaptureContext(
             mode: .area,
@@ -318,9 +294,7 @@ final class FileOrganizerTests: XCTestCase {
     }
 
     func testSave_smartFileNameCollision_appendsUniqueSuffix() async throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let tempDir = temporaryDirectoryURL(prefix: "CalouraTest")
 
         let context = CaptureContext(
             mode: .area,
@@ -350,14 +324,8 @@ final class FileOrganizerTests: XCTestCase {
     // MARK: - Symlink Escape
 
     func testSave_symlinkEscape_throws() async throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CalouraTest_\(UUID().uuidString)")
-        let escapeTarget = FileManager.default.temporaryDirectory
-            .appendingPathComponent("CalouraEscape_\(UUID().uuidString)")
-        defer {
-            try? FileManager.default.removeItem(at: tempDir)
-            try? FileManager.default.removeItem(at: escapeTarget)
-        }
+        let tempDir = temporaryDirectoryURL(prefix: "CalouraTest")
+        let escapeTarget = temporaryDirectoryURL(prefix: "CalouraEscape")
 
         // Create the base directory and a symlink subfolder pointing outside
         try FileManager.default.createDirectory(

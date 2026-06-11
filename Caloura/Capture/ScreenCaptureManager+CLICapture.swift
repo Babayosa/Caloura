@@ -39,6 +39,11 @@ extension ScreenCaptureManager {
     /// image. `screencapture` is a system binary with Apple's own
     /// entitlements, so it can capture all windows even when the
     /// calling app has ad-hoc signing.
+    ///
+    /// Known limitation: unlike the SCK path, `screencapture` has no flag to
+    /// exclude an application's windows, so on this last-resort fallback any
+    /// visible Caloura window can appear in the screenshot. Capture success
+    /// beats stealth here — do not hack around it.
     func runScreencapture(args: [String]) async throws -> CGImage {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("caloura-\(UUID().uuidString).png")

@@ -35,8 +35,7 @@ final class ScreenshotArtifactCoordinatorTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         let settings = AppSettings(defaults: defaults)
-        let temp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("artifact-\(testName)-\(UUID()).json")
+        let temp = temporaryFileURL(prefix: "artifact-\(testName)")
         let appState = AppState(defaults: defaults, historyStoreURL: temp)
         return (appState, settings)
     }
@@ -46,8 +45,7 @@ final class ScreenshotArtifactCoordinatorTests: XCTestCase {
     func testConcurrentSaveCaptureDeduplicatesToOneSaveCall() async throws {
         let (appState, settings) = makeAppState(testName: #function)
         let counter = CallCounter()
-        let dest = FileManager.default.temporaryDirectory
-            .appendingPathComponent("save-dedup-\(UUID()).png")
+        let dest = temporaryFileURL(prefix: "save-dedup", fileExtension: "png")
 
         let coordinator = ScreenshotArtifactCoordinator(
             appState: appState,

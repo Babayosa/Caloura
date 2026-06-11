@@ -105,8 +105,7 @@ final class CaptureExecutionServiceTests: XCTestCase {
     func testPerformCaptureDeferredSaveSchedulesEnrichmentAfterSave() async {
         let defaults = CapturePipelineTestHelpers.makeDefaults(#function)
         let settings = AppSettings(defaults: defaults)
-        let historyStoreURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("execution-test-\(#function)-\(UUID().uuidString).json")
+        let historyStoreURL = temporaryFileURL(prefix: "execution-test-\(#function)")
         let appState = AppState(defaults: defaults, historyStoreURL: historyStoreURL)
         let saveExpectation = expectation(description: "save attempted")
 
@@ -142,8 +141,7 @@ final class CaptureExecutionServiceTests: XCTestCase {
     func testPerformCaptureDeferredSaveFailureDoesNotEnqueueEnrichmentOrHistory() async {
         let defaults = CapturePipelineTestHelpers.makeDefaults(#function)
         let settings = AppSettings(defaults: defaults)
-        let historyStoreURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("execution-test-\(#function)-\(UUID().uuidString).json")
+        let historyStoreURL = temporaryFileURL(prefix: "execution-test-\(#function)")
         let appState = AppState(defaults: defaults, historyStoreURL: historyStoreURL)
         let recognizeTextCalled = FlagBox()
 
@@ -200,8 +198,7 @@ final class CaptureExecutionServiceTests: XCTestCase {
     ) -> Harness {
         let defaults = CapturePipelineTestHelpers.makeDefaults(testName)
         let resolvedSettings = settings ?? AppSettings(defaults: defaults)
-        let historyStoreURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("execution-test-\(testName)-\(UUID().uuidString).json")
+        let historyStoreURL = temporaryFileURL(prefix: "execution-test-\(testName)")
         let resolvedAppState = appState ?? AppState(defaults: defaults, historyStoreURL: historyStoreURL)
         let requestResolver = makeRequestResolver(settings: resolvedSettings)
         let enrichmentService = makeEnrichmentService(
@@ -247,7 +244,7 @@ final class CaptureExecutionServiceTests: XCTestCase {
         CaptureRequestResolver(
             settings: settings,
             detectContext: {
-                DetectedContext(appName: "TestApp", windowTitle: "TestWindow", category: .other)
+                DetectedContext(appName: "TestApp", category: .other)
             },
             presetForCategory: { _ in nil },
             presetByName: { _ in nil }
