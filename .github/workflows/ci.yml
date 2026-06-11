@@ -30,7 +30,18 @@ jobs:
           swift --version
 
       - name: Install tools
-        run: HOMEBREW_NO_AUTO_UPDATE=1 brew bundle --file=Brewfile
+        run: |
+          HOMEBREW_NO_AUTO_UPDATE=1 brew bundle --file=Brewfile
+          # Runner images drift between brew swiftlint versions mid-fleet, so
+          # install the pinned release binary (checksum-verified) instead of
+          # trusting whatever the image preinstalled.
+          source scripts/ci_tool_versions.env
+          curl -fsSL -o /tmp/portable_swiftlint.zip \
+            "https://github.com/realm/SwiftLint/releases/download/${SWIFTLINT_VERSION}/portable_swiftlint.zip"
+          echo "${SWIFTLINT_ZIP_SHA256}  /tmp/portable_swiftlint.zip" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/swiftlint-bin"
+          unzip -o -q /tmp/portable_swiftlint.zip -d "$RUNNER_TEMP/swiftlint-bin"
+          echo "$RUNNER_TEMP/swiftlint-bin" >> "$GITHUB_PATH"
 
       - name: Verify tool versions
         run: |
