@@ -55,12 +55,18 @@ final class CaptureEnrichmentServiceTests: XCTestCase {
 
     private struct StubError: Error {}
 
+    private struct EnrichmentWiring {
+        let appState: AppState
+        let settings: AppSettings
+        let recorder: CallRecorder
+    }
+
     private func makeWiring(
         testName: String,
         autoDetectPII: Bool,
         semanticSearchEnabled: Bool,
         smartMetadataEnabled: Bool
-    ) -> (AppState, AppSettings, CallRecorder) {
+    ) -> EnrichmentWiring {
         let suite = "com.caloura.tests.enrichment.\(testName).\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
@@ -72,7 +78,7 @@ final class CaptureEnrichmentServiceTests: XCTestCase {
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("enrichment-\(testName)-\(UUID()).json")
         let appState = AppState(defaults: defaults, historyStoreURL: temp)
-        return (appState, settings, CallRecorder())
+        return EnrichmentWiring(appState: appState, settings: settings, recorder: CallRecorder())
     }
 
     private func makeService(
@@ -148,12 +154,15 @@ final class CaptureEnrichmentServiceTests: XCTestCase {
     // MARK: - Flag combinations
 
     func testAllFlagsEnabled_runsAllStagesAndEmitsEnrichmentComplete() async {
-        let (appState, settings, recorder) = makeWiring(
+        let wiring = makeWiring(
             testName: "all_enabled",
             autoDetectPII: true,
             semanticSearchEnabled: true,
             smartMetadataEnabled: true
         )
+        let appState = wiring.appState
+        let settings = wiring.settings
+        let recorder = wiring.recorder
         let service = makeService(
             appState: appState,
             settings: settings,
@@ -180,12 +189,15 @@ final class CaptureEnrichmentServiceTests: XCTestCase {
     }
 
     func testAllFlagsDisabled_skipsEverythingButStillEmitsEnrichmentComplete() async {
-        let (appState, settings, recorder) = makeWiring(
+        let wiring = makeWiring(
             testName: "all_disabled",
             autoDetectPII: false,
             semanticSearchEnabled: false,
             smartMetadataEnabled: false
         )
+        let appState = wiring.appState
+        let settings = wiring.settings
+        let recorder = wiring.recorder
         let service = makeService(
             appState: appState,
             settings: settings,
@@ -209,12 +221,15 @@ final class CaptureEnrichmentServiceTests: XCTestCase {
     }
 
     func testSemanticSearchOnly_skipsPIIAndMetadataButEmbeds() async {
-        let (appState, settings, recorder) = makeWiring(
+        let wiring = makeWiring(
             testName: "semantic_only",
             autoDetectPII: false,
             semanticSearchEnabled: true,
             smartMetadataEnabled: false
         )
+        let appState = wiring.appState
+        let settings = wiring.settings
+        let recorder = wiring.recorder
         let service = makeService(
             appState: appState,
             settings: settings,
@@ -238,12 +253,15 @@ final class CaptureEnrichmentServiceTests: XCTestCase {
     }
 
     func testMetadataOnly_skipsPIIAndEmbeddingButGeneratesMetadata() async {
-        let (appState, settings, recorder) = makeWiring(
+        let wiring = makeWiring(
             testName: "metadata_only",
             autoDetectPII: false,
             semanticSearchEnabled: false,
             smartMetadataEnabled: true
         )
+        let appState = wiring.appState
+        let settings = wiring.settings
+        let recorder = wiring.recorder
         let service = makeService(
             appState: appState,
             settings: settings,
@@ -267,12 +285,15 @@ final class CaptureEnrichmentServiceTests: XCTestCase {
     }
 
     func testPIIOnly_skipsEmbeddingAndMetadata() async {
-        let (appState, settings, recorder) = makeWiring(
+        let wiring = makeWiring(
             testName: "pii_only",
             autoDetectPII: true,
             semanticSearchEnabled: false,
             smartMetadataEnabled: false
         )
+        let appState = wiring.appState
+        let settings = wiring.settings
+        let recorder = wiring.recorder
         let service = makeService(
             appState: appState,
             settings: settings,
@@ -301,12 +322,15 @@ final class CaptureEnrichmentServiceTests: XCTestCase {
         // PII operates on the image, not the OCR text, so it must still run
         // even when OCR returns empty. Embedding + metadata both gate on
         // non-empty text and must be skipped.
-        let (appState, settings, recorder) = makeWiring(
+        let wiring = makeWiring(
             testName: "empty_ocr",
             autoDetectPII: true,
             semanticSearchEnabled: true,
             smartMetadataEnabled: true
         )
+        let appState = wiring.appState
+        let settings = wiring.settings
+        let recorder = wiring.recorder
         let service = makeService(
             appState: appState,
             settings: settings,
@@ -333,12 +357,15 @@ final class CaptureEnrichmentServiceTests: XCTestCase {
     // MARK: - OCR failure
 
     func testOCRFailure_emitsEnrichmentFailedPhase() async {
-        let (appState, settings, recorder) = makeWiring(
+        let wiring = makeWiring(
             testName: "ocr_failure",
             autoDetectPII: false,
             semanticSearchEnabled: false,
             smartMetadataEnabled: false
         )
+        let appState = wiring.appState
+        let settings = wiring.settings
+        let recorder = wiring.recorder
         let service = makeService(
             appState: appState,
             settings: settings,
@@ -363,12 +390,15 @@ final class CaptureEnrichmentServiceTests: XCTestCase {
         // The enrichment run must not double-emit `.enrichmentComplete` or
         // race with `.piiScanFailed` / `.enrichmentFailed`. We watch the
         // phase stream and assert it transitions to a terminal value once.
-        let (appState, settings, recorder) = makeWiring(
+        let wiring = makeWiring(
             testName: "single_phase",
             autoDetectPII: true,
             semanticSearchEnabled: true,
             smartMetadataEnabled: true
         )
+        let appState = wiring.appState
+        let settings = wiring.settings
+        let recorder = wiring.recorder
         let service = makeService(
             appState: appState,
             settings: settings,

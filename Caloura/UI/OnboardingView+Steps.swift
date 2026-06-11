@@ -24,7 +24,8 @@ extension OnboardingView {
                     .font(.title2)
                     .fontWeight(.bold)
 
-                Text("Finish the install first so Screen Recording, updates, and the first-launch experience all stay attached to the same app copy.")
+                Text("Finish the install first so Screen Recording, updates, and the "
+                    + "first-launch experience all stay attached to the same app copy.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -93,7 +94,8 @@ extension OnboardingView {
                     .font(.title2)
                     .fontWeight(.bold)
 
-                Text("Start with one capture. Caloura will ask for Screen Recording only when it is actually needed, then get you straight into capture mode.")
+                Text("Start with one capture. Caloura will ask for Screen Recording only "
+                    + "when it is actually needed, then get you straight into capture mode.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -213,15 +215,19 @@ extension OnboardingView {
         switch flow.currentState {
         case .waitingForSettingsReturn:
             if isAutoValidatingAfterSettings {
-                return "Validating permission… macOS can take a few seconds to propagate this. Caloura will keep checking — or press Try Again."
+                return "Validating permission… macOS can take a few seconds to propagate "
+                    + "this. Caloura will keep checking — or press Try Again."
             }
-            return "In System Settings, click the \"+\" button, select Caloura, and enable it. Then return here — Caloura will re-check automatically."
+            return "In System Settings, click the \"+\" button, select Caloura, and enable "
+                + "it. Then return here — Caloura will re-check automatically."
         case .repairStalePermissionRecord:
             switch permissionPresentation.detail {
             case .staleRecord:
-                return "macOS is still pointing Screen Recording at a different Caloura copy. Use the installed app and refresh the permission once."
+                return "macOS is still pointing Screen Recording at a different Caloura "
+                    + "copy. Use the installed app and refresh the permission once."
             case .grantedNeedsValidation:
-                return "Caloura has a matching Screen Recording record, but macOS still needs one successful live validation before capture can continue."
+                return "Caloura has a matching Screen Recording record, but macOS still "
+                    + "needs one successful live validation before capture can continue."
             default:
                 return "macOS has the permission record, but the current app process still needs a clean relaunch."
             }
@@ -286,7 +292,8 @@ extension OnboardingView {
     }
 
     private var staleRecordBanner: some View {
-        Text("If you moved Caloura after granting access, open the installed copy from /Applications before re-checking.")
+        Text("If you moved Caloura after granting access, open the installed copy "
+            + "from /Applications before re-checking.")
             .font(.footnote)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
@@ -299,7 +306,9 @@ extension OnboardingView {
         case .waitingForSettingsReturn:
             VStack(spacing: 10) {
                 if isCheckingPermission || isAutoValidatingAfterSettings {
-                    ProgressView(isAutoValidatingAfterSettings ? "Validating permission…" : "Checking Screen Recording…")
+                    ProgressView(
+                        isAutoValidatingAfterSettings ? "Validating permission…" : "Checking Screen Recording…"
+                    )
                         .controlSize(.small)
                 }
 

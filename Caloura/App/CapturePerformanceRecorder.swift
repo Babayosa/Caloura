@@ -91,14 +91,13 @@ final class CapturePerformanceRecorder {
     func mark(_ event: Event, in session: Session) {
         guard let state = sessions[session.id] else { return }
         let elapsed = elapsedMilliseconds(since: state.startedAt)
+        let summary = "mode=\(state.mode.rawValue) event=\(event.rawValue) ms=\(elapsed)"
         signposter.emitEvent(
             "capture_event",
             id: state.signpostID,
-            "mode=\(state.mode.rawValue, privacy: .public) event=\(event.rawValue, privacy: .public) ms=\(elapsed, privacy: .public)"
+            "\(summary, privacy: .public)"
         )
-        logger.info(
-            "capture_timeline mode=\(state.mode.rawValue, privacy: .public) event=\(event.rawValue, privacy: .public) ms=\(elapsed, privacy: .public)"
-        )
+        logger.info("capture_timeline \(summary, privacy: .public)")
         record(mode: state.mode, event: event, milliseconds: elapsed)
     }
 
@@ -113,14 +112,13 @@ final class CapturePerformanceRecorder {
             return
         }
 
+        let summary = "mode=\(state.mode.rawValue) event=\(event.rawValue) duration_ms=\(milliseconds)"
         signposter.emitEvent(
             "capture_event",
             id: state.signpostID,
-            "mode=\(state.mode.rawValue, privacy: .public) event=\(event.rawValue, privacy: .public) duration_ms=\(milliseconds, privacy: .public)"
+            "\(summary, privacy: .public)"
         )
-        logger.info(
-            "capture_timeline mode=\(state.mode.rawValue, privacy: .public) event=\(event.rawValue, privacy: .public) duration_ms=\(milliseconds, privacy: .public)"
-        )
+        logger.info("capture_timeline \(summary, privacy: .public)")
         record(mode: state.mode, event: event, milliseconds: milliseconds)
     }
 
@@ -129,8 +127,9 @@ final class CapturePerformanceRecorder {
         let elapsed = elapsedMilliseconds(since: state.startedAt)
         record(mode: state.mode, event: .sessionComplete, milliseconds: elapsed)
         signposter.endInterval("capture_session", state.intervalState)
+        let mode = state.mode.rawValue
         logger.info(
-            "capture_timeline session_finished mode=\(state.mode.rawValue, privacy: .public) ms=\(elapsed, privacy: .public)"
+            "capture_timeline session_finished mode=\(mode, privacy: .public) ms=\(elapsed, privacy: .public)"
         )
     }
 
