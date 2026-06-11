@@ -2,23 +2,6 @@ import Foundation
 import Observation
 import os.log
 
-enum ScreenRecordingState: Equatable {
-    case denied
-    case grantedNeedsValidation
-    case working
-    case needsRelaunch
-    case staleRecord
-    case repairing
-    case configurationFailed
-}
-
-struct PermissionUIModel: Equatable {
-    var status: ScreenRecordingState = .grantedNeedsValidation
-    var guidanceText: String?
-    var shouldShowStaleRecordBanner: Bool = false
-    var isAlertCooldownActive: Bool = false
-}
-
 /// Where a publication originated. `.serializedFlow` writes come from inside
 /// a `serializedValidation` operation and always apply. `.passive` writes
 /// (passive refresh, prime, cooldown timer) are deferred while a serialized
@@ -310,7 +293,10 @@ final class PermissionCoordinator {
         sckStateResetter()
         let identity = await identityProvider()
         let startedAt = now()
-        guard hasFreshPermissionRequestSession(at: startedAt) else {
+        guard PermissionRecoveryPlanner.settingsReturnEntryStep(
+            hasFreshRequestSession: hasFreshPermissionRequestSession(at: startedAt)
+        ) == .pollForValidation else {
+            // .fallBackToPassiveRefresh — no fresh grant attempt to poll for.
             return await refreshPassiveStatus(source: .serializedFlow)
         }
 
@@ -318,7 +304,9 @@ final class PermissionCoordinator {
         var attemptedRepair = false
 
         while now() < deadline {
-            if isLiveValidatedIdentity(identity) {
+            if PermissionRecoveryPlanner.settingsReturnPollStep(
+                hasLiveValidatedIdentity: isLiveValidatedIdentity(identity)
+            ) == .publishWorkingAlreadyValidated {
                 clearPermissionRequestSession()
                 return publishStatus(.working, identity: identity, source: .serializedFlow)
             }
@@ -333,37 +321,22 @@ final class PermissionCoordinator {
                     + " result=\(String(describing: validationResult))"
                 logger.info("\(validationLog, privacy: .public)")
 
-                switch validationResult {
-                case .authorized:
-                    return publishWorkingValidated(identity, source: .serializedFlow)
-                case .userDeclined:
-                    return publishDenied(identity, clearPermissionRequest: true, source: .serializedFlow)
-                case .configurationFailure:
-                    return publishStatus(.configurationFailed, identity: identity, source: .serializedFlow)
-                case .transientFailure:
+                let step = PermissionRecoveryPlanner.settingsReturnStep(
+                    afterValidation: validationResult,
+                    cgGranted: cgGranted,
+                    attemptedRepair: attemptedRepair
+                )
+                switch step {
+                case .publishGrantedNeedsValidationAndRetry(let attemptRepair):
                     _ = publishStatus(.grantedNeedsValidation, identity: identity, source: .serializedFlow)
-
-                    if cgGranted, !attemptedRepair {
+                    if attemptRepair {
                         attemptedRepair = true
-                        _ = publishStatus(.repairing, identity: identity, source: .serializedFlow)
-                        logger.info("settings_return_auto_repair_start best_effort=true")
-                        let repairResult = await repairSCKAccess()
-                        let repairResultDescription = String(describing: repairResult)
-                        logger.info(
-                            "settings_return_auto_repair_result result=\(repairResultDescription, privacy: .public)"
-                        )
-
-                        switch repairResult {
-                        case .authorized:
-                            return publishWorkingValidated(identity, source: .serializedFlow)
-                        case .userDeclined:
-                            return publishDenied(identity, clearPermissionRequest: true, source: .serializedFlow)
-                        case .configurationFailure:
-                            return publishStatus(.configurationFailed, identity: identity, source: .serializedFlow)
-                        case .transientFailure:
-                            _ = publishStatus(.grantedNeedsValidation, identity: identity, source: .serializedFlow)
+                        if let outcome = await runSettingsReturnRepair(for: identity) {
+                            return outcome
                         }
                     }
+                default:
+                    return executeSettingsReturnPublication(step, identity: identity)
                 }
 
                 if attempt < maxSCKRetries {
@@ -374,26 +347,7 @@ final class PermissionCoordinator {
             try? await Task.sleep(nanoseconds: pollIntervalNanoseconds)
         }
 
-        if canAutoRelaunchAfterSettingsReturn(at: now()) {
-            if let pendingMode = pendingCaptureResumeMode() {
-                armPendingCaptureResume(mode: pendingMode)
-            }
-            markAutoRelaunchIssued()
-            _ = publishStatus(.repairing, identity: identity, source: .serializedFlow)
-            logger.info("settings_return_auto_relaunch with TCC reset")
-            guard await resetTCCEntry() else {
-                clearPendingCaptureResume()
-                return publishExplicitFailure(
-                    for: identity,
-                    clearPermissionRequest: true,
-                    source: .serializedFlow
-                )
-            }
-            relaunchApp()
-            return .repairing
-        }
-
-        return publishExplicitFailure(for: identity, clearPermissionRequest: true, source: .serializedFlow)
+        return await finishSettingsReturnAfterDeadline(for: identity)
     }
 
     /// Handle a capture failure due to missing permission, showing an alert if not rate-limited.
@@ -407,138 +361,24 @@ final class PermissionCoordinator {
     private func handleCapturePermissionFailureCore() async -> ScreenRecordingState {
         sckStateResetter()
         let identity = await identityProvider()
-        var status = await refreshPassiveStatus(source: .serializedFlow)
+        let status = await refreshPassiveStatus(source: .serializedFlow)
 
-        // If CG is granted, attempt silent repair before showing any alert.
-        // Repair is best-effort — on Tahoe, replayd restart may be blocked by SIP.
-        if status != .denied {
-            if status == .configurationFailed {
-                clearPendingCaptureResume()
-                statusMessageSink(nonBlockingMessage(for: status))
-                updateCooldownInModel(cooldownActive: false)
-                return status
-            }
-            logger.info("silent_repair_attempt best_effort=true")
-            let repairResult = await repairSCKAccess()
-            if repairResult == .authorized {
-                logger.info("silent_repair_success — no alert needed")
-                clearPendingCaptureResume()
-                _ = publishWorkingValidated(identity, clearPermissionRequest: false, source: .serializedFlow)
-                return .working
-            }
-            // `.confirmRepairRelaunch` is destructive (TCC reset + forced
-            // relaunch). Gate it on BOTH passive=.denied AND an interactive
-            // check also failing. When CG says granted, a single capture
-            // failure is not strong enough evidence of a real permission
-            // problem — surface a non-blocking status instead of cascading
-            // into a modal alert that greys the menu bar.
-            logger.info("silent_repair_did_not_resolve — CG granted, treating as transient")
-            status = publishExplicitFailure(for: identity, source: .serializedFlow)
-            clearPendingCaptureResume()
-            statusMessageSink(nonBlockingMessage(for: status))
-            updateCooldownInModel(cooldownActive: false)
-            return status
+        let step = PermissionRecoveryPlanner.captureFailureStep(afterPassiveStatus: status)
+        switch step {
+        case .surfaceConfigurationFailed(let publishFirst):
+            return surfaceConfigurationFailed(for: identity, publishFirst: publishFirst)
+        case .restartReplayd:
+            // CG is granted: attempt silent repair before showing any alert.
+            // Repair is best-effort — on Tahoe, replayd restart may be blocked by SIP.
+            return await runCaptureFailureSilentRepair(for: identity, status: status)
+        case .probeSCK:
+            // Passive status is .denied. Corroborate with a live interactive
+            // check before firing the destructive repair flow: if it succeeds,
+            // TCC is stale but SCK works and a relaunch would only disrupt.
+            return await corroborateCaptureFailureDenial(for: identity, status: status)
+        default:
+            return unplannedRecoveryStep(step, returning: status)
         }
-
-        // Passive status is .denied. Corroborate with a live interactive
-        // check before firing the destructive repair flow. If interactive
-        // succeeds, TCC is stale but SCK works — a relaunch would only be
-        // disruptive. If interactive also fails, the system is genuinely
-        // stuck and the repair prompt is warranted.
-        let interactiveResult = await interactiveCheck()
-        logger.info(
-            "repair_gate_interactive result=\(String(describing: interactiveResult), privacy: .public)"
-        )
-        if interactiveResult == .authorized {
-            return publishWorkingValidated(identity, source: .serializedFlow)
-        }
-        if interactiveResult == .configurationFailure {
-            let configurationStatus = publishStatus(
-                .configurationFailed,
-                identity: identity,
-                source: .serializedFlow
-            )
-            clearPendingCaptureResume()
-            statusMessageSink(nonBlockingMessage(for: configurationStatus))
-            updateCooldownInModel(cooldownActive: false)
-            return configurationStatus
-        }
-
-        if interactiveResult == .transientFailure,
-           canAttemptAutoRepairRelaunch(),
-           isShowingAlert {
-            let statusDescription = String(describing: status)
-            logger.info(
-                "permission_alert_suppressed reason=inflight_repair status=\(statusDescription, privacy: .public)"
-            )
-        }
-        if interactiveResult == .transientFailure,
-           canAttemptAutoRepairRelaunch(),
-           !isShowingAlert {
-            markAutoRepairRelaunchAttempted()
-            isShowingAlert = true
-            // defer clears across cancellation — see CLAUDE.md "Stateful flags require recovery API + diagnostic log + defer-based clear".
-            defer { isShowingAlert = false }
-            await alertPresenter(.confirmRepairRelaunch)
-            if alertRequestedRelaunch() {
-                logger.info("user_approved_repair_relaunch — TCC reset + relaunch")
-                if await performTCCResetAndRelaunch() {
-                    return .repairing
-                }
-                return publishExplicitFailure(
-                    for: identity,
-                    clearPermissionRequest: true,
-                    source: .serializedFlow
-                )
-            }
-            // User declined the destructive repair. Do NOT fall through
-            // to a second modal alert — that's two blocking prompts
-            // back-to-back for the same failure. Set the cooldown and
-            // surface a non-blocking status so the user can retry.
-            logger.info("user_declined_repair_relaunch — surfacing status only")
-            clearPendingCaptureResume()
-            statusMessageSink(nonBlockingMessage(for: status))
-            store.noteBlockingAlertShown(at: now())
-            updateCooldownInModel(cooldownActive: true)
-            return status
-        }
-
-        let now = now()
-        let cooldownActive = isCooldownActive(at: now)
-
-        if isShowingAlert {
-            logger.info("permission_alert_suppressed reason=inflight status=\(String(describing: status), privacy: .public)")
-            clearPendingCaptureResume()
-            statusMessageSink(nonBlockingMessage(for: status))
-            updateCooldownInModel(cooldownActive: true)
-            return status
-        }
-
-        if cooldownActive {
-            logger.info("permission_alert_suppressed reason=cooldown status=\(String(describing: status), privacy: .public)")
-            clearPendingCaptureResume()
-            statusMessageSink(nonBlockingMessage(for: status))
-            updateCooldownInModel(cooldownActive: true)
-            return status
-        }
-
-        let alertState = alertState(for: status)
-        let alertDesc = String(describing: alertState)
-        let alertPath = identity.executablePath
-        let alertMsg = "permission_alert_presenting"
-            + " state=\(alertDesc) path=\(alertPath)"
-        logger.info("\(alertMsg, privacy: .public)")
-        isShowingAlert = true
-        defer { isShowingAlert = false }  // see comment on the prior defer
-        await alertPresenter(alertState)
-        if alertRequestedRelaunch() {
-            pendingCaptureResumeRequiresRelaunch = true
-        } else {
-            clearPendingCaptureResume()
-        }
-        store.noteBlockingAlertShown(at: now)
-        updateCooldownInModel(cooldownActive: true)
-        return status
     }
 
     /// Reset the TCC entry, restart replayd to clear its approval cache,
@@ -771,18 +611,239 @@ private extension PermissionCoordinator {
         )
     }
 
-    func alertState(for status: ScreenRecordingState) -> ScreenCaptureManager.PermissionState {
-        switch status {
-        case .denied:
-            return .neverGranted
-        case .staleRecord,
-             .needsRelaunch,
-             .grantedNeedsValidation,
-             .working,
-             .repairing,
-             .configurationFailed:
-            return .grantedButFailing
+    // MARK: - Recovery step execution
+    // `PermissionRecoveryPlanner` decides; these helpers execute the steps.
+
+    /// Shared terminal surface: consume the pending resume, emit the
+    /// non-blocking message, refresh the cooldown flag.
+    @discardableResult
+    func surfaceNonBlockingStatus(_ status: ScreenRecordingState, cooldownActive: Bool) -> ScreenRecordingState {
+        clearPendingCaptureResume()
+        statusMessageSink(nonBlockingMessage(for: status))
+        updateCooldownInModel(cooldownActive: cooldownActive)
+        return status
+    }
+
+    /// `.configurationFailed` outcome: surface the non-blocking message
+    /// without any repair or denial escalation (INVARIANT-10).
+    func surfaceConfigurationFailed(for identity: PermissionIdentity, publishFirst: Bool) -> ScreenRecordingState {
+        let status = publishFirst
+            ? publishStatus(.configurationFailed, identity: identity, source: .serializedFlow)
+            : .configurationFailed
+        return surfaceNonBlockingStatus(status, cooldownActive: false)
+    }
+
+    func runCaptureFailureSilentRepair(
+        for identity: PermissionIdentity,
+        status: ScreenRecordingState
+    ) async -> ScreenRecordingState {
+        logger.info("silent_repair_attempt best_effort=true")
+        let repairResult = await repairSCKAccess()
+        let step = PermissionRecoveryPlanner.captureFailureStep(afterSilentRepair: repairResult)
+        switch step {
+        case .publishWorking(let clearRequestSession, clearPendingResume: true):
+            logger.info("silent_repair_success — no alert needed")
+            clearPendingCaptureResume()
+            _ = publishWorkingValidated(identity, clearPermissionRequest: clearRequestSession, source: .serializedFlow)
+            return .working
+        case .surfaceExplicitFailure:
+            // When CG says granted, a single capture failure is not strong
+            // enough evidence of a real permission problem — surface a
+            // non-blocking status instead of cascading into a modal alert
+            // that greys the menu bar (destructive repair needs passive=
+            // .denied AND a failing interactive check).
+            logger.info("silent_repair_did_not_resolve — CG granted, treating as transient")
+            let failureStatus = publishExplicitFailure(for: identity, source: .serializedFlow)
+            return surfaceNonBlockingStatus(failureStatus, cooldownActive: false)
+        default:
+            return unplannedRecoveryStep(step, returning: status)
         }
+    }
+
+    func corroborateCaptureFailureDenial(
+        for identity: PermissionIdentity,
+        status: ScreenRecordingState
+    ) async -> ScreenRecordingState {
+        let interactiveResult = await interactiveCheck()
+        logger.info("repair_gate_interactive result=\(String(describing: interactiveResult), privacy: .public)")
+        let canRepairRelaunch = interactiveResult == .transientFailure && canAttemptAutoRepairRelaunch()
+        if canRepairRelaunch, isShowingAlert {
+            let statusDescription = String(describing: status)
+            logger.info(
+                "permission_alert_suppressed reason=inflight_repair status=\(statusDescription, privacy: .public)"
+            )
+        }
+
+        let step = PermissionRecoveryPlanner.captureFailureStep(
+            afterCorroboration: interactiveResult,
+            canAutoRepairRelaunch: canRepairRelaunch,
+            isShowingAlert: isShowingAlert
+        )
+        switch step {
+        case .publishWorking(clearRequestSession: true, clearPendingResume: false):
+            return publishWorkingValidated(identity, source: .serializedFlow)
+        case .surfaceConfigurationFailed(let publishFirst):
+            return surfaceConfigurationFailed(for: identity, publishFirst: publishFirst)
+        case .presentRepairRelaunchConfirmation:
+            return await confirmAndRunRepairRelaunch(for: identity, status: status)
+        case .escalateToBlockingAlert:
+            return await presentOrSuppressBlockingAlert(for: identity, status: status)
+        default:
+            return unplannedRecoveryStep(step, returning: status)
+        }
+    }
+
+    func confirmAndRunRepairRelaunch(
+        for identity: PermissionIdentity,
+        status: ScreenRecordingState
+    ) async -> ScreenRecordingState {
+        markAutoRepairRelaunchAttempted()
+        isShowingAlert = true
+        // defer clears across cancellation — see CLAUDE.md "Stateful flags require recovery API + diagnostic log + defer-based clear".
+        defer { isShowingAlert = false }
+        await alertPresenter(.confirmRepairRelaunch)
+        let followUp = PermissionRecoveryPlanner.captureFailureStep(afterRepairConfirmation: alertRequestedRelaunch())
+        switch followUp {
+        case .performTCCResetAndRelaunch:
+            logger.info("user_approved_repair_relaunch — TCC reset + relaunch")
+            let resetSucceeded = await performTCCResetAndRelaunch()
+            let outcome = PermissionRecoveryPlanner.captureFailureStep(afterRepairRelaunch: resetSucceeded)
+            switch outcome {
+            case .finishRepairing:
+                return .repairing
+            case .publishExplicitFailureEndingRequest:
+                return publishExplicitFailure(for: identity, clearPermissionRequest: true, source: .serializedFlow)
+            default:
+                return unplannedRecoveryStep(outcome, returning: status)
+            }
+        case .surfaceStatusAfterDeclinedRepair:
+            // User declined the destructive repair. Do NOT fall through to a
+            // second modal alert — that's two blocking prompts back-to-back
+            // for the same failure. Cooldown + non-blocking status instead.
+            logger.info("user_declined_repair_relaunch — surfacing status only")
+            store.noteBlockingAlertShown(at: now())
+            return surfaceNonBlockingStatus(status, cooldownActive: true)
+        default:
+            return unplannedRecoveryStep(followUp, returning: status)
+        }
+    }
+
+    func presentOrSuppressBlockingAlert(
+        for identity: PermissionIdentity,
+        status: ScreenRecordingState
+    ) async -> ScreenRecordingState {
+        let timestamp = now()
+        let step = PermissionRecoveryPlanner.captureFailureBlockingAlertStep(
+            status: status,
+            isShowingAlert: isShowingAlert,
+            cooldownActive: isCooldownActive(at: timestamp)
+        )
+        switch step {
+        case .surfaceStatusWithoutAlert(let reason):
+            let suppressMsg = "permission_alert_suppressed reason=\(reason.rawValue)"
+                + " status=\(String(describing: status))"
+            logger.info("\(suppressMsg, privacy: .public)")
+            return surfaceNonBlockingStatus(status, cooldownActive: true)
+        case .presentBlockingAlert(let alertState):
+            let alertMsg = "permission_alert_presenting"
+                + " state=\(String(describing: alertState)) path=\(identity.executablePath)"
+            logger.info("\(alertMsg, privacy: .public)")
+            isShowingAlert = true
+            defer { isShowingAlert = false }  // see comment on the prior defer
+            await alertPresenter(alertState)
+            let followUp = PermissionRecoveryPlanner.captureFailureStep(afterBlockingAlert: alertRequestedRelaunch())
+            switch followUp {
+            case .keepPendingResumeForRelaunch:
+                pendingCaptureResumeRequiresRelaunch = true
+            case .clearPendingResumeAfterAlert:
+                clearPendingCaptureResume()
+            default:
+                _ = unplannedRecoveryStep(followUp, returning: status)
+            }
+            store.noteBlockingAlertShown(at: timestamp)
+            updateCooldownInModel(cooldownActive: true)
+            return status
+        default:
+            return unplannedRecoveryStep(step, returning: status)
+        }
+    }
+
+    /// Terminal publications shared by the settings-return validation and
+    /// repair decision points.
+    func executeSettingsReturnPublication(
+        _ step: PermissionRecoveryStep,
+        identity: PermissionIdentity
+    ) -> ScreenRecordingState {
+        switch step {
+        case .publishWorking(clearRequestSession: true, clearPendingResume: false):
+            return publishWorkingValidated(identity, source: .serializedFlow)
+        case .publishDenied:
+            return publishDenied(identity, clearPermissionRequest: true, source: .serializedFlow)
+        case .publishConfigurationFailed:
+            return publishStatus(.configurationFailed, identity: identity, source: .serializedFlow)
+        default:
+            return unplannedRecoveryStep(step, returning: .grantedNeedsValidation)
+        }
+    }
+
+    /// Runs the one best-effort in-loop repair. Returns the terminal
+    /// status, or nil to stay in the retry loop.
+    func runSettingsReturnRepair(for identity: PermissionIdentity) async -> ScreenRecordingState? {
+        _ = publishStatus(.repairing, identity: identity, source: .serializedFlow)
+        logger.info("settings_return_auto_repair_start best_effort=true")
+        let repairResult = await repairSCKAccess()
+        logger.info("settings_return_auto_repair_result result=\(String(describing: repairResult), privacy: .public)")
+
+        let step = PermissionRecoveryPlanner.settingsReturnStep(afterRepair: repairResult)
+        if case .publishGrantedNeedsValidationAndRetry(attemptRepair: false) = step {
+            _ = publishStatus(.grantedNeedsValidation, identity: identity, source: .serializedFlow)
+            return nil
+        }
+        return executeSettingsReturnPublication(step, identity: identity)
+    }
+
+    func finishSettingsReturnAfterDeadline(for identity: PermissionIdentity) async -> ScreenRecordingState {
+        let deadlineStep = PermissionRecoveryPlanner.settingsReturnDeadlineStep(
+            canAutoRelaunch: canAutoRelaunchAfterSettingsReturn(at: now())
+        )
+        switch deadlineStep {
+        case .autoRelaunchWithTCCReset:
+            if let pendingMode = pendingCaptureResumeMode() {
+                armPendingCaptureResume(mode: pendingMode)
+            }
+            markAutoRelaunchIssued()
+            _ = publishStatus(.repairing, identity: identity, source: .serializedFlow)
+            logger.info("settings_return_auto_relaunch with TCC reset")
+            let resetSucceeded = await resetTCCEntry()
+            let followUp = PermissionRecoveryPlanner.settingsReturnStep(afterAutoRelaunchTCCReset: resetSucceeded)
+            switch followUp {
+            case .relaunch:
+                relaunchApp()
+                return .repairing
+            case .abortAutoRelaunch:
+                clearPendingCaptureResume()
+                return publishExplicitFailure(for: identity, clearPermissionRequest: true, source: .serializedFlow)
+            default:
+                return unplannedRecoveryStep(followUp, returning: .repairing)
+            }
+        case .publishExplicitFailureEndingRequest:
+            return publishExplicitFailure(for: identity, clearPermissionRequest: true, source: .serializedFlow)
+        default:
+            return unplannedRecoveryStep(deadlineStep, returning: .grantedNeedsValidation)
+        }
+    }
+
+    /// Planner-contract guard: each decision function returns a small, tested
+    /// subset of `PermissionRecoveryStep`, so executors only handle the steps
+    /// that decision can produce. Reaching this means planner and executor
+    /// disagree — fail fast in debug; log and keep the caller's status in release.
+    func unplannedRecoveryStep(
+        _ step: PermissionRecoveryStep,
+        returning status: ScreenRecordingState
+    ) -> ScreenRecordingState {
+        assertionFailure("Unplanned recovery step: \(step)")
+        logger.error("unplanned_recovery_step step=\(String(describing: step), privacy: .public)")
+        return status
     }
 
     func updateCooldownInModel(cooldownActive: Bool) {
