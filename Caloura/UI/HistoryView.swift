@@ -58,9 +58,10 @@ struct HistoryView: View {
     @State private var semanticResults: Set<UUID> = []
     @State private var semanticSearchTask: Task<Void, Never>?
     @State private var copyImageTask: Task<Void, Never>?
+    @State private var searchModel = HistorySearchModel()
 
     private var filteredScreenshots: [ScreenshotItem] {
-        HistorySearchModel.filteredScreenshots(
+        searchModel.filteredScreenshots(
             from: appState.recentScreenshots,
             searchText: searchText,
             semanticResults: semanticResults,
