@@ -124,8 +124,7 @@ final class AppState {
 
         recentScreenshots.remove(at: index)
         removeAssociatedState(for: id)
-        embeddingStore.remove(screenshotID: id)
-        embeddingStore.save()
+        persistEmbeddingRemovals(for: [id])
         debouncedSaveHistory()
     }
 
@@ -180,7 +179,10 @@ final class AppState {
         lastCapturePreviewPhase = .rawPreviewReady
         lastCapturePreviewScreenshotID = nil
         lastPIIResult = nil
-        embeddingStore.clear()
+        let store = embeddingStore
+        Task {
+            await store.clear()
+        }
         saveHistoryNow()
     }
 
@@ -282,8 +284,8 @@ final class AppState {
 
         for item in removed {
             removeAssociatedState(for: item.id)
-            embeddingStore.remove(screenshotID: item.id)
         }
+        persistEmbeddingRemovals(for: removed.map(\.id))
         if let lastCapturePreviewScreenshotID,
            previewPhasesByScreenshotID[lastCapturePreviewScreenshotID] == nil {
             self.lastCapturePreviewScreenshotID = nil
@@ -293,7 +295,20 @@ final class AppState {
            piiResultsByScreenshotID[lastPIIResult.screenshotID] == nil {
             self.lastPIIResult = nil
         }
-        embeddingStore.save()
+    }
+
+    /// Fire-and-forget embedding removal + persist. The store actor
+    /// serializes mutations and saves, and every save snapshots all
+    /// mutations executed before it (and each task's save follows its own
+    /// mutation), so concurrent removals from
+    /// delete/prune cannot produce a stale final file.
+    private func persistEmbeddingRemovals(for screenshotIDs: [UUID]) {
+        guard !screenshotIDs.isEmpty else { return }
+        let store = embeddingStore
+        Task {
+            await store.remove(screenshotIDs: screenshotIDs)
+            await store.save()
+        }
     }
 
     private func removeAssociatedState(for screenshotID: UUID) {

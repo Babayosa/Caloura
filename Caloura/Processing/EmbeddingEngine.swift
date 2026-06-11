@@ -102,6 +102,6 @@ struct EmbeddingEngine {
         threshold: Double = 0.3
     ) async -> [(id: UUID, similarity: Double)] {
         guard let queryVector = await embed(query) else { return [] }
-        return store.findSimilar(to: queryVector, topK: topK, threshold: threshold)
+        return await store.findSimilar(to: queryVector, topK: topK, threshold: threshold)
     }
 }

@@ -18,13 +18,18 @@ private struct EmbeddingStorePayload: Codable {
     let entries: [EmbeddingEntry]
 }
 
-final class EmbeddingStore: @unchecked Sendable {
+/// Actor so file I/O (JSON encode + AES-GCM + atomic write in `save()`,
+/// read + decrypt + decode in `load()`) never executes on the main actor's
+/// thread — main-actor call sites pay only an actor hop (audit item 3.1).
+/// Actor serialization also orders saves: every mutation executed before a
+/// `save()` is reflected in that save's snapshot, so the last write to the
+/// file always contains all prior mutations.
+actor EmbeddingStore {
     static let currentSchemaVersion = 1
 
     private var entries: [EmbeddingEntry] = []
     private let storeURL: URL
     private let modelVersion: Int
-    private let lock = NSLock()
     private static let encryptionPurpose = "embedding-storage"
 
     init(
@@ -40,29 +45,27 @@ final class EmbeddingStore: @unchecked Sendable {
     }
 
     func add(screenshotID: UUID, vector: [Double], textHash: String) {
-        lock.lock()
         // Remove existing entry for same screenshot
         entries.removeAll { $0.screenshotID == screenshotID }
         entries.append(EmbeddingEntry(screenshotID: screenshotID, vector: vector, textHash: textHash))
-        lock.unlock()
     }
 
     func remove(screenshotID: UUID) {
-        lock.lock()
         entries.removeAll { $0.screenshotID == screenshotID }
-        lock.unlock()
+    }
+
+    func remove(screenshotIDs: [UUID]) {
+        guard !screenshotIDs.isEmpty else { return }
+        let removalSet = Set(screenshotIDs)
+        entries.removeAll { removalSet.contains($0.screenshotID) }
     }
 
     func findSimilar(to queryVector: [Double], topK: Int, threshold: Double) -> [(UUID, Double)] {
         guard topK > 0 else { return [] }
 
-        lock.lock()
-        let snapshot = entries
-        lock.unlock()
-
         var results: [(UUID, Double)] = []
-        results.reserveCapacity(min(topK, snapshot.count))
-        for entry in snapshot {
+        results.reserveCapacity(min(topK, entries.count))
+        for entry in entries {
             let similarity = EmbeddingEngine.cosineSimilarity(queryVector, entry.vector)
             guard similarity >= threshold else { continue }
 
@@ -79,15 +82,11 @@ final class EmbeddingStore: @unchecked Sendable {
     }
 
     func save() {
-        lock.lock()
-        let snapshot = entries
-        lock.unlock()
-
         do {
             let payload = EmbeddingStorePayload(
                 schemaVersion: Self.currentSchemaVersion,
                 modelVersion: modelVersion,
-                entries: snapshot
+                entries: entries
             )
             let data = try JSONEncoder().encode(payload)
             try HistoryCrypto.writeEncrypted(data, to: storeURL, purpose: Self.encryptionPurpose)
@@ -114,7 +113,7 @@ final class EmbeddingStore: @unchecked Sendable {
                 clear()
                 return
             }
-            replaceEntries(with: decoded.entries)
+            entries = decoded.entries
         } catch {
             let message = error.localizedDescription
             embeddingStoreLogger.debug(
@@ -125,7 +124,7 @@ final class EmbeddingStore: @unchecked Sendable {
     }
 
     func clear() {
-        resetInMemory()
+        entries = []
         do {
             try FileManager.default.removeItem(at: storeURL)
         } catch CocoaError.fileNoSuchFile {
@@ -137,26 +136,10 @@ final class EmbeddingStore: @unchecked Sendable {
     }
 
     var count: Int {
-        lock.lock()
-        let entryCount = entries.count
-        lock.unlock()
-        return entryCount
+        entries.count
     }
 
     func hasEmbedding(for screenshotID: UUID) -> Bool {
-        lock.lock()
-        let found = entries.contains { $0.screenshotID == screenshotID }
-        lock.unlock()
-        return found
-    }
-
-    private func replaceEntries(with entries: [EmbeddingEntry]) {
-        lock.lock()
-        self.entries = entries
-        lock.unlock()
-    }
-
-    private func resetInMemory() {
-        replaceEntries(with: [])
+        entries.contains { $0.screenshotID == screenshotID }
     }
 }

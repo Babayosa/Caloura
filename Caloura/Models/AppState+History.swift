@@ -52,7 +52,7 @@ extension AppState {
     /// during the load window are preserved via ID-dedup on apply.
     func loadPersistedState() async {
         await loadHistoryAsync()
-        embeddingStore.load()
+        await embeddingStore.load()
         auditStoragePermissions()
     }
 

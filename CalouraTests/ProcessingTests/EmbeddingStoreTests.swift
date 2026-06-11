@@ -8,109 +8,173 @@ final class EmbeddingStoreTests: XCTestCase {
         return EmbeddingStore(storeURL: url)
     }
 
-    func testAddAndRetrieve_roundTrip() {
+    func testAddAndRetrieve_roundTrip() async {
         let store = makeTestStore()
         let id = UUID()
         let vector = [1.0, 2.0, 3.0]
-        store.add(screenshotID: id, vector: vector, textHash: "abc")
-        XCTAssertEqual(store.count, 1)
-        XCTAssertTrue(store.hasEmbedding(for: id))
-        store.clear()
+        await store.add(screenshotID: id, vector: vector, textHash: "abc")
+        let count = await store.count
+        XCTAssertEqual(count, 1)
+        let hasEmbedding = await store.hasEmbedding(for: id)
+        XCTAssertTrue(hasEmbedding)
+        await store.clear()
     }
 
-    func testRemove_deletesEntry() {
+    func testRemove_deletesEntry() async {
         let store = makeTestStore()
         let id = UUID()
-        store.add(screenshotID: id, vector: [1.0], textHash: "a")
-        XCTAssertEqual(store.count, 1)
-        store.remove(screenshotID: id)
-        XCTAssertEqual(store.count, 0)
-        store.clear()
+        await store.add(screenshotID: id, vector: [1.0], textHash: "a")
+        let countAfterAdd = await store.count
+        XCTAssertEqual(countAfterAdd, 1)
+        await store.remove(screenshotID: id)
+        let countAfterRemove = await store.count
+        XCTAssertEqual(countAfterRemove, 0)
+        await store.clear()
     }
 
-    func testClear_emptiesStore() {
+    func testRemoveBatch_deletesOnlyListedEntries() async {
         let store = makeTestStore()
-        store.add(screenshotID: UUID(), vector: [1.0], textHash: "a")
-        store.add(screenshotID: UUID(), vector: [2.0], textHash: "b")
-        XCTAssertEqual(store.count, 2)
-        store.clear()
-        XCTAssertEqual(store.count, 0)
+        let first = UUID()
+        let second = UUID()
+        let kept = UUID()
+        await store.add(screenshotID: first, vector: [1.0], textHash: "a")
+        await store.add(screenshotID: second, vector: [2.0], textHash: "b")
+        await store.add(screenshotID: kept, vector: [3.0], textHash: "c")
+
+        await store.remove(screenshotIDs: [first, second])
+
+        let count = await store.count
+        XCTAssertEqual(count, 1)
+        let hasKept = await store.hasEmbedding(for: kept)
+        XCTAssertTrue(hasKept)
+        await store.clear()
     }
 
-    func testSaveAndLoad_encrypted() {
+    func testClear_emptiesStore() async {
+        let store = makeTestStore()
+        await store.add(screenshotID: UUID(), vector: [1.0], textHash: "a")
+        await store.add(screenshotID: UUID(), vector: [2.0], textHash: "b")
+        let countAfterAdds = await store.count
+        XCTAssertEqual(countAfterAdds, 2)
+        await store.clear()
+        let countAfterClear = await store.count
+        XCTAssertEqual(countAfterClear, 0)
+    }
+
+    func testSaveAndLoad_encrypted() async {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("test-persist-\(UUID().uuidString).enc")
         let store1 = EmbeddingStore(storeURL: url)
         let id = UUID()
-        store1.add(screenshotID: id, vector: [1.0, 2.0, 3.0], textHash: "test")
-        store1.save()
+        await store1.add(screenshotID: id, vector: [1.0, 2.0, 3.0], textHash: "test")
+        await store1.save()
 
         let store2 = EmbeddingStore(storeURL: url)
-        store2.load()
-        XCTAssertEqual(store2.count, 1)
-        XCTAssertTrue(store2.hasEmbedding(for: id))
+        await store2.load()
+        let count = await store2.count
+        XCTAssertEqual(count, 1)
+        let hasEmbedding = await store2.hasEmbedding(for: id)
+        XCTAssertTrue(hasEmbedding)
 
         // Cleanup
         try? FileManager.default.removeItem(at: url)
     }
 
-    func testFindSimilar_threshold() {
-        let store = makeTestStore()
-        store.add(screenshotID: UUID(), vector: [1.0, 0.0, 0.0], textHash: "a")
-        store.add(screenshotID: UUID(), vector: [0.0, 1.0, 0.0], textHash: "b")
+    /// Audit item 3.1 ordering guarantee: concurrent mutate+save pairs must
+    /// never leave the on-disk store missing a mutation. Each task's save
+    /// runs after its own add (program order), and the actor serializes all
+    /// jobs, so the globally last save snapshots every add.
+    func testConcurrentAddAndSave_finalFileContainsAllEntries() async {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("test-ordering-\(UUID().uuidString).enc")
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: url)
+        }
+        let store = EmbeddingStore(storeURL: url)
+        let ids = (0..<20).map { _ in UUID() }
 
-        let results = store.findSimilar(to: [1.0, 0.0, 0.0], topK: 10, threshold: 0.9)
-        XCTAssertEqual(results.count, 1, "Only exact/near match should pass high threshold")
-        store.clear()
+        await withTaskGroup(of: Void.self) { group in
+            for (index, id) in ids.enumerated() {
+                group.addTask {
+                    await store.add(
+                        screenshotID: id,
+                        vector: [Double(index)],
+                        textHash: "hash-\(index)"
+                    )
+                    await store.save()
+                }
+            }
+        }
+
+        let reader = EmbeddingStore(storeURL: url)
+        await reader.load()
+        let count = await reader.count
+        XCTAssertEqual(count, ids.count, "Final file must contain every concurrently added entry")
+        for id in ids {
+            let hasEmbedding = await reader.hasEmbedding(for: id)
+            XCTAssertTrue(hasEmbedding, "Entry \(id) missing from final persisted store")
+        }
     }
 
-    func testFindSimilar_limitsTopKWithoutLosingOrder() {
+    func testFindSimilar_threshold() async {
+        let store = makeTestStore()
+        await store.add(screenshotID: UUID(), vector: [1.0, 0.0, 0.0], textHash: "a")
+        await store.add(screenshotID: UUID(), vector: [0.0, 1.0, 0.0], textHash: "b")
+
+        let results = await store.findSimilar(to: [1.0, 0.0, 0.0], topK: 10, threshold: 0.9)
+        XCTAssertEqual(results.count, 1, "Only exact/near match should pass high threshold")
+        await store.clear()
+    }
+
+    func testFindSimilar_limitsTopKWithoutLosingOrder() async {
         let store = makeTestStore()
         let top = UUID()
         let second = UUID()
         let third = UUID()
-        store.add(screenshotID: top, vector: [1.0, 0.0, 0.0], textHash: "top")
-        store.add(screenshotID: second, vector: [0.8, 0.2, 0.0], textHash: "second")
-        store.add(screenshotID: third, vector: [0.7, 0.3, 0.0], textHash: "third")
+        await store.add(screenshotID: top, vector: [1.0, 0.0, 0.0], textHash: "top")
+        await store.add(screenshotID: second, vector: [0.8, 0.2, 0.0], textHash: "second")
+        await store.add(screenshotID: third, vector: [0.7, 0.3, 0.0], textHash: "third")
 
-        let results = store.findSimilar(to: [1.0, 0.0, 0.0], topK: 2, threshold: 0.0)
+        let results = await store.findSimilar(to: [1.0, 0.0, 0.0], topK: 2, threshold: 0.0)
 
         XCTAssertEqual(results.map(\.0), [top, second])
         XCTAssertGreaterThanOrEqual(results[0].1, results[1].1)
-        store.clear()
+        await store.clear()
     }
 
-    func testLoad_modelVersionMismatch_clearsStore() {
+    func testLoad_modelVersionMismatch_clearsStore() async {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("test-version-mismatch-\(UUID().uuidString).enc")
         let writer = EmbeddingStore(storeURL: url, modelVersion: 1)
         let screenshotID = UUID()
-        writer.add(screenshotID: screenshotID, vector: [1.0, 2.0], textHash: "hash")
-        writer.save()
+        await writer.add(screenshotID: screenshotID, vector: [1.0, 2.0], textHash: "hash")
+        await writer.save()
 
         let reader = EmbeddingStore(storeURL: url, modelVersion: 2)
-        reader.load()
+        await reader.load()
 
-        XCTAssertEqual(reader.count, 0)
+        let count = await reader.count
+        XCTAssertEqual(count, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
 
-    func testLoad_unreadableStore_clearsCorruptedFile() throws {
+    func testLoad_unreadableStore_clearsCorruptedFile() async throws {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("test-corrupt-\(UUID().uuidString).enc")
         try Data("not encrypted".utf8).write(to: url, options: .atomic)
 
         let store = EmbeddingStore(storeURL: url)
-        store.load()
+        await store.load()
 
-        XCTAssertEqual(store.count, 0)
+        let count = await store.count
+        XCTAssertEqual(count, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
 
     // Regression guard: anything an attacker could read off disk (UUID,
     // text hash, vector floats) must not survive in plaintext. If a future
     // edit to save() ever writes JSON directly, this test fires.
-    func testSave_writesEncryptedBytesNotPlaintextJSON() throws {
+    func testSave_writesEncryptedBytesNotPlaintextJSON() async throws {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("test-encrypted-bytes-\(UUID().uuidString).enc")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -118,8 +182,8 @@ final class EmbeddingStoreTests: XCTestCase {
         let store = EmbeddingStore(storeURL: url)
         let screenshotID = UUID()
         let textHash = "UNIQUE-PLAINTEXT-MARKER-9F3A2B"
-        store.add(screenshotID: screenshotID, vector: [1.0, 2.0, 3.0], textHash: textHash)
-        store.save()
+        await store.add(screenshotID: screenshotID, vector: [1.0, 2.0, 3.0], textHash: textHash)
+        await store.save()
 
         let bytes = try Data(contentsOf: url)
         XCTAssertGreaterThan(bytes.count, 0, "encrypted file should not be empty")

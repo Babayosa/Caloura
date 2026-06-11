@@ -14,7 +14,7 @@ final class EmbeddingEngineEdgeCaseTests: XCTestCase {
         let store = EmbeddingStore(storeURL: storeURL)
         let results = await EmbeddingEngine.search(query: "hello", in: store)
         XCTAssertTrue(results.isEmpty)
-        store.clear()
+        await store.clear()
     }
 
     func testEmbed_nonEnglishText_gracefulFallback() async {
