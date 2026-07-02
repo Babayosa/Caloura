@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# Pre-commit hook: lint → build → test
+# Pipeline fails fast — if any step fails, commit is blocked.
+#
+# This hook is version-controlled (unlike .git/hooks, which is per-clone and
+# untracked). Activate it once per clone with:
+#     git config core.hooksPath .githooks
+# It is a FAST local subset of CI — the authoritative gate is .github/workflows/ci.yml
+# (project-wide --strict lint, python tests, xcodegen drift, xcodebuild unit+system,
+# coverage floors). Keep the per-file lint here in --strict mode so line-length and
+# other default-warning rules fail here the same way they fail CI.
+set -euo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+step() { printf "\n${BOLD}[pre-commit]${RESET} %s\n" "$1"; }
+pass() { printf "${GREEN}✓${RESET} %s\n" "$1"; }
+fail() { printf "${RED}✗ %s${RESET}\n" "$1"; exit 1; }
+
+cd "$(git rev-parse --show-toplevel)"
+
+# ── SDK normalization ──
+# Apple's /usr/bin/git shim injects SDKROOT pointing at the CommandLineTools
+# SDK into hook subprocesses. After a partial toolchain update (CLT newer than
+# the selected Xcode) that SDK's Swift version mismatches the active Xcode
+# compiler, so `swift build` dies with "SDK is not supported by the compiler".
+# swiftc honours SDKROOT over xcode-select, so re-pin to the active Xcode and
+# drop the injected SDKROOT — compiler and SDK then come from the same toolchain.
+if xcode_dir=$(xcode-select -p 2>/dev/null) && [ -n "$xcode_dir" ]; then
+    export DEVELOPER_DIR="$xcode_dir"
+fi
+unset SDKROOT
+
+# ── Collect staged Swift files ──
+staged_swift=$(git diff --cached --name-only --diff-filter=ACM -- '*.swift' || true)
+
+if [ -z "$staged_swift" ]; then
+    pass "No Swift files staged — skipping pipeline"
+    exit 0
+fi
+
+# ── 1. Lint suppression check ──
+step "Checking for banned lint suppression comments..."
+suppression_found=0
+while IFS= read -r file; do
+    if git show ":$file" 2>/dev/null | grep -nE 'swiftlint:disable|swiftlint:enable|nolint|NOLINT' > /dev/null 2>&1; then
+        matches=$(git show ":$file" | grep -nE 'swiftlint:disable|swiftlint:enable|nolint|NOLINT')
+        printf "${RED}  %s:%s${RESET}\n" "$file" "$matches"
+        suppression_found=1
+    fi
+done <<< "$staged_swift"
+
+if [ "$suppression_found" -eq 1 ]; then
+    fail "Lint suppression comments found — fix the lint issue instead"
+fi
+pass "No lint suppressions"
+
+# ── 2. SwiftLint (staged files only, --strict to match CI) ──
+step "Running swiftlint..."
+lint_failed=0
+while IFS= read -r file; do
+    if [ -f "$file" ]; then
+        if ! swiftlint lint --quiet --strict "$file" 2>/dev/null; then
+            lint_failed=1
+        fi
+    fi
+done <<< "$staged_swift"
+
+if [ "$lint_failed" -eq 1 ]; then
+    fail "SwiftLint errors — fix before committing"
+fi
+pass "SwiftLint clean"
+
+# ── 3. swift build ──
+step "Running swift build..."
+if ! swift build 2>&1 | tail -20; then
+    fail "Build failed"
+fi
+pass "Build succeeded"
+
+# ── 4. swift test ──
+step "Running swift test..."
+if ! swift test 2>&1 | tail -30; then
+    fail "Tests failed"
+fi
+pass "All tests passed"
+
+printf "\n${GREEN}${BOLD}All checks passed — committing.${RESET}\n\n"

@@ -37,6 +37,11 @@ full gate including the UI smoke target.
 
 ## Project Conventions
 
+The rules below are the terse invariants. Expanded procedures, code templates, and a
+failure-symptom index live in the **swift-macos-integration** skill
+(`~/.claude/skills/swift-macos-integration/SKILL.md`) — invoke it before touching
+TCC/permission, cursor, overlay, or stateful-flag code.
+
 - Don't stash runtime data (license state, app state, history) in the Keychain — persist it on disk, and encrypt sensitive history via `HistoryCrypto.encrypt()` (AES-GCM). The Keychain holds exactly one item: HistoryCrypto's non-interactive, device-only AES root key. Don't add new Keychain items.
 - Treat `CGPreflightScreenCaptureAccess()` as a coarse passive signal only; after an explicit Screen Recording grant attempt, trust live ScreenCaptureKit validation before falling back to repair or relaunch
 - `CGWindowListCopyWindowInfo` gives false positives — never use for permission checks

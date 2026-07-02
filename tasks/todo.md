@@ -120,5 +120,37 @@ All **24** audit Track A findings accounted for (11 medium + 13 low):
 ### Gates
 Every batch A–G gated GREEN (build SUCCEEDED · swift test 0 failures · swiftlint exit 0); final steady state 807 tests / 8 skipped (perf opt-in). Phase 3 adversarial review closed the one regression (unpinned xcodegen in local release path) + its whole class; re-reviewed to a fixed point. See Phase 3 section for full evidence.
 
-### Not committed
-Nothing committed. All work (Track A + Track B B1/B2/B3) is uncommitted on branch `audit-a-plus-2026-07`. Awaiting explicit user go-ahead to commit. Commit-time reminder — these are UNTRACKED and must be `git add`-ed explicitly or they'll be missed: `scripts/install_xcodegen.sh` (all 4 xcodegen consumers depend on it) · `Caloura/App/CaptureShareItems.swift` (B3) · `Caloura/App/MetricSampleWindow.swift` (Track A M9) · `CalouraTests/AppTests/{AppSettingsDefaultsTests,CaptureShareItemsTests,LicenseEntitlementVerifierTests}.swift` · `CalouraTests/Helpers/CryptoIsolatedTestCase.swift` · `tasks/audit-2026-07-01.md`. The generated `Caloura.xcodeproj/project.pbxproj` must be committed too (it now references the new source files after `xcodegen generate`).
+### Commit status (updated 2026-07-02)
+**Committed** as `f01c2a8` (audit sprint: Track A + Track B B1/B2/B3) + `7101440` (SDKROOT git-hook lesson) on branch `audit-a-plus-2026-07`. The full pre-commit gate — build + 817 tests + swiftlint — ran green on the committed tree, after fixing a git-hook `SDKROOT` poison (Apple's `/usr/bin/git` injected the CLT SDK into hook subprocesses; see `tasks/lessons.md` 2026-07-02). All previously-untracked files were `git add`-ed (verified via `git show f01c2a8 --stat`). Original pre-commit note kept below for history.
+
+_Original (pre-commit) note:_ All work (Track A + Track B B1/B2/B3) is uncommitted on branch `audit-a-plus-2026-07`. Awaiting explicit user go-ahead to commit. Commit-time reminder — these are UNTRACKED and must be `git add`-ed explicitly or they'll be missed: `scripts/install_xcodegen.sh` (all 4 xcodegen consumers depend on it) · `Caloura/App/CaptureShareItems.swift` (B3) · `Caloura/App/MetricSampleWindow.swift` (Track A M9) · `CalouraTests/AppTests/{AppSettingsDefaultsTests,CaptureShareItemsTests,LicenseEntitlementVerifierTests}.swift` · `CalouraTests/Helpers/CryptoIsolatedTestCase.swift` · `tasks/audit-2026-07-01.md`. The generated `Caloura.xcodeproj/project.pbxproj` must be committed too (it now references the new source files after `xcodegen generate`).
+
+---
+
+## Phase 6 — Full-confidence finalization (2026-07-02)
+
+Goal (user): "make this as high of a grade with your confidence. I want your full confidence." Approved plan: reproduce CI locally → close the B3 presentation gap → make the pre-commit gate durable → commit → push/PR/auto-merge → then remove CommandLineTools to fix the toolchain root cause.
+
+### 6.1 Reproduce the ENTIRE CI pipeline locally — GREEN
+Ran every step of `.github/workflows/ci.yml` against the committed tree, in a clean shell (SDKROOT unset, `DEVELOPER_DIR` pinned to Xcode):
+- [x] `swift build` — exit 0
+- [x] `swiftlint lint --quiet --strict` (project-wide) — 0 violations
+- [x] `swift test` — 820 tests, 0 failures (was 817; +3 from 6.2)
+- [x] `python3 -m unittest discover -s scripts/tests` — OK (9 tests)
+- [x] xcodegen drift — pinned 2.45.4 via `scripts/install_xcodegen.sh`; regenerate is deterministic (identical output across runs)
+- [x] `xcodebuild test` (unit + system, `-skip-testing:CalouraUITests`, `CODE_SIGNING_ALLOWED=NO`) — **TEST SUCCEEDED**, 820 tests, 0 failures
+- [x] `python3 scripts/coverage_gate.py` — all 8 coverage floors passed
+
+**Key finding — the "5 environmental isKeyWindow failures" caveat did NOT reproduce.** In a detached `xcodebuild` run (no focused foreground app stealing key), all 4 system-test methods (`testAreaCaptureUsesNonactivatingOverlayPanelLevel`, `testAreaCaptureKeepsMouseScreenOverlayKey`, `testFullscreenCapturePresentsDisplaySelectionCue`, `testAreaCaptureMultiOverlayPresentationKeysExactlyOneWindow`) **passed** locally. The earlier "not achievable locally" was reasoning about a *focused-Terminal* CLI run; a background `xcodebuild` behaves like a frontmost CI runner. So the full suite is now observed green locally, not just expected-green on CI.
+
+### 6.2 Close the B3 gap — presentation-level share test
+- [x] Added `CalouraTests/AppTests/CaptureSharePickerPresentationTests.swift` (3 tests): feeds the app's resolved share items into the real `NSSharingServicePicker(items:)` (traps on an invalid/empty payload) and asserts an enabled, titled `standardShareMenuItem`. Covers both branches — file-URL (saved capture + history item) and NSImage (unsaved capture). `CaptureShareItemsTests` only checked item *shape*; this proves they're an actionable payload.
+- Deterministic + headless-safe: no windowserver dependency, no deprecated API. First draft used `NSSharingService.sharingServices(forItems:)` — dropped it (deprecated macOS 13 → compiler warning; and it returns empty headless so its assert was always skipped). Empirically verified `standardShareMenuItem.title="Share…"`, `isEnabled=true` headless before relying on it.
+- [x] Passes under both `swift test` and `xcodebuild test`; `swiftlint --strict` clean (caught + fixed two 120-char line-length violations — a rule the old non-strict hook would have let through).
+
+### 6.3 Durable pre-commit gate
+- [x] Tracked `.githooks/pre-commit` (was untracked `.git/hooks/pre-commit` — lost on any fresh clone, and it carried the SDKROOT fix). `git config core.hooksPath .githooks`. Documented activation in README "CI Test Coverage".
+- [x] Strengthened: per-file lint now `swiftlint --quiet --strict` (matches CI). The old hook ran non-strict, so line-length warnings passed the hook but failed CI's `--strict` — exactly the gap 6.2 hit. Now the hook predicts CI.
+
+### 6.4 Commit + push + PR + auto-merge — see Review/Evidence below
+### 6.5 Toolchain root-cause fix — remove CommandLineTools (user-run sudo, after merge)
