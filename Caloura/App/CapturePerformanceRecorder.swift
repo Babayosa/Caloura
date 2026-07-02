@@ -61,8 +61,7 @@ final class CapturePerformanceRecorder {
     private let maxSamplesPerKey: Int
     private let reportInterval: Int
     private var sessions: [UUID: SessionState] = [:]
-    private var samples: [MetricKey: [Double]] = [:]
-    private var budgetViolations: [MetricKey: Int] = [:]
+    private var windows: [MetricKey: MetricSampleWindow] = [:]
 
     init(maxSamplesPerKey: Int = 120, reportInterval: Int = 20) {
         self.maxSamplesPerKey = max(20, maxSamplesPerKey)
@@ -90,7 +89,7 @@ final class CapturePerformanceRecorder {
 
     func mark(_ event: Event, in session: Session) {
         guard let state = sessions[session.id] else { return }
-        let elapsed = elapsedMilliseconds(since: state.startedAt)
+        let elapsed = CaptureTiming.elapsedMilliseconds(since: state.startedAt)
         let summary = "mode=\(state.mode.rawValue) event=\(event.rawValue) ms=\(elapsed)"
         signposter.emitEvent(
             "capture_event",
@@ -124,7 +123,7 @@ final class CapturePerformanceRecorder {
 
     func finishSession(_ session: Session) {
         guard let state = sessions.removeValue(forKey: session.id) else { return }
-        let elapsed = elapsedMilliseconds(since: state.startedAt)
+        let elapsed = CaptureTiming.elapsedMilliseconds(since: state.startedAt)
         record(mode: state.mode, event: .sessionComplete, milliseconds: elapsed)
         signposter.endInterval("capture_session", state.intervalState)
         let mode = state.mode.rawValue
@@ -138,26 +137,23 @@ final class CapturePerformanceRecorder {
         event: Event
     ) -> CapturePerformanceSummary? {
         let key = MetricKey(mode: mode, event: event)
-        guard let values = samples[key], !values.isEmpty else { return nil }
+        guard let window = windows[key], !window.isEmpty else { return nil }
         return CapturePerformanceSummary(
             mode: mode,
             event: event,
-            sampleCount: values.count,
-            latestMilliseconds: values.last ?? 0,
-            p50Milliseconds: percentile(0.50, values: values),
-            p95Milliseconds: percentile(0.95, values: values)
+            sampleCount: window.count,
+            latestMilliseconds: window.latest ?? 0,
+            p50Milliseconds: window.percentile(0.50),
+            p95Milliseconds: window.percentile(0.95)
         )
     }
 
-    func budgetViolationCount(
-        for mode: CaptureMode,
-        event: Event
-    ) -> Int {
-        budgetViolations[MetricKey(mode: mode, event: event)] ?? 0
-    }
-
-    private func elapsedMilliseconds(since start: CFAbsoluteTime) -> Double {
-        (CFAbsoluteTimeGetCurrent() - start) * 1000.0
+    /// Pure predicate for whether a sample exceeds its stage budget. Stateless
+    /// and `nonisolated` so it is directly testable without a stored-counter test
+    /// seam or an actor hop (L13).
+    nonisolated static func isBudgetViolation(event: Event, milliseconds: Double) -> Bool {
+        guard let budget = budgetMilliseconds(for: event) else { return false }
+        return milliseconds > budget
     }
 
     private func record(
@@ -168,24 +164,21 @@ final class CapturePerformanceRecorder {
         guard milliseconds.isFinite, milliseconds >= 0 else { return }
 
         let key = MetricKey(mode: mode, event: event)
-        var stageSamples = samples[key] ?? []
-        stageSamples.append(milliseconds)
-        if stageSamples.count > maxSamplesPerKey {
-            stageSamples.removeFirst(stageSamples.count - maxSamplesPerKey)
-        }
-        samples[key] = stageSamples
-        recordBudgetViolationIfNeeded(
+        var window = windows[key] ?? MetricSampleWindow(maxSamples: maxSamplesPerKey)
+        let count = window.append(milliseconds)
+        windows[key] = window
+        logBudgetViolationIfNeeded(
             mode: mode,
             event: event,
             milliseconds: milliseconds
         )
 
-        guard stageSamples.count % reportInterval == 0 else { return }
-        let p50 = percentile(0.50, values: stageSamples)
-        let p95 = percentile(0.95, values: stageSamples)
+        guard count % reportInterval == 0 else { return }
+        let p50 = window.percentile(0.50)
+        let p95 = window.percentile(0.95)
         let modeValue = mode.rawValue
         let eventValue = event.rawValue
-        let countValue = stageSamples.count
+        let countValue = count
         let summary = "capture_timeline_summary mode=\(modeValue)"
             + " event=\(eventValue)"
             + " n=\(countValue)"
@@ -194,18 +187,16 @@ final class CapturePerformanceRecorder {
         logger.info("\(summary, privacy: .public)")
     }
 
-    private func recordBudgetViolationIfNeeded(
+    private func logBudgetViolationIfNeeded(
         mode: CaptureMode,
         event: Event,
         milliseconds: Double
     ) {
-        guard let budget = budgetMilliseconds(for: event),
+        guard let budget = Self.budgetMilliseconds(for: event),
               milliseconds > budget else {
             return
         }
 
-        let key = MetricKey(mode: mode, event: event)
-        budgetViolations[key, default: 0] += 1
         let modeValue = mode.rawValue
         let eventValue = event.rawValue
         let warning = "capture_timeline_budget_violation mode=\(modeValue)"
@@ -215,7 +206,7 @@ final class CapturePerformanceRecorder {
         logger.warning("\(warning, privacy: .public)")
     }
 
-    private func budgetMilliseconds(for event: Event) -> Double? {
+    private nonisolated static func budgetMilliseconds(for event: Event) -> Double? {
         switch event {
         case .overlayVisible:
             50
@@ -228,13 +219,5 @@ final class CapturePerformanceRecorder {
         default:
             nil
         }
-    }
-
-    private func percentile(_ percentile: Double, values: [Double]) -> Double {
-        guard !values.isEmpty else { return 0 }
-        let sorted = values.sorted()
-        let clamped = min(max(percentile, 0), 1)
-        let index = Int(Double(sorted.count - 1) * clamped)
-        return sorted[index]
     }
 }

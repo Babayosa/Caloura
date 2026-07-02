@@ -25,7 +25,7 @@ struct PerformanceMetricSummary {
 }
 
 struct PerformanceMetricsAggregator {
-    private var samples: [PerformanceMetricStage: [Double]] = [:]
+    private var windows: [PerformanceMetricStage: MetricSampleWindow] = [:]
     private let maxSamplesPerStage: Int
     private let reportInterval: Int
 
@@ -37,28 +37,17 @@ struct PerformanceMetricsAggregator {
     mutating func record(stage: PerformanceMetricStage, milliseconds: Double) -> PerformanceMetricSummary? {
         guard milliseconds.isFinite, milliseconds >= 0 else { return nil }
 
-        var stageSamples = samples[stage] ?? []
-        stageSamples.append(milliseconds)
-        if stageSamples.count > maxSamplesPerStage {
-            stageSamples.removeFirst(stageSamples.count - maxSamplesPerStage)
-        }
-        samples[stage] = stageSamples
+        var window = windows[stage] ?? MetricSampleWindow(maxSamples: maxSamplesPerStage)
+        let count = window.append(milliseconds)
+        windows[stage] = window
 
-        guard stageSamples.count % reportInterval == 0 else { return nil }
+        guard count % reportInterval == 0 else { return nil }
         return PerformanceMetricSummary(
             stage: stage,
-            sampleCount: stageSamples.count,
+            sampleCount: count,
             latestMilliseconds: milliseconds,
-            p50Milliseconds: percentile(0.50, values: stageSamples),
-            p95Milliseconds: percentile(0.95, values: stageSamples)
+            p50Milliseconds: window.percentile(0.50),
+            p95Milliseconds: window.percentile(0.95)
         )
-    }
-
-    private func percentile(_ percentile: Double, values: [Double]) -> Double {
-        guard !values.isEmpty else { return 0 }
-        let sorted = values.sorted()
-        let clamped = min(max(percentile, 0), 1)
-        let index = Int(Double(sorted.count - 1) * clamped)
-        return sorted[index]
     }
 }

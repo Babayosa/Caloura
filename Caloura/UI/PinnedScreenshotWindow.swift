@@ -88,16 +88,13 @@ final class PinnedScreenshotManager {
             backing: .buffered,
             defer: false
         )
-        panel.excludeFromScreenSharing()
+        panel.configureAsOverlay()
         panel.isFloatingPanel = true
         panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isMovableByWindowBackground = true
         panel.hasShadow = true
-        panel.hidesOnDeactivate = false
         panel.title = title
         panel.minSize = NSSize(width: 100, height: 100)
-        panel.isReleasedWhenClosed = false
         return panel
     }
 

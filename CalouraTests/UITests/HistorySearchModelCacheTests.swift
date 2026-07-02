@@ -51,6 +51,7 @@ final class HistorySearchModelCacheTests: XCTestCase {
         for _ in 0..<4 {
             results.append(model.filteredScreenshots(
                 from: items,
+                revision: 1,
                 searchText: "invoice",
                 semanticResults: [],
                 semanticSearchEnabled: false
@@ -71,6 +72,7 @@ final class HistorySearchModelCacheTests: XCTestCase {
         for _ in 0..<8 {
             _ = model.filteredScreenshots(
                 from: items,
+                revision: 1,
                 searchText: "",
                 semanticResults: [],
                 semanticSearchEnabled: false
@@ -82,6 +84,7 @@ final class HistorySearchModelCacheTests: XCTestCase {
         for _ in 0..<4 {
             _ = model.filteredScreenshots(
                 from: items,
+                revision: 1,
                 searchText: "invoice",
                 semanticResults: [],
                 semanticSearchEnabled: false
@@ -97,15 +100,15 @@ final class HistorySearchModelCacheTests: XCTestCase {
         let items = makeItems(count: 10)
 
         _ = model.filteredScreenshots(
-            from: items, searchText: "invoice",
+            from: items, revision: 1, searchText: "invoice",
             semanticResults: [], semanticSearchEnabled: false
         )
         XCTAssertEqual(model.scanCount, 1)
 
-        // Items changed (e.g. new capture appended).
+        // Items changed (e.g. new capture appended) — the caller bumps revision.
         let grown = items + [makeItem(fileName: "new.png", ocrText: "invoice")]
         let afterGrow = model.filteredScreenshots(
-            from: grown, searchText: "invoice",
+            from: grown, revision: 2, searchText: "invoice",
             semanticResults: [], semanticSearchEnabled: false
         )
         XCTAssertEqual(model.scanCount, 2)
@@ -113,17 +116,44 @@ final class HistorySearchModelCacheTests: XCTestCase {
 
         // Semantic results changed.
         _ = model.filteredScreenshots(
-            from: grown, searchText: "invoice",
+            from: grown, revision: 2, searchText: "invoice",
             semanticResults: [grown[0].id], semanticSearchEnabled: false
         )
         XCTAssertEqual(model.scanCount, 3)
 
         // Semantic toggle changed.
         _ = model.filteredScreenshots(
-            from: grown, searchText: "invoice",
+            from: grown, revision: 2, searchText: "invoice",
             semanticResults: [grown[0].id], semanticSearchEnabled: true
         )
         XCTAssertEqual(model.scanCount, 4)
+    }
+
+    /// Latent-bug guard: an in-place OCR mutation keeps the same item ids but
+    /// changes searchable text. Because the caller bumps the revision on any
+    /// content change, the cache invalidates and returns fresh results — an
+    /// id-only cache key would have returned the stale pre-OCR list here.
+    func testInPlaceOCRMutation_withBumpedRevision_returnsFreshResults() {
+        let model = HistorySearchModel()
+        let id = UUID()
+        let before = makeItem(id: id, fileName: "shot.png", ocrText: "loading")
+
+        let firstPass = model.filteredScreenshots(
+            from: [before], revision: 1, searchText: "invoice",
+            semanticResults: [], semanticSearchEnabled: false
+        )
+        XCTAssertEqual(firstPass.count, 0, "No match before OCR text lands")
+        XCTAssertEqual(model.scanCount, 1)
+
+        // Same id, new OCR text — the array element was mutated in place.
+        let after = makeItem(id: id, fileName: "shot.png", ocrText: "invoice total")
+        let secondPass = model.filteredScreenshots(
+            from: [after], revision: 2, searchText: "invoice",
+            semanticResults: [], semanticSearchEnabled: false
+        )
+        XCTAssertEqual(secondPass.count, 1, "Re-OCR must invalidate the stale cache")
+        XCTAssertEqual(secondPass.first?.id, id)
+        XCTAssertEqual(model.scanCount, 2)
     }
 
     // MARK: - Cached path is semantically identical to the pure filter
@@ -143,7 +173,7 @@ final class HistorySearchModelCacheTests: XCTestCase {
         var cached: [ScreenshotItem] = []
         for _ in 0..<4 {
             cached = model.filteredScreenshots(
-                from: items, searchText: "zzqxv",
+                from: items, revision: 1, searchText: "zzqxv",
                 semanticResults: semanticIDs, semanticSearchEnabled: true
             )
         }

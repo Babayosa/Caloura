@@ -24,10 +24,14 @@ actor HistoryPersistenceWorker {
         self.legacyHistoryDefaultsKey = legacyHistoryDefaultsKey
     }
 
-    func persistHistory(_ encodedData: Data, to historyFileURL: URL, revision: UInt64) {
+    /// Encode + encrypt + write the history snapshot. The JSON encode runs here
+    /// inside the actor (off the main actor), and the stale-revision guard runs
+    /// before the encode so superseded snapshots skip the work entirely.
+    func persistHistory(_ items: [ScreenshotItem], to historyFileURL: URL, revision: UInt64) {
         guard revision >= latestRevisionRequested else { return }
         latestRevisionRequested = revision
         do {
+            let encodedData = try JSONEncoder().encode(items)
             try HistoryCrypto.writeEncrypted(encodedData, to: historyFileURL)
             defaultsHandle.defaults.removeObject(forKey: historyDefaultsKey)
             defaultsHandle.defaults.removeObject(forKey: legacyHistoryDefaultsKey)

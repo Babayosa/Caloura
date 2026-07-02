@@ -1,4 +1,5 @@
 import AppKit
+import os.log
 import SwiftUI
 
 /// A floating post-capture preview chip that appears after a screenshot is taken.
@@ -7,9 +8,22 @@ import SwiftUI
 final class QuickAccessOverlay {
     static let shared = QuickAccessOverlay()
 
+    private let logger = Logger(subsystem: "com.caloura.app", category: "QuickAccessOverlay")
+
     private var panel: NSPanel?
     private var dismissTimer: Timer?
     private var currentScreenshot: ProcessedScreenshot?
+    /// True while a share sheet is anchored to the panel. Suppresses the
+    /// hover/auto-dismiss timers so the panel (the picker's anchor view) is not
+    /// torn out from under the open share menu. Always cleared by `dismiss()`.
+    private var isPresentingShare = false
+    /// The picker + its delegate must be retained for the lifetime of the menu;
+    /// `NSSharingServicePicker` holds its delegate weakly and is otherwise ownerless.
+    private var sharePicker: NSSharingServicePicker?
+    private var sharePickerDelegate: SharePickerDelegate?
+    /// Bumped by every `dismiss()` (and each new share) so a superseded share's
+    /// completion callback is recognized as stale and cannot tear down a newer chip.
+    private var shareGeneration = 0
 
     private init() {}
 
@@ -27,16 +41,13 @@ final class QuickAccessOverlay {
             backing: .buffered,
             defer: false
         )
-        panel.excludeFromScreenSharing()
-        panel.isReleasedWhenClosed = false
+        panel.configureAsOverlay()
         panel.isFloatingPanel = true
         panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isMovableByWindowBackground = true
         panel.hasShadow = true
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hidesOnDeactivate = false
 
         let hostView = NSHostingView(rootView: QuickAccessOverlayView(
             screenshot: screenshot,
@@ -81,12 +92,27 @@ final class QuickAccessOverlay {
     func dismiss() {
         dismissTimer?.invalidate()
         dismissTimer = nil
+        // Reset all share state so a lingering flag can't disable the auto-dismiss
+        // timer on the next chip, and bump the generation so any in-flight picker
+        // callback from a superseded share is treated as stale (see presentSharePicker).
+        isPresentingShare = false
+        sharePicker = nil
+        sharePickerDelegate = nil
+        shareGeneration += 1
         currentScreenshot = nil
         panel?.close()
         panel = nil
     }
 
     private func handleHover(_ hovering: Bool) {
+        // While the share sheet is up, the pointer moves onto the picker menu
+        // (a hover-exit on the chip); do not let that re-arm the dismiss timer.
+        // Log so a stuck flag (share never resolved) is observable in Console;
+        // `dismiss()` — called on the next capture — is the recovery path.
+        guard !isPresentingShare else {
+            logger.debug("handleHover suppressed while share sheet is presenting")
+            return
+        }
         if hovering {
             dismissTimer?.invalidate()
             dismissTimer = nil
@@ -107,8 +133,61 @@ final class QuickAccessOverlay {
             dismiss()
             return
         }
+        if action == .share {
+            presentSharePicker(for: screenshot)
+            return
+        }
         CapturePipeline.shared.distributionService.performQuickAction(action, for: screenshot)
         dismiss()
+    }
+
+    /// Presents the native macOS share sheet anchored to the overlay panel.
+    /// Keeps the panel alive (the picker anchors to its content view) until the
+    /// user picks a service or cancels, then dismisses the chip.
+    private func presentSharePicker(for screenshot: ProcessedScreenshot) {
+        guard let contentView = panel?.contentView else { return }
+        let items = CaptureShareItems.items(for: screenshot)
+        guard !items.isEmpty else {
+            dismiss()
+            return
+        }
+
+        isPresentingShare = true
+        dismissTimer?.invalidate()
+        dismissTimer = nil
+
+        shareGeneration += 1
+        let generation = shareGeneration
+        let picker = NSSharingServicePicker(items: items)
+        let delegate = SharePickerDelegate { [weak self] in
+            // Ignore a completion from a share that a newer capture/dismiss
+            // already superseded — it must not tear down the current chip.
+            guard let self, self.shareGeneration == generation else { return }
+            self.dismiss()
+        }
+        sharePicker = picker
+        sharePickerDelegate = delegate
+        picker.delegate = delegate
+        picker.show(relativeTo: contentView.bounds, of: contentView, preferredEdge: .maxY)
+    }
+}
+
+/// Retained delegate that fires once the share picker resolves (service chosen
+/// or cancelled) so the overlay can tear down cleanly afterward. AppKit delivers
+/// this callback on the main thread, so the conformance uses `assumeIsolated`.
+@MainActor
+private final class SharePickerDelegate: NSObject, NSSharingServicePickerDelegate {
+    private let onFinish: () -> Void
+
+    init(onFinish: @escaping () -> Void) {
+        self.onFinish = onFinish
+    }
+
+    nonisolated func sharingServicePicker(
+        _ sharingServicePicker: NSSharingServicePicker,
+        didChoose service: NSSharingService?
+    ) {
+        MainActor.assumeIsolated { onFinish() }
     }
 }
 
@@ -131,8 +210,8 @@ struct QuickAccessPresentationModel {
             ? [.copy, saveOrPin, .annotate, .redact]
             : [.copy, saveOrPin, .annotate]
         overflowActions = hasPII
-            ? [alternateSaveOrPin, .beautify, .markdown, .citation, .dismiss]
-            : [alternateSaveOrPin, .beautify, .redact, .markdown, .citation, .dismiss]
+            ? [alternateSaveOrPin, .share, .beautify, .markdown, .citation, .dismiss]
+            : [alternateSaveOrPin, .share, .beautify, .redact, .markdown, .citation, .dismiss]
         showsPendingBadge = previewPhase == .enrichmentPending
         showsPIIBadge = hasPII
     }
@@ -252,6 +331,7 @@ private extension CaptureQuickAction {
         case .pin: return "Pin"
         case .beautify: return "Beautify"
         case .redact: return "Redact"
+        case .share: return "Share"
         case .dismiss: return "Dismiss"
         }
     }
@@ -277,6 +357,7 @@ private extension CaptureQuickAction {
         case .pin: return "pin"
         case .beautify: return "sparkles"
         case .redact: return "eye.slash"
+        case .share: return "square.and.arrow.up"
         case .dismiss: return "xmark.circle"
         }
     }
@@ -291,6 +372,7 @@ private extension CaptureQuickAction {
         case .pin: return "pin"
         case .beautify: return "beautify"
         case .redact: return "redact"
+        case .share: return "share"
         case .dismiss: return "dismiss"
         }
     }

@@ -33,7 +33,9 @@ final class AppStateEdgeCaseTests: XCTestCase {
         let defaults = defaults!
         let historyFileURL = historyFileURL!
         let state = await MainActor.run {
-            AppState(defaults: defaults, historyStoreURL: historyFileURL)
+            // Pin the retention cap: these rapid-add tests assert eviction at 50,
+            // independent of the live AppSettings.historyItemLimit default (200).
+            AppState(defaults: defaults, historyStoreURL: historyFileURL, historyItemLimit: 50)
         }
         self.appState = state
         await MainActor.run {
@@ -133,7 +135,11 @@ final class AppStateEdgeCaseTests: XCTestCase {
         var reloaded: AppState?
         let reloadDeadline = Date().addingTimeInterval(5.0)
         while reloaded == nil && Date() < reloadDeadline {
-            let candidate = AppState(defaults: defaults, historyStoreURL: historyFileURL)
+            let candidate = AppState(
+                defaults: defaults,
+                historyStoreURL: historyFileURL,
+                historyItemLimit: 50
+            )
             await candidate.loadPersistedState()
             if candidate.recentScreenshots.count == 50 {
                 reloaded = candidate
@@ -142,7 +148,11 @@ final class AppStateEdgeCaseTests: XCTestCase {
             }
         }
 
-        let fallback = AppState(defaults: defaults, historyStoreURL: historyFileURL)
+        let fallback = AppState(
+            defaults: defaults,
+            historyStoreURL: historyFileURL,
+            historyItemLimit: 50
+        )
         await fallback.loadPersistedState()
         let verified = reloaded ?? fallback
 

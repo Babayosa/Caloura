@@ -128,6 +128,46 @@ final class CaptureEnrichmentCoordinatorTests: XCTestCase {
         )
     }
 
+    func testEnqueue_reEnqueuedSameIDRunsAfterInFlightRunNotConcurrently() async {
+        // Two free slots, but a re-enqueue of an id whose run is in flight must
+        // neither run concurrently (double-write) nor be stranded outside the
+        // queue (audit L7). It runs once the first run completes.
+        let coordinator = CaptureEnrichmentCoordinator(maxConcurrentJobs: 2)
+        let log = CoordinatorEventLog()
+        let firstStarted = expectation(description: "first run started")
+        let secondRan = expectation(description: "re-enqueued run ran")
+        let releaseFirst = AsyncGate()
+        let id = UUID()
+
+        await coordinator.enqueue(screenshotID: id) {
+            await log.append("start:first")
+            firstStarted.fulfill()
+            await releaseFirst.wait()
+            await log.append("finish:first")
+        }
+        await fulfillment(of: [firstStarted], timeout: 1.0)
+
+        await coordinator.enqueue(screenshotID: id) {
+            await log.append("run:second")
+            secondRan.fulfill()
+        }
+
+        // Scheduler ran synchronously on enqueue; the re-enqueued op must still
+        // be pending (deferred), not started concurrently.
+        let duringEvents = await log.snapshot()
+        XCTAssertEqual(
+            duringEvents,
+            ["start:first"],
+            "Re-enqueued same-id op must not run while the first is in flight"
+        )
+
+        await releaseFirst.open()
+        await fulfillment(of: [secondRan], timeout: 1.0)
+
+        let finalEvents = await log.snapshot()
+        XCTAssertEqual(finalEvents, ["start:first", "finish:first", "run:second"])
+    }
+
     func testCancelAll_cancelsRunningWorkAndDropsPendingOperations() async {
         let coordinator = CaptureEnrichmentCoordinator(maxConcurrentJobs: 1)
         let runningStarted = expectation(description: "running started")

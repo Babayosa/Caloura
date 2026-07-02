@@ -16,7 +16,17 @@ struct RecentStatusMessage: Identifiable, Equatable, Sendable {
 final class AppState {
     static let shared = AppState()
 
-    var recentScreenshots: [ScreenshotItem] = []
+    var recentScreenshots: [ScreenshotItem] = [] {
+        didSet { historyContentRevision &+= 1 }
+    }
+
+    /// Monotonic token bumped on every mutation of `recentScreenshots`
+    /// (insert, remove, in-place OCR/metadata update, or full replace). The
+    /// history search cache keys on this instead of deep-comparing the full
+    /// OCR text of every item, and — because in-place mutations bump it too —
+    /// a re-OCR of an existing item correctly invalidates stale search results.
+    private(set) var historyContentRevision: UInt64 = 0
+
     var lastScreenshot: ProcessedScreenshot? {
         didSet { resetLastScreenshotTimer() }
     }
@@ -59,7 +69,11 @@ final class AppState {
 
     let embeddingStore = EmbeddingStore()
 
-    private let maxRecentItems = 50
+    /// History retention cap. Seeded from `AppSettings.historyItemLimit` in
+    /// production; injectable so unit tests can pin a small, deterministic cap
+    /// without touching the shared settings singleton. `AppSettings.unlimitedHistoryLimit`
+    /// (Int.max) disables pruning.
+    private(set) var maxRecentItems: Int
     let historyDefaultsKey = "screenshotHistoryEncrypted"
     let legacyHistoryDefaultsKey = "screenshotHistory"
     let defaults: UserDefaults
@@ -74,7 +88,14 @@ final class AppState {
     private var lastScreenshotTimer: Timer?
     private var historyRevision: UInt64 = 0
 
-    init(defaults: UserDefaults = .standard, historyStoreURL: URL? = nil) {
+    init(
+        defaults: UserDefaults = .standard,
+        historyStoreURL: URL? = nil,
+        historyItemLimit: Int? = nil
+    ) {
+        // `historyItemLimit == nil` (production) reads the live user setting;
+        // passing an explicit value keeps tests off the shared singleton.
+        self.maxRecentItems = historyItemLimit ?? AppSettings.shared.historyItemLimit
         self.defaults = defaults
         self.historyFileURL = historyStoreURL ?? Self.defaultHistoryFileURL()
         self.historyPersistence = HistoryPersistenceWorker(
@@ -218,29 +239,24 @@ final class AppState {
         }
     }
 
-    /// Force immediate save without debouncing.
+    /// Force immediate save without debouncing. The heavy JSON encode runs
+    /// inside the persistence actor (off the main actor); the main actor only
+    /// snapshots the item array and hands it off.
     func saveHistoryNow() {
         saveTask?.cancel()
         saveTask = nil
 
-        // Copy array to avoid data races on detached thread.
+        // Copy array to hand a value snapshot across the actor boundary.
         let itemsCopy = Array(recentScreenshots)
         historyRevision &+= 1
         let revision = historyRevision
-        let encodedData: Data
-        do {
-            encodedData = try JSONEncoder().encode(itemsCopy)
-        } catch {
-            appStateLogger.error("Failed to encode screenshot history: \(error.localizedDescription)")
-            return
-        }
 
         let historyFileURL = self.historyFileURL
         let historyPersistence = self.historyPersistence
 
         Task(priority: .utility) {
             await historyPersistence.persistHistory(
-                encodedData,
+                itemsCopy,
                 to: historyFileURL,
                 revision: revision
             )
@@ -261,6 +277,20 @@ final class AppState {
         }
     }
 
+    /// Synchronously flush any pending debounced embedding save on the
+    /// termination path, blocking until the write completes. `Task.detached`
+    /// is mandatory: a plain `Task {}` inherits the main actor and would
+    /// deadlock against the semaphore wait below.
+    func flushEmbeddingStoreSync() {
+        let store = embeddingStore
+        let semaphore = DispatchSemaphore(value: 0)
+        Task.detached {
+            await store.flush()
+            semaphore.signal()
+        }
+        semaphore.wait()
+    }
+
     private static func defaultHistoryFileURL() -> URL {
         HistoryCrypto.applicationSupportURL(filename: "history.enc")
     }
@@ -274,6 +304,18 @@ final class AppState {
                 self?.lastScreenshot = nil
             }
         }
+    }
+
+    /// Applies a new retention cap and immediately prunes if it was lowered.
+    /// Routes through `pruneRecentScreenshotsIfNeeded()` so embedding + preview/PII
+    /// side-state cleanup stays intact. No-ops the disk write when nothing changed.
+    func setHistoryItemLimit(_ limit: Int) {
+        guard limit != maxRecentItems else { return }
+        let willPrune = recentScreenshots.count > limit
+        maxRecentItems = limit
+        guard willPrune else { return }
+        pruneRecentScreenshotsIfNeeded()
+        debouncedSaveHistory()
     }
 
     private func pruneRecentScreenshotsIfNeeded() {
@@ -298,16 +340,16 @@ final class AppState {
     }
 
     /// Fire-and-forget embedding removal + persist. The store actor
-    /// serializes mutations and saves, and every save snapshots all
-    /// mutations executed before it (and each task's save follows its own
-    /// mutation), so concurrent removals from
-    /// delete/prune cannot produce a stale final file.
+    /// serializes mutations and schedules a coalesced save; the debounced
+    /// write snapshots all mutations applied before it fires, so concurrent
+    /// removals from delete/prune cannot produce a stale final file. Any save
+    /// still pending at termination is flushed by `flushEmbeddingStoreSync()`.
     private func persistEmbeddingRemovals(for screenshotIDs: [UUID]) {
         guard !screenshotIDs.isEmpty else { return }
         let store = embeddingStore
         Task {
             await store.remove(screenshotIDs: screenshotIDs)
-            await store.save()
+            await store.scheduleSave()
         }
     }
 

@@ -5,7 +5,7 @@
 
 ## Decision
 
-Caloura ships without the `com.apple.security.app-sandbox` entitlement. `Caloura/Resources/Caloura.entitlements` sets it to `false`. The app is distributed as a Developer ID-signed, notarized DMG via Sparkle (not the Mac App Store). Gatekeeper, Hardened Runtime, and notarization provide the baseline distribution-side protections.
+Caloura ships without the `com.apple.security.app-sandbox` entitlement. No entitlements file is applied at signing — `project.yml` sets no `CODE_SIGN_ENTITLEMENTS` — so no sandbox restriction is in effect. The app is distributed as a Developer ID-signed, notarized DMG via Sparkle (not the Mac App Store). Gatekeeper, Hardened Runtime, and notarization provide the baseline distribution-side protections.
 
 This is a deliberate choice, not an oversight. The rationale, mitigations, and re-evaluation criteria are recorded below.
 
@@ -27,7 +27,7 @@ Because the app is not sandboxed, a compromise of the Caloura process (via a vul
 
 - The user's entire file system under their UID (read/write), subject to TCC (which gates sensitive paths like Documents, Desktop, Downloads anyway).
 - The clipboard.
-- Network (outbound HTTP/HTTPS — used for Sparkle appcast fetch and Gumroad license verification).
+- Network (outbound HTTP/HTTPS — used for Sparkle appcast fetch and license verification against the signed entitlement backend (Cloudflare Worker); Gumroad is a DEBUG-only fallback).
 - Any process Caloura spawns (the code path is minimal today but not guaranteed nil in the future).
 
 What is **not** expanded by shipping un-sandboxed:
@@ -45,7 +45,7 @@ The following distribution-side and code-side mitigations partially offset the l
 3. **Sparkle EdDSA signing** — update payloads are signed with an EdDSA key (see `docs/RELEASE-KEYS.md`). Compromising the update channel requires compromising the signing key, not just the appcast host.
 4. **No remote code execution paths in-app** — Caloura does not download or execute code at runtime beyond Sparkle's signed installer flow.
 5. **No inbound listeners** — the app is outbound-only; no sockets bound, no XPC services published that could be invoked by other processes.
-6. **License verification is read-only** — the Gumroad verifier performs `POST` requests with a key; it does not execute server-returned code paths as code.
+6. **License verification is read-only** — the verifier `POST`s a license key to the signed entitlement backend (Cloudflare Worker; Gumroad in DEBUG) and only reads the returned signed entitlement; it does not execute server-returned code paths as code.
 7. **OCR, embeddings, and metadata generation are local** — no screen content leaves the device except when the user explicitly shares/copies it.
 
 ## When to Re-Evaluate
@@ -63,11 +63,11 @@ Schedule a Phase 7 spike and revisit this document when any of the following cha
 The deferred Phase 7 spike, when run, should:
 
 1. Branch from `main` as `spike/sandbox`.
-2. Set `com.apple.security.app-sandbox = true` in `Caloura/Resources/Caloura.entitlements`.
+2. Create `Caloura/Resources/Caloura.entitlements` with `com.apple.security.app-sandbox = true`, and wire it via `CODE_SIGN_ENTITLEMENTS: Caloura/Resources/Caloura.entitlements` in `project.yml`. No entitlements file is applied today, so this wiring is required for the entitlement to take effect.
 3. Add incremental entitlements as violations surface. Starting set to try:
    - `com.apple.security.files.user-selected.read-write`
    - `com.apple.security.files.downloads.read-write` (for default save path)
-   - `com.apple.security.network.client` (for Sparkle + Gumroad)
+   - `com.apple.security.network.client` (for Sparkle + the license backend)
    - `com.apple.security.device.audio-input` → **not needed**, confirm.
    - `com.apple.security.assets.pictures.read-write` (if user saves to Pictures)
 4. Exercise every capture mode (area, window, fullscreen), every save/copy/markdown/citation path, every Sparkle update cycle end-to-end, every login-item toggle, every license state transition.

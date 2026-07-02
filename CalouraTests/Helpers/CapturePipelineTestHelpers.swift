@@ -66,7 +66,18 @@ enum CapturePipelineTestHelpers {
         enrichmentCoordinator: CaptureEnrichmentCoordinator = CaptureEnrichmentCoordinator()
     ) -> CapturePipeline {
         let defaults = makeDefaults(testName)
-        let testSettings = settings ?? AppSettings(defaults: defaults)
+        let testSettings: AppSettings
+        if let settings {
+            testSettings = settings
+        } else {
+            testSettings = AppSettings(defaults: defaults)
+            // The pipeline fixture exercises the mocked `recognizeText` OCR path.
+            // Production now defaults `autoDetectPII` ON, which routes enrichment
+            // through `recognizeTextObservations` + PII detection instead; tests
+            // that want that branch set `autoDetectPII = true` (or inject `settings`),
+            // so pin the fixture to the non-PII path here for determinism.
+            testSettings.autoDetectPII = false
+        }
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("pipeline-test-\(testName)-\(UUID().uuidString).json")
         let testAppState = appState ?? AppState(defaults: defaults, historyStoreURL: tempURL)

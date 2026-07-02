@@ -1,7 +1,10 @@
 import Foundation
+import os.log
 
 @MainActor
 final class CaptureDistributionService {
+    private let logger = Logger(subsystem: "com.caloura.app", category: "CaptureDistribution")
+
     typealias CopyToClipboardFn = (ProcessedScreenshot, CopyMode) async throws -> Void
     typealias SaveCaptureFn = @MainActor (ProcessedScreenshot) async throws -> URL
     typealias PlaySoundFn = () -> Void
@@ -89,6 +92,11 @@ final class CaptureDistributionService {
             dispatchCommand(.beautifyLastCapture)
         case .redact:
             dispatchCommand(.redactLastCapture)
+        case .share:
+            // `.share` needs a live view anchor for NSSharingServicePicker, so it
+            // is presented by QuickAccessOverlay and never routed through this
+            // service. Reaching here means a caller mis-routed it — log, don't act.
+            logger.error("performQuickAction got .share; share is presented by the overlay, not this service")
         case .dismiss:
             dismissQuickAccess()
         }

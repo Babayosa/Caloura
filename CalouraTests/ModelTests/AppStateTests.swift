@@ -26,7 +26,10 @@ final class AppStateTests: XCTestCase {
         let defaults = defaults!
         let historyFileURL = historyFileURL!
         let state = await MainActor.run {
-            AppState(defaults: defaults, historyStoreURL: historyFileURL)
+            // Pin the retention cap so these tests are independent of the live
+            // AppSettings.historyItemLimit default (200); 50 preserves the
+            // semantics they were written against.
+            AppState(defaults: defaults, historyStoreURL: historyFileURL, historyItemLimit: 50)
         }
         self.appState = state
         await MainActor.run {
@@ -77,6 +80,84 @@ final class AppStateTests: XCTestCase {
         XCTAssertEqual(appState.recentScreenshots.count, 50)
         // Most recent should be last added
         XCTAssertEqual(appState.recentScreenshots[0].fileName, "screenshot_54.png")
+    }
+
+    // MARK: - setHistoryItemLimit (configurable retention cap)
+
+    func testSetHistoryItemLimit_loweringPrunesItemsAndEmbeddings() async {
+        var items: [ScreenshotItem] = []
+        for i in 0..<30 {
+            let item = AppStateTestHelpers.makeItem(fileName: "e\(i).png")
+            items.append(item)
+            await appState.embeddingStore.add(
+                screenshotID: item.id,
+                vector: [Double(i), 1, 0],
+                textHash: "h\(i)"
+            )
+            appState.addScreenshot(item)
+        }
+        // Cap is 50, so 30 adds prune nothing.
+        XCTAssertEqual(appState.recentScreenshots.count, 30)
+
+        appState.setHistoryItemLimit(10)
+
+        XCTAssertEqual(appState.recentScreenshots.count, 10)
+        // Newest-first: e29 at front, oldest survivor is e20.
+        XCTAssertEqual(appState.recentScreenshots.first?.fileName, "e29.png")
+        XCTAssertEqual(appState.recentScreenshots.last?.fileName, "e20.png")
+
+        let dropped = items.prefix(20).map(\.id)
+        let kept = items.suffix(10).map(\.id)
+
+        // Embedding removal is fire-and-forget (Task { await store.remove }).
+        let allDroppedGone = await waitUntil {
+            for id in dropped where await self.appState.embeddingStore.hasEmbedding(for: id) {
+                return false
+            }
+            return true
+        }
+        XCTAssertTrue(allDroppedGone, "Pruned items' embeddings must be removed")
+
+        for id in kept {
+            let present = await appState.embeddingStore.hasEmbedding(for: id)
+            XCTAssertTrue(present, "Kept items' embeddings must survive the prune")
+        }
+    }
+
+    func testSetHistoryItemLimit_unlimitedNeverPrunes() {
+        appState.setHistoryItemLimit(AppSettings.unlimitedHistoryLimit)
+        for i in 0..<250 {
+            appState.addScreenshot(AppStateTestHelpers.makeItem(fileName: "u\(i).png"))
+        }
+        XCTAssertEqual(appState.recentScreenshots.count, 250)
+    }
+
+    func testSetHistoryItemLimit_raisingKeepsExistingItems() {
+        for i in 0..<50 {
+            appState.addScreenshot(AppStateTestHelpers.makeItem(fileName: "r\(i).png"))
+        }
+        XCTAssertEqual(appState.recentScreenshots.count, 50)
+
+        appState.setHistoryItemLimit(200)
+        XCTAssertEqual(appState.recentScreenshots.count, 50)
+
+        for i in 50..<60 {
+            appState.addScreenshot(AppStateTestHelpers.makeItem(fileName: "r\(i).png"))
+        }
+        XCTAssertEqual(appState.recentScreenshots.count, 60)
+    }
+
+    /// Polls `condition` until it returns true or `timeout` elapses.
+    private func waitUntil(
+        timeout: TimeInterval = 2.0,
+        _ condition: @MainActor () async -> Bool
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if await condition() { return true }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        } while Date() < deadline
+        return await condition()
     }
 
     // MARK: - clearHistory

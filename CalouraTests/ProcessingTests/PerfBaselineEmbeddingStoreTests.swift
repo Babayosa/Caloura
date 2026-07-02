@@ -9,7 +9,7 @@ import XCTest
 ///
 /// These tests record numbers; they do not gate. Sanity bounds are
 /// deliberately generous.
-final class PerfBaselineEmbeddingStoreTests: XCTestCase {
+final class PerfBaselineEmbeddingStoreTests: CryptoIsolatedTestCase {
 
     private static let historyItemCount = 50
     private static let vectorDimensions = 512
@@ -46,11 +46,12 @@ final class PerfBaselineEmbeddingStoreTests: XCTestCase {
     /// thread now pays.
     @MainActor
     func testBaseline_save50ItemHistory_fromMainActor() async throws {
+        try PerfBaselineMeasurement.requireOptIn()
         XCTAssertTrue(Thread.isMainThread, "Baseline must run on the calling (main) thread")
         let storeURL = makeTempStoreURL()
         let store = await makePopulatedStore(storeURL: storeURL)
 
-        let stats = await PerfBaselineMeasurement.measureAsync(warmup: 2, iterations: 20) {
+        let stats = try await PerfBaselineMeasurement.measureAsync(warmup: 2, iterations: 20) {
             await store.save()
         }
 
@@ -62,7 +63,7 @@ final class PerfBaselineEmbeddingStoreTests: XCTestCase {
             stats
         ))
 
-        let enqueueStats = PerfBaselineMeasurement.measure(warmup: 2, iterations: 20) {
+        let enqueueStats = try PerfBaselineMeasurement.measure(warmup: 2, iterations: 20) {
             Task {
                 await store.save()
             }
@@ -87,12 +88,13 @@ final class PerfBaselineEmbeddingStoreTests: XCTestCase {
     /// `loadPersistedState()` on the main actor.
     @MainActor
     func testBaseline_load50ItemHistory_fromMainActor() async throws {
+        try PerfBaselineMeasurement.requireOptIn()
         XCTAssertTrue(Thread.isMainThread, "Baseline must run on the calling (main) thread")
         let storeURL = makeTempStoreURL()
         await makePopulatedStore(storeURL: storeURL).save()
 
         let freshStore = EmbeddingStore(storeURL: storeURL)
-        let stats = await PerfBaselineMeasurement.measureAsync(warmup: 2, iterations: 20) {
+        let stats = try await PerfBaselineMeasurement.measureAsync(warmup: 2, iterations: 20) {
             await freshStore.load()
         }
 

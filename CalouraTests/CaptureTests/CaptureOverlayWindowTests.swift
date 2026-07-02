@@ -57,6 +57,44 @@ final class CaptureOverlayWindowTests: XCTestCase {
                         "Bridge closures must survive teardown")
     }
 
+    // MARK: - Frozen-image release (leak fix)
+
+    func testTearDownHandlersReleasesFrozenImage() throws {
+        let window = try makeWindow()
+        let selectionView = try XCTUnwrap(window.contentView as? RegionSelectionView)
+        let image = TestImageFactory.makeTestImage(width: 64, height: 64)
+
+        // Production reveals the frozen snapshot via revealFrozenImage, which
+        // writes selectionView.frozenImage (and its backing layer) directly —
+        // the exact reference a pooled/closed overlay would otherwise pin.
+        window.revealFrozenImage(image)
+        XCTAssertNotNil(selectionView.frozenImage)
+        XCTAssertNotNil(selectionView.backgroundLayer.contents)
+
+        window.tearDownHandlers()
+
+        XCTAssertNil(window.frozenImage,
+                     "Window must drop its frozen-image reference on teardown")
+        XCTAssertNil(selectionView.frozenImage,
+                     "Pooled overlay must not pin the full-screen frozen image")
+        XCTAssertNil(selectionView.backgroundLayer.contents,
+                     "Backing layer must release the display-sized bytes")
+    }
+
+    func testWindowFrozenImageAssignmentCascadesToViewThenClears() throws {
+        let window = try makeWindow()
+        let selectionView = try XCTUnwrap(window.contentView as? RegionSelectionView)
+        let image = TestImageFactory.makeTestImage(width: 64, height: 64)
+
+        window.frozenImage = image
+        XCTAssertNotNil(selectionView.frozenImage,
+                        "Window frozenImage didSet should cascade to the view")
+
+        window.tearDownHandlers()
+        XCTAssertNil(window.frozenImage)
+        XCTAssertNil(selectionView.frozenImage)
+    }
+
     func testReusedWindowForwardsCallbacksThroughBridgeClosures() throws {
         let window = try makeWindow()
         let selectionView = try XCTUnwrap(window.contentView as? RegionSelectionView)

@@ -11,7 +11,6 @@ final class FakeScreenCaptureManager: ScreenCaptureManaging {
     private(set) var rectInDisplaySpaceCalls = 0
     private(set) var frozenSnapshotCalls = 0
     private(set) var windowCalls = 0
-    private(set) var displaySpaceAreaCalls = 0
 
     var prewarmHandler: @MainActor () async -> Void = { }
     var fullScreenHandler: @MainActor (NSScreen?) async throws -> CGImage = { _ in
@@ -28,9 +27,6 @@ final class FakeScreenCaptureManager: ScreenCaptureManaging {
     }
     var windowHandler: @MainActor (SCContentFilter) async throws -> CGImage = { _ in
         TestImageFactory.makeTestImage(width: 140, height: 100)
-    }
-    var displaySpaceAreaHandler: @MainActor (CGRect) async throws -> CGImage = { _ in
-        TestImageFactory.makeTestImage(width: 100, height: 70)
     }
 
     func prewarmWindowShareableContent() async {
@@ -61,10 +57,5 @@ final class FakeScreenCaptureManager: ScreenCaptureManaging {
     func captureWindow(filter: SCContentFilter) async throws -> CGImage {
         windowCalls += 1
         return try await windowHandler(filter)
-    }
-
-    func captureAreaInDisplaySpace(_ rect: CGRect) async throws -> CGImage {
-        displaySpaceAreaCalls += 1
-        return try await displaySpaceAreaHandler(rect)
     }
 }

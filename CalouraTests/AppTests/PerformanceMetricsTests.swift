@@ -66,35 +66,56 @@ final class PerformanceMetricsTests: XCTestCase {
     }
 
     @MainActor
-    func testCapturePerformanceRecorderTracksBudgetViolationsWithoutDroppingSample() {
+    func testCapturePerformanceRecorderKeepsSampleThatExceedsBudget() {
         let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 50, reportInterval: 5)
         let session = recorder.beginSession(mode: .area)
 
         recorder.recordDuration(.overlayVisible, milliseconds: 75, in: session)
 
+        // A budget-exceeding sample must still be recorded, not dropped.
         let summary = recorder.summary(for: .area, event: .overlayVisible)
         XCTAssertEqual(summary?.sampleCount, 1)
         XCTAssertEqual(summary?.latestMilliseconds, 75)
-        XCTAssertEqual(
-            recorder.budgetViolationCount(for: .area, event: .overlayVisible),
-            1
-        )
-        XCTAssertEqual(
-            recorder.budgetViolationCount(for: .area, event: .freezeSnapshot),
-            0
-        )
     }
 
-    @MainActor
-    func testCapturePerformanceRecorderDoesNotFlagSamplesInsideBudget() {
-        let recorder = CapturePerformanceRecorder(maxSamplesPerKey: 50, reportInterval: 5)
-        let session = recorder.beginSession(mode: .area)
+    func testBudgetViolationPredicate() {
+        // overlayVisible budget = 50ms.
+        XCTAssertTrue(CapturePerformanceRecorder.isBudgetViolation(event: .overlayVisible, milliseconds: 75))
+        XCTAssertFalse(CapturePerformanceRecorder.isBudgetViolation(event: .overlayVisible, milliseconds: 50))
+        // cursorPrimed budget = 16.7ms.
+        XCTAssertFalse(CapturePerformanceRecorder.isBudgetViolation(event: .cursorPrimed, milliseconds: 8))
+        XCTAssertTrue(CapturePerformanceRecorder.isBudgetViolation(event: .cursorPrimed, milliseconds: 20))
+        // Events without a defined budget never violate.
+        XCTAssertFalse(CapturePerformanceRecorder.isBudgetViolation(event: .freezeSnapshot, milliseconds: 10_000))
+    }
 
-        recorder.recordDuration(.cursorPrimed, milliseconds: 8, in: session)
+    // MARK: - MetricSampleWindow (shared primitive)
 
-        XCTAssertEqual(
-            recorder.budgetViolationCount(for: .area, event: .cursorPrimed),
-            0
-        )
+    func testMetricSampleWindowBoundsAndPercentiles() {
+        var window = MetricSampleWindow(maxSamples: 20)
+        for value in stride(from: 1.0, through: 40.0, by: 1.0) {
+            window.append(value)
+        }
+
+        XCTAssertEqual(window.count, 20)
+        XCTAssertEqual(window.latest, 40.0)
+        // Retained window 21...40: p50 index 9 -> 30, p95 index 18 -> 39.
+        XCTAssertEqual(window.percentile(0.50), 30.0)
+        XCTAssertEqual(window.percentile(0.95), 39.0)
+    }
+
+    func testMetricSampleWindowEmptyPercentileIsZero() {
+        let window = MetricSampleWindow(maxSamples: 10)
+        XCTAssertTrue(window.isEmpty)
+        XCTAssertEqual(window.percentile(0.50), 0)
+        XCTAssertNil(window.latest)
+    }
+
+    func testMetricSampleWindowClampsMaxSamplesToAtLeastOne() {
+        var window = MetricSampleWindow(maxSamples: 0)
+        window.append(1.0)
+        window.append(2.0)
+        XCTAssertEqual(window.count, 1)
+        XCTAssertEqual(window.latest, 2.0)
     }
 }

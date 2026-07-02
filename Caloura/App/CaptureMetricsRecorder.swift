@@ -20,7 +20,7 @@ final class CaptureMetricsRecorder {
     }
 
     func elapsedMilliseconds(since start: CFAbsoluteTime) -> Double {
-        (CFAbsoluteTimeGetCurrent() - start) * 1000.0
+        CaptureTiming.elapsedMilliseconds(since: start)
     }
 
     func recordMetric(stage: PerformanceMetricStage, milliseconds: Double) {

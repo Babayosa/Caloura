@@ -70,6 +70,7 @@ struct HistoryView: View {
     private var filteredScreenshots: [ScreenshotItem] {
         searchModel.filteredScreenshots(
             from: appState.recentScreenshots,
+            revision: appState.historyContentRevision,
             searchText: searchText,
             semanticResults: semanticResults,
             semanticSearchEnabled: AppSettings.shared.semanticSearchEnabled
@@ -138,6 +139,12 @@ struct HistoryView: View {
                                     copyImage(item)
                                 } label: {
                                     Label("Copy", systemImage: "doc.on.doc")
+                                }
+                                if !item.filePath.isEmpty,
+                                   FileManager.default.fileExists(atPath: item.filePath) {
+                                    ShareLink(item: URL(fileURLWithPath: item.filePath)) {
+                                        Label("Share…", systemImage: "square.and.arrow.up")
+                                    }
                                 }
                                 Button {
                                     openInFinder(item)

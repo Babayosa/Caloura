@@ -161,16 +161,4 @@ extension ScreenCaptureManager {
         ])
     }
 
-    func screencaptureAreaInDisplaySpace(
-        rect: CGRect
-    ) async throws -> CGImage {
-        let captureRect = rect.integral
-        return try await runScreencapture(args: [
-            "-R\(Int(floor(captureRect.origin.x))),"
-            + "\(Int(floor(captureRect.origin.y))),"
-            + "\(Int(captureRect.width)),"
-            + "\(Int(captureRect.height))"
-        ])
-    }
-
 }

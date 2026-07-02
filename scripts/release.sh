@@ -548,9 +548,14 @@ verify_release_environment
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
-# Regenerate Xcode project
+# Regenerate Xcode project with the pinned XcodeGen (never ambient PATH — the
+# committed project is byte-sensitive to the XcodeGen version, and shipping an
+# artifact built from a drifted regeneration would diverge from source-of-truth).
+# Same source of truth as release_ready.sh / ci.yml / release-smoke.yml.
 echo "==> Regenerating Xcode project..."
 cd "$PROJECT_DIR"
+xcodegen_bin="$("$SCRIPT_DIR/install_xcodegen.sh")"
+export PATH="$xcodegen_bin:$PATH"
 xcodegen generate
 
 # Archive

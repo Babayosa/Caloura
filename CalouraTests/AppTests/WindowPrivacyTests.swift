@@ -108,6 +108,24 @@ final class WindowPrivacyTests: XCTestCase {
         XCTAssertEqual(activationCount, 1)
     }
 
+    // MARK: - Shared overlay primitive
+
+    func testConfigureAsOverlaySetsSharedOverlayProperties() {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.nonactivatingPanel, .borderless],
+            backing: .buffered,
+            defer: false
+        )
+        panel.configureAsOverlay()
+
+        XCTAssertEqual(panel.sharingType, .none)
+        XCTAssertFalse(panel.isReleasedWhenClosed)
+        XCTAssertFalse(panel.hidesOnDeactivate)
+        XCTAssertTrue(panel.collectionBehavior.contains(.canJoinAllSpaces))
+        XCTAssertTrue(panel.collectionBehavior.contains(.fullScreenAuxiliary))
+    }
+
     // MARK: - Panels and overlays
 
     func testQuickAccessOverlayCreatesNonShareablePanel() throws {

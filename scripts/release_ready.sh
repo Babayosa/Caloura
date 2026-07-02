@@ -117,13 +117,31 @@ run_step "swiftlint lint --quiet"
 run_step "swift test"
 (cd "$PROJECT_DIR" && swift test)
 
-run_step "xcodegen generate"
-(cd "$PROJECT_DIR" && xcodegen generate)
+run_step "Release-tooling unit tests (downgrade validator)"
+(cd "$PROJECT_DIR" && python3 -m unittest discover -s scripts/tests -p "test_*.py")
+
+run_step "xcodegen generate (pinned)"
+(
+  # Use the pinned XcodeGen, never PATH: the committed project is byte-sensitive
+  # to the XcodeGen version, and the drift check below compares against it. A
+  # local PATH xcodegen of a different version regenerates a different format
+  # and would fail the drift gate on an in-sync project. Same source of truth
+  # as ci.yml / release-smoke.yml.
+  cd "$PROJECT_DIR"
+  xcodegen_bin="$("$SCRIPT_DIR/install_xcodegen.sh")"
+  export PATH="$xcodegen_bin:$PATH"
+  xcodegen generate
+)
 
 run_step "Xcode project drift check"
 (
+  # Scope to the files XcodeGen owns — the SwiftPM-managed workspace
+  # Package.resolved is written by Xcode, not XcodeGen. Mirrors ci.yml.
   cd "$PROJECT_DIR"
-  git diff --exit-code -- Caloura.xcodeproj
+  git diff --exit-code -- \
+    Caloura.xcodeproj/project.pbxproj \
+    Caloura.xcodeproj/project.xcworkspace/contents.xcworkspacedata \
+    'Caloura.xcodeproj/xcshareddata/xcschemes/*.xcscheme'
 )
 
 run_step "xcodebuild build"

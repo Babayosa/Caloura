@@ -41,16 +41,13 @@ final class CaptureOverlayWindow: NSPanel {
             defer: false
         )
 
-        self.excludeFromScreenSharing()
-        self.isReleasedWhenClosed = false
+        self.configureAsOverlay()
         self.level = Self.overlayLevel
         self.isOpaque = false
         self.backgroundColor = NSColor.clear
         self.hasShadow = false
         self.ignoresMouseEvents = false
         self.acceptsMouseMovedEvents = true
-        self.hidesOnDeactivate = false
-        self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let selectionView = RegionSelectionView(
             frame: NSRect(origin: .zero, size: screen.frame.size)
@@ -101,6 +98,12 @@ final class CaptureOverlayWindow: NSPanel {
         onRegionSelected = nil
         onCancelled = nil
         onFirstMouseDown = nil
+        // Release the full-screen frozen snapshot so a pooled/closed overlay
+        // does not pin ~display-sized CGImage bytes between captures. Production
+        // sets it via `revealFrozenImage` (which writes `selectionView.frozenImage`
+        // directly), so clear both the window's stored copy and the view's.
+        frozenImage = nil
+        selectionView?.frozenImage = nil
         // Bridge closures on selectionView are permanent — they delegate
         // through the window's optional callbacks above, which are nil-safe.
     }

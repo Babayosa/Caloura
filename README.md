@@ -47,8 +47,11 @@ macOS can treat different signatures/paths as separate apps. If permission seems
 - **License state**: persisted locally for frictionless runtime (no startup keychain prompt path).
 - **History payload**: encrypted with AES-GCM at
   `~/Library/Application Support/Caloura/history.enc`
-- **History key**: stored at
-  `~/Library/Application Support/Caloura/security/history.key`
+- **History key**: the root key is stored in the macOS **Keychain**
+  (device-only, non-syncing, available after first unlock — no interactive
+  prompt). A file-backed key under
+  `~/Library/Application Support/Caloura/security/history.key` is used **only in
+  DEBUG/test builds** via a test override, never in release.
 - **Permission model**: Screen Recording is the only required OS permission.
 
 ## Keyboard Shortcuts (Defaults)

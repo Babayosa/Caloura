@@ -336,6 +336,9 @@ final class CapturePipelineTests: XCTestCase {
         let historyURL = temporaryFileURL(prefix: "pipeline-save-last")
         let appState = AppState(defaults: defaults, historyStoreURL: historyURL)
         let settings = AppSettings(defaults: defaults)
+        // Exercises the mocked `recognizeText` path; opt out of the PII/observations
+        // branch that `autoDetectPII` now enables by default.
+        settings.autoDetectPII = false
 
         let pipeline = CapturePipelineTestHelpers.makePipeline(
             testName: #function,

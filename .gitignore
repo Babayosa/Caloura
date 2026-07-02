@@ -9,6 +9,7 @@ xcuserdata/
 certs/
 build/
 .codex/environments/environment.toml
-scripts/__pycache__/
+__pycache__/
+*.pyc
 
 releases/

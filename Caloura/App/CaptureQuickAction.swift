@@ -9,5 +9,6 @@ enum CaptureQuickAction: Hashable {
     case pin
     case beautify
     case redact
+    case share
     case dismiss
 }
