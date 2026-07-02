@@ -1,13 +1,13 @@
 {
-  "originHash" : "5c006478f097cf8725a2257a4e37663ad1192b12294780f84d21c4dfa3deca40",
+  "originHash" : "064ae85d9458c4bc8c6efe5b395b2ed31b20a2c900dc65b2bdc492bc527cd3d9",
   "pins" : [
     {
       "identity" : "keyboardshortcuts",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sindresorhus/KeyboardShortcuts",
       "state" : {
-        "revision" : "1aef85578fdd4f9eaeeb8d53b7b4fc31bf08fe27",
-        "version" : "2.4.0"
+        "revision" : "49c3fc04ea827f816df67843bfcc57286b47ff06",
+        "version" : "3.0.1"
       }
     },
     {
