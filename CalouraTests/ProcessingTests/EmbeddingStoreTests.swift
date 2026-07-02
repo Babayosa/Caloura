@@ -1,7 +1,7 @@
 import XCTest
 @testable import Caloura
 
-final class EmbeddingStoreTests: XCTestCase {
+final class EmbeddingStoreTests: CryptoIsolatedTestCase {
     private func makeTestStore() -> EmbeddingStore {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("test-store-\(UUID().uuidString).enc")
@@ -78,6 +78,44 @@ final class EmbeddingStoreTests: XCTestCase {
 
         // Cleanup
         try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Debounce guarantee (audit M1): a burst of `scheduleSave()` calls must
+    /// coalesce into a single disk write. Each `scheduleSave()` cancels the
+    /// prior pending task; `flush()` then cancels the last one and writes once,
+    /// so `writeCount` is exactly 1 rather than one write per call. Fully
+    /// deterministic — no reliance on the debounce timer firing.
+    func testScheduleSaveBurstThenFlush_writesOnce() async {
+        let store = makeTestStore()
+        await store.add(screenshotID: UUID(), vector: [1.0], textHash: "a")
+
+        for _ in 0..<5 {
+            await store.scheduleSave()
+        }
+        await store.flush()
+
+        let writes = await store.writeCount
+        XCTAssertEqual(writes, 1, "A burst of scheduled saves + flush must write exactly once")
+        await store.clear()
+    }
+
+    /// `flush()` must persist scheduled state — a store flushed after a
+    /// scheduled save reloads with the entry intact (termination-path guard).
+    func testFlush_persistsScheduledState() async {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("test-flush-\(UUID().uuidString).enc")
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+
+        let store1 = EmbeddingStore(storeURL: url)
+        let id = UUID()
+        await store1.add(screenshotID: id, vector: [1.0, 2.0], textHash: "x")
+        await store1.scheduleSave()
+        await store1.flush()
+
+        let store2 = EmbeddingStore(storeURL: url)
+        await store2.load()
+        let hasEmbedding = await store2.hasEmbedding(for: id)
+        XCTAssertTrue(hasEmbedding, "flush() must write scheduled state to disk")
     }
 
     /// Audit item 3.1 ordering guarantee: concurrent mutate+save pairs must

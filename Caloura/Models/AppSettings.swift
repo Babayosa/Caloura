@@ -61,7 +61,15 @@ final class AppSettings {
         static let semanticSearchEnabled = "semanticSearchEnabled"
         static let lowProfileCaptureEnabled = "lowProfileCaptureEnabled"
         static let anonymousDiagnosticsEnabled = "anonymousDiagnosticsEnabled"
+        static let historyItemLimit = "historyItemLimit"
     }
+
+    /// Sentinel stored in `historyItemLimit` for "keep everything". Chosen so the
+    /// existing `count > limit` prune guard in `AppState` simply never trips — no
+    /// special-casing needed anywhere downstream.
+    static let unlimitedHistoryLimit = Int.max
+    /// Presets surfaced in Preferences (last entry = Unlimited).
+    static let historyItemLimitOptions = [100, 200, 500, unlimitedHistoryLimit]
 
     var saveDirectory: String {
         didSet { debouncedSave() }
@@ -155,6 +163,13 @@ final class AppSettings {
         didSet { debouncedSave() }
     }
 
+    /// Max number of screenshots retained in history. `AppSettings.unlimitedHistoryLimit`
+    /// (Int.max) means never prune. Changing this does not itself prune — the
+    /// Preferences control calls `AppState.setHistoryItemLimit(_:)` to enforce it.
+    var historyItemLimit: Int {
+        didSet { debouncedSave() }
+    }
+
     var furthestDateSeen: Date? {
         get { defaults.object(forKey: Keys.furthestDateSeen) as? Date }
         set { defaults.set(newValue, forKey: Keys.furthestDateSeen) }
@@ -215,6 +230,7 @@ final class AppSettings {
         defaults.set(semanticSearchEnabled, forKey: Keys.semanticSearchEnabled)
         defaults.set(lowProfileCaptureEnabled, forKey: Keys.lowProfileCaptureEnabled)
         defaults.set(anonymousDiagnosticsEnabled, forKey: Keys.anonymousDiagnosticsEnabled)
+        defaults.set(historyItemLimit, forKey: Keys.historyItemLimit)
     }
 
     // MARK: - HotKey Defaults Migration
@@ -308,7 +324,12 @@ final class AppSettings {
         self.isLicenseActivated = false
         self.hasSeenWelcome = defaults.bool(forKey: Keys.hasSeenWelcome)
         self.autoClearClipboard = defaults.object(forKey: Keys.autoClearClipboard) as? Bool ?? false
-        self.autoDetectPII = defaults.object(forKey: Keys.autoDetectPII) as? Bool ?? false
+        // Default ON: on-device PII detection is Caloura's headline privacy moat.
+        // Surfaces a review affordance (badge + Redact) on captures containing
+        // sensitive patterns; never auto-mutates the copied/saved image (redaction
+        // stays a manual, user-confirmed action). `?? true` only affects fresh
+        // installs — users who explicitly toggled it keep their choice.
+        self.autoDetectPII = defaults.object(forKey: Keys.autoDetectPII) as? Bool ?? true
         self.beautifyThemeName = defaults.string(forKey: Keys.beautifyThemeName) ?? "Clean"
         self.smartMetadataEnabled = defaults.object(forKey: Keys.smartMetadataEnabled) as? Bool ?? true
         self.semanticSearchEnabled = defaults.object(forKey: Keys.semanticSearchEnabled) as? Bool ?? true
@@ -317,6 +338,10 @@ final class AppSettings {
         self.anonymousDiagnosticsEnabled = defaults.object(
             forKey: Keys.anonymousDiagnosticsEnabled
         ) as? Bool ?? false
+        // Default 200 (raised from the historical hard-coded 50). Existing installs
+        // have ≤50 items on disk, so raising the cap only prunes less — no migration.
+        self.historyItemLimit = defaults.object(forKey: Keys.historyItemLimit) as? Int
+            ?? 200
 
         migrateHotKeyDefaultsIfNeeded()
         activateLicenseSubsystem()

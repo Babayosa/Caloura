@@ -12,6 +12,15 @@ DEFAULT_THRESHOLDS = {
     "Caloura/Capture/ScreenCaptureManager+Permission.swift": 85.0,
     "Caloura/App/UpdateManager.swift": 85.0,
     "Caloura/App/LicenseManager.swift": 90.0,
+    # Security-critical: license signature/entitlement verification, at-rest
+    # history encryption, and PII redaction. Thresholds set to floor(measured
+    # unit coverage) - 3 as of 2026-07-01 (measured 94.68 / 86.79 / 98.86 /
+    # 91.97). CI runs a superset of tests so its merged coverage only exceeds
+    # these floors (audit M4).
+    "Caloura/App/LicenseEntitlementVerifier.swift": 91.0,
+    "Caloura/Security/HistoryCrypto.swift": 83.0,
+    "Caloura/Processing/RedactionEngine.swift": 95.0,
+    "Caloura/Processing/PIIDetector.swift": 88.0,
 }
 
 

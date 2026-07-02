@@ -9,6 +9,23 @@ Inherits global rules from `~/CLAUDE.md`.
 - **Lint**: `swiftlint lint --quiet`
 - Always run all three before marking a task done.
 
+### Test-target split (important)
+
+`swift test` runs **only** the SwiftPM `CalouraTests` unit target. The
+`CalouraSystemTests` (capture/overlay/cursor system regression guards, incl. the
+"crosshair-gone-forever" guards) and `CalouraUITests` targets are declared only in
+`project.yml`, not `Package.swift`, so they run **only** under `xcodebuild test`:
+
+```
+xcodegen generate && xcodebuild test -project Caloura.xcodeproj -scheme Caloura \
+  -configuration Debug -derivedDataPath .build/DerivedData -destination 'platform=macOS'
+```
+
+`CalouraTests/UITests/` (perf/filter unit tests) is a subdirectory of the *unit*
+target and does run under `swift test` — distinct from the top-level `CalouraUITests`
+XCUITest target. CI runs unit + system on every PR; `scripts/release_ready.sh` runs the
+full gate including the UI smoke target.
+
 ## Release Pipeline
 
 - **Full publish**: `./scripts/publish.sh <version>` — builds, notarizes, signs appcast, pushes to GitHub Pages
@@ -20,7 +37,12 @@ Inherits global rules from `~/CLAUDE.md`.
 
 ## Project Conventions
 
-- No Keychain for runtime persistence — use `HistoryCrypto.encrypt()` instead
+The rules below are the terse invariants. Expanded procedures, code templates, and a
+failure-symptom index live in the **swift-macos-integration** skill
+(`~/.claude/skills/swift-macos-integration/SKILL.md`) — invoke it before touching
+TCC/permission, cursor, overlay, or stateful-flag code.
+
+- Don't stash runtime data (license state, app state, history) in the Keychain — persist it on disk, and encrypt sensitive history via `HistoryCrypto.encrypt()` (AES-GCM). The Keychain holds exactly one item: HistoryCrypto's non-interactive, device-only AES root key. Don't add new Keychain items.
 - Treat `CGPreflightScreenCaptureAccess()` as a coarse passive signal only; after an explicit Screen Recording grant attempt, trust live ScreenCaptureKit validation before falling back to repair or relaunch
 - `CGWindowListCopyWindowInfo` gives false positives — never use for permission checks
 - `NSCursor.hide()/unhide()` are reference-counted — must balance exactly

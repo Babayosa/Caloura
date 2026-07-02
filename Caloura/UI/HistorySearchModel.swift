@@ -3,7 +3,13 @@ import Foundation
 final class HistorySearchModel {
 
     private struct CacheKey: Equatable {
-        let items: [ScreenshotItem]
+        /// Cheap content token instead of the full item array: comparing the
+        /// revision is O(1) versus deep-comparing every item's OCR text on each
+        /// of the ~4 accesses per SwiftUI body pass. The caller bumps the
+        /// revision on any content change (including in-place OCR mutation), so
+        /// keying on it is both cheaper and free of the stale-result bug an
+        /// id-only key would introduce.
+        let revision: UInt64
         let searchText: String
         let semanticResults: Set<UUID>
         let semanticSearchEnabled: Bool
@@ -21,12 +27,13 @@ final class HistorySearchModel {
     /// (and across renders with unchanged inputs) cost one scan total.
     func filteredScreenshots(
         from items: [ScreenshotItem],
+        revision: UInt64,
         searchText: String,
         semanticResults: Set<UUID>,
         semanticSearchEnabled: Bool
     ) -> [ScreenshotItem] {
         let key = CacheKey(
-            items: items,
+            revision: revision,
             searchText: searchText,
             semanticResults: semanticResults,
             semanticSearchEnabled: semanticSearchEnabled

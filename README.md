@@ -47,8 +47,11 @@ macOS can treat different signatures/paths as separate apps. If permission seems
 - **License state**: persisted locally for frictionless runtime (no startup keychain prompt path).
 - **History payload**: encrypted with AES-GCM at
   `~/Library/Application Support/Caloura/history.enc`
-- **History key**: stored at
-  `~/Library/Application Support/Caloura/security/history.key`
+- **History key**: the root key is stored in the macOS **Keychain**
+  (device-only, non-syncing, available after first unlock — no interactive
+  prompt). A file-backed key under
+  `~/Library/Application Support/Caloura/security/history.key` is used **only in
+  DEBUG/test builds** via a test override, never in release.
 - **Permission model**: Screen Recording is the only required OS permission.
 
 ## Keyboard Shortcuts (Defaults)
@@ -81,8 +84,12 @@ SwiftLint, `swift test`, then `xcodebuild test` (skipping only
 test step passes `CODE_SIGNING_ALLOWED=NO` because runners have no signing
 identity; never use that flag for local manual launch/testing.
 
-The pre-commit hook runs lint, build, and the full suite on developer
-machines where TCC has been granted to the test bundle.
+The version-controlled pre-commit hook (`.githooks/pre-commit`) runs the
+banned-suppression scan, `swiftlint --strict` on staged files, `swift build`,
+and `swift test`. Activate it once per clone with
+`git config core.hooksPath .githooks`. It is a fast subset of CI (the workflow
+above is authoritative); run the full `xcodebuild test` suite on a
+TCC-authorized machine before pushing.
 The `Release Smoke` workflow exercises the signed packaging path (build,
 codesign, notarize, staple, quarantined launch) end-to-end on every tagged
 release.

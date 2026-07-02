@@ -10,9 +10,19 @@ private final class TimeoutCoordinator<T: Sendable>: @unchecked Sendable {
     private var operationTask: Task<Void, Never>?
     private var timeoutTask: Task<Void, Never>?
     private var finished = false
+    private var pendingResult: Result<T?, Error>?
 
     func install(_ continuation: CheckedContinuation<T?, Error>) {
         lock.lock()
+        if let pendingResult {
+            // `finish` already ran before the continuation was installed
+            // (e.g. cancellation delivered in the sub-µs setup window). Deliver
+            // its stashed result now so the caller never hangs.
+            self.pendingResult = nil
+            lock.unlock()
+            continuation.resume(with: pendingResult)
+            return
+        }
         self.continuation = continuation
         lock.unlock()
     }
@@ -42,6 +52,11 @@ private final class TimeoutCoordinator<T: Sendable>: @unchecked Sendable {
         finished = true
         let continuation = continuation
         self.continuation = nil
+        if continuation == nil {
+            // No continuation installed yet: stash the result so `install`
+            // delivers it instead of stranding the continuation (audit L6).
+            pendingResult = result
+        }
         let operationTask = operationTask
         let timeoutTask = timeoutTask
         self.operationTask = nil

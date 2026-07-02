@@ -1,126 +1,156 @@
-# Caloura — Audit Remediation (tasks/audit-2026-06-09-full.md)
+# Caloura — A+ Engineering Sprint (from tasks/audit-2026-07-01.md)
 
-**Started:** 2026-06-10 · **Contract:** /goal phases 0–5, evidence-first, one finding per branch/commit, main stays releasable.
-**Key discovery:** runner image `macos-26` carries Xcode 26.4.1 (default) + 26.5, NOT 26.0 → workflows need runner label fix AND `xcode-version: "^26.0"` range together.
-Prior plan archived → `tasks/archive/todo-2026-03-06-task09-release-plan.md`.
+**Started:** 2026-07-01 · **Branch:** `audit-a-plus-2026-07` · **Goal:** engineering grade A− → A+ by closing every real Track A finding.
+**Contract:** evidence-first, `build + swift test + swiftlint` green after every batch, main stays releasable, no commits without explicit ask.
+**Gate command:** `xcodebuild build -project Caloura.xcodeproj -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData && swift test && swiftlint lint --quiet`
 
-## Phase 0 — Safety net
-- [x] 0.1 Fix CI runners: `macos-26` in ci.yml/release-smoke.yml/release-guard.yml + `xcode-version: ^26.0` (one change, single root cause)
-- [x] 0.2 Brewfile replaces phantom `swiftlint@0.63.2` pins; rename misleading "with coverage" step
-- [x] 0.3 coverage_gate.py wired into ci.yml via -resultBundlePath; artifact upload
-- [x] 0.4 swiftlint --strict; add CalouraSystemTests/CalouraUITests to .swiftlint.yml included
-- [x] 0.5 Gate-proof: 3 throwaway PRs (lint warning / deleted LicenseManager test / broken build) each observed RED; record run URLs; delete branches
-- [x] 0.6 release-guard (smoke: parse fix merged PR #16, dispatch pending) + release-smoke green via workflow_dispatch
+Prior June plan archived → `tasks/archive/todo-2026-06-10-audit-remediation.md`.
+URL-scheme deletion already done (branch merged into this one).
 
-## Phase 1 — Branch-critical + quick wins
-- [x] 1.1 sharingType == .none tests for PinnedScreenshotWindow + CountdownOverlay (observed red with excludeFromScreenSharing() commented out, then green)
-- [x] 1.2 README/plan.md truth pass (macOS 26, Xcode 26, real CI description, v2.4.2); execute every documented command
-- [x] 1.3 .gitignore += releases/; remove NSAccessibilityUsageDescription (project.yml); kSecAttrSynchronizable=false in KeychainHelper.writeData; drop which() fallback in validate_appcast_against_manifest.py find_sign_update
+## Phase 1 — Parallel deep-spec (Workflow, read-only) [x]
+DONE 2026-07-01 (wf_5f628dc9-64e, 6 clusters, 0 errors). All 23 findings confirmed still-valid; exact file:line + change + verification captured. Design choices resolved: M1=debounce (not append), M9=extract shared primitive (not collapse), L5=reduce reprime to 250ms (not full event-drive), M5=document swift-test/xcodebuild-test split (no SwiftPM target), M8=checksum-pinned xcodegen (mirror SwiftLint), M6=`unittest discover` (not pytest — hermetic), L8 over-scoped (Gumroad is still live storefront; only *verification* docs change).
 
-## Phase 2 — Correctness (failing test BEFORE each fix)
-- [ ] 2.1 handleCaptureFailure resets isCapturing (CaptureExecutionService)
-- [ ] 2.2 defer-based reset in captureDelayed countdown task (CaptureEntrypointService)
-- [ ] 2.3 savePresets do/catch + log + status (PresetManager)
-- [ ] 2.4 freezeCaptureTarget fallback instead of throw (ScreenCaptureManager+SCKCapture)
-- [ ] 2.5 SHA-pin actions + concurrency groups (workflows stay green)
+**Discovered sequencing constraints (override naive batch order):**
+- L4 LAST — collides with metrics (M9) + test-hygiene on CaptureExecutionService/SmartCropper. Rebase after D+E land.
+- M9 + L13-PartA — one coordinated pass (both edit CapturePerformanceRecorder.swift).
+- M4 calibration AFTER M7+L10 land (they raise coverage) — set each threshold `floor(actual)-3`.
+- M8 → L3 → L12 (drift gate needs pinned xcodegen + regen'd pbxproj first).
+- New files (M9 MetricSampleWindow.swift, L10 test) need `xcodegen generate` before xcodebuild.
+- L11 also fixes a LATENT correctness bug: id-only cache `==` returns stale search after in-place OCR mutation.
+- AGENTS.md edit (M10) via orchestrator, NOT a Codex subagent (AGENTS.md self-forbids Codex edits).
 
-## Phase 3 — Performance (baseline FIRST, before/after numbers)
-- [ ] 3.0 Baseline: perf_audit.sh + signpost evidence, capture w/ 50-item history
-- [ ] 3.1 EmbeddingStore → actor; 4 call sites; termination flush bounded; new save/load ordering test
-- [ ] 3.2 Single-pass .accurate OCR (OCREngine.recognizeTextWithBoundingBoxes); exactly one VNRecognizeTextRequest per enrichment
-- [ ] 3.3 HistoryView.filteredScreenshots computed once per body
-- [ ] 3.4 Re-measure: no main-thread file I/O during capture; perf_audit budgets pass
+## Phase 2 — Implement (dependency-ordered batches, gate after each)
 
-## Phase 4 — License URL (GATED: only if api.caloura.app DNS confirmed available; else report blocked-by-decision)
-- [ ] 4.1 Vanity domain in project.yml; Debug build verifies live worker on both hostnames
+### Batch A — Dead code / protocol surface (do first: changes signatures) [x]
+- [x] L1  Deleted dead `captureAreaInDisplaySpace(_:)` chain: protocol req (ScreenCaptureManager.swift:16), impl (532-545), `sckCaptureAreaInDisplaySpace` (+SCKCapture.swift), `screencaptureAreaInDisplaySpace` (+CLICapture.swift), fake impl+property+handler (FakeScreenCaptureManager.swift). Grep confirmed zero call sites. GATE GREEN (BUILD SUCCEEDED, swift test exit 0, lint clean).
+- [x] **M(url)** [medium, latent] Unauthenticated URL-scheme capture route (`URLSchemeHandler.handleCapture`, unregistered `caloura://`, autoCopy-to-clipboard default). **Fix = delete-not-gate** (audit's own option, and the scheme was never registered — dead intent). Deleted `Caloura/App/URLSchemeHandler.swift` + `CalouraTests/AppTests/URLSchemeHandlerTests.swift` (working-tree `D` on this branch, verified via `git status`). Confirmed post-deletion ground truth: no URL-open entry point remains in source (`application(_:open:)`/`onOpenURL`/`NSAppleEventManager` — none); `CFBundleURLTypes` absent (scheme inert); README + `codex/CODEMAP.md` carry no `caloura://`/deep-link/automation claims; build + 807 tests green (zero dangling call sites). Residual mentions live only in `codex/` dev-journal history (accurate past-tense; not live intent). *Documented late — the deletion happened in Batch A but was tracked only via M4's parenthetical; recorded explicitly here for Track A completeness.*
 
-## Phase 5 — Polish
-- [ ] 5.1 Dedup: orderedPresentationScreens, HistoryWindowController metrics, deletingPathExtension, fileExtension(for:), crosshair geometry
-- [ ] 5.2 codex/CODEMAP.md refresh (+ StatusMessageRouter seam); archive plan.md
-- [ ] 5.3 Dead code: DetectedContext.windowTitle, HistoryCrypto eager fallback URL, vacuous ReleaseScriptTests assertion
-- [ ] 5.4 Test hygiene: AsyncGate instead of 50ms sleep, addTeardownBlock temp cleanup, XCTSkip headless system tests, drop NSCache actor wrapper
+### Batch B — Persistence performance [x]
+- [x] M1  EmbeddingStore: added `scheduleSave()` (500ms debounce) + `flush()`; call sites (CaptureEnrichmentService, persistEmbeddingRemovals) → scheduleSave; `flushEmbeddingStoreSync()` (Task.detached+semaphore) in applicationWillTerminate. `writeCount` seam + 2 new tests (coalesce-to-1, flush-persists). NOTE: regular-actor `Task{}` does NOT inherit isolation (unlike @MainActor) — callback uses `await self.save()`.
+- [x] M2  `HistoryPersistenceWorker.persistHistory` now takes `[ScreenshotItem]` and encodes inside the actor (off main); stale-revision guard runs before encode. `saveHistorySync` left as-is.
+- [x] L11 CacheKey keyed on `historyContentRevision` (bumped in `recentScreenshots` didSet — covers insert/remove/in-place). Fixed latent stale-search-after-OCR bug; added guard test. GATE GREEN (all suites 0 failures, lint clean).
+
+### Batch C — Overlay / cursor / capture-feedback [x] (L4 deferred to last)
+- [x] M3  `tearDownHandlers()` now nils `frozenImage` + `selectionView?.frozenImage` (releases display-sized bytes held by pooled/closed overlays via backgroundLayer.contents). +2 tests (revealFrozenImage prod path asserts backgroundLayer.contents nil; window.frozenImage cascade path).
+- [x] L2  Added `NSPanel.configureAsOverlay()` in WindowPrivacy.swift (sets excludeFromScreenSharing/collectionBehavior/isReleasedWhenClosed=false/hidesOnDeactivate=false). Replaced the 4 copy-pasted lines in all 5 overlays (CaptureOverlayWindow, ScreenSelectionOverlayWindow, QuickAccessOverlay, PinnedScreenshotWindow, CountdownPanel); panel-specific props stay inline. Existing 5 `sharingType==.none` assertions now cover the shared path + 1 new primitive test.
+- [x] L5  CaptureCursorController: added `deinit { notificationCenter.removeObserver(self) }` (balances 2 addObserver); reduced maintenanceReprimeDelay 50ms→250ms (20Hz busy-loop → 4Hz backstop). Test delay assertions updated (lines 22/139). GATE GREEN (798 tests, 0 failures, lint clean).
+- [~] L4  Smart-crop awaited before first-pixel preview → **RECLASSIFIED to Track B / Phase 4 (product decision), not a silent Track A rearchitecture.** Grounded in ground-truth review:
+  - **Marginal win.** `distributeCapture` (clipboard auto-copy, default ON) and `saveToDisk` already run on the *cropped* `processed` and are awaited on the capture path (`CaptureExecutionService.swift:88-99,285-311`). Publishing a raw preview earlier speeds ONLY the QuickAccess *thumbnail*, not capture→paste or capture→saved latency. The crop still gates the artifacts.
+  - **UX tradeoff.** On captures that actually crop (≥15% removed, `SmartCropper.minCropThreshold`), raw-first means the preview visibly swaps raw→cropped. Whether progressive preview is desirable is a product call — the established A/B contract routes UX to the user.
+  - **High blast radius for a `low`.** `ProcessedScreenshot` is fully immutable (`let id/image/cgImage`, `ProcessedScreenshot.swift:15-17`) → async refine needs a 2nd identity or a model rewrite, plus re-pointing `lastScreenshot`, re-showing QuickAccess, a new `CapturePreviewPhase` "refining" state, and churning `CaptureEntrypointCropTests`/`CaptureExecutionServiceTests`. Violates "minimal impact / engineered enough / not fragile" for a sub-300ms thumbnail gain.
+  - **Disposition:** offered to user at Phase 4 with a recommendation (default: keep current crop-then-preview — cleaner, no swap). Implement immediately if user opts in.
+
+### Batch D — Metrics / timeout / enrichment [x]
+- [x] M9  Extracted shared `MetricSampleWindow` (bounded ring buffer + nearest-rank percentile) + `CaptureTiming.elapsedMilliseconds`. Both recorders (`PerformanceMetricsAggregator`, `CapturePerformanceRecorder`) + `CaptureMetricsRecorder` now use them; deleted the byte-identical private `percentile`/`elapsedMilliseconds` copies. New file needs `xcodegen generate` (done). +3 MetricSampleWindow tests (bounds+percentiles, empty→0, maxSamples clamp≥1).
+- [x] L6  `Timeout.swift`: added `pendingResult` stash. `finish` stashes the result if no continuation is installed yet; `install` delivers a stashed result immediately — cancellation in the sub-µs setup window can no longer strand the continuation. +3 tests incl. 20-iteration cancel-race with a 2s watchdog (fails loud instead of hanging).
+- [x] L7  `CaptureEnrichmentCoordinator.enqueue` now tracks queue membership by `pendingOperations` alone; `scheduleIfNeeded` index-scans and defers (leaves in place) any id whose run is in flight instead of orphaning the re-enqueued op. +1 test: re-enqueued same-id runs after the in-flight run, never concurrently.
+- [x] L13 Part A — replaced drift-prone test-only `budgetViolationCount` dict+getter with pure `nonisolated static isBudgetViolation(event:milliseconds:)` predicate (keeps/strengthens budget coverage). Part B — de-flaked 3 fixed-sleep syncs: WindowPicker stale-callback (FIFO main-actor drain), coordinator dedup (AsyncGate + @MainActor serial-executor ordering), freeze-sequential (AsyncGate + `pollForViolation`). Stress: 8/8 clean.
+
+**Batch D GATE GREEN:** build SUCCEEDED · 805 tests, 0 failures · lint exit 0. De-flaked trio stress-run 8/8.
+
+### Batch E — Crypto coverage / test hygiene [x]
+- [x] M7  Extracted shared `CryptoIsolatedTestCase` base (redirects `HistoryCrypto` security dir → per-test temp dir via `setSecurityDirectoryForTesting`/`resetCachedKeyForTesting`, cleans up in tearDown). The 3 encryption-persisting suites inherit it: `EmbeddingStoreTests`, `EmbeddingStoreIsolationTests`, `PerfBaselineEmbeddingStoreTests`. Verified engine suites (`EmbeddingEngineTests`, `EmbeddingEngineEdgeCaseTests`) only call `add()` → in-memory, never reach crypto, so correctly excluded. No more real-keychain `history-root-key-v1` leak from `swift test`.
+- [x] L10 New `LicenseEntitlementVerifierTests.swift` — tests the verifier directly (URLProtocol-mocked signed backend). (1) host-mismatch: valid signed body but foreign response host → `.ambiguousResponse` (exercises `LicenseEntitlementVerifier.swift:69`); (2) signature-byte tamper with the *correct* key → `.ambiguousResponse`. Each paired with a positive control on the identical body/key so the defect is the only variable. +2 tests. Needed `xcodegen generate` (done).
+- [x] L9  `PerfBaselineMeasurement.requireOptIn()` throws `XCTSkip` unless `CALOURA_RUN_PERF_BASELINES` is truthy; `measure`/`measureAsync` (rethrows→throws) call it first, so the whole perf family gates by construction. Added early `requireOptIn()` at each test's entry so default runs skip before expensive setup (OCR Vision probe, populated-store build). Threaded `try` through `measureFilter` + 5 HistoryFilter funcs + 3 EmbeddingStore call sites. Default `swift test`: 8 perf tests skipped; with env set all 8 run + pass.
+- [x] M4  Added 4 security-critical files to `coverage_gate.py DEFAULT_THRESHOLDS` at floor(measured unit coverage)-3: LicenseEntitlementVerifier 91 (94.68%), HistoryCrypto 83 (86.79%), RedactionEngine 95 (98.86%), PIIDetector 88 (91.97%). Measured via `xcodebuild test -only-testing:CalouraTests -enableCodeCoverage YES`. CI runs a superset (unit+system) so merged coverage only exceeds these floors. Excluded audit-cited `URLSchemeHandler.swift` (deleted in Batch A). Gate exit 0, all rows PASS; LicenseManager rose 90→96.31% from the new verify-path tests.
+
+**Batch E GATE GREEN:** build SUCCEEDED · 807 tests, 0 failures, 8 skipped (perf opt-in) · swiftlint exit 0 · coverage gate exit 0 (4 new security files PASS). Perf toggle verified: 8/8 run+pass with `CALOURA_RUN_PERF_BASELINES=1`.
+
+### Batch F — CI / build / release robustness [x]
+- [x] M8  XcodeGen now installs from a checksum-verified release artifact (mirrors SwiftLint): added `XCODEGEN_ZIP_SHA256=090ec294…bdbef` to `ci_tool_versions.env`; both `ci.yml` + `release-smoke.yml` `Install tools` steps curl `xcodegen.zip` → `shasum -c` → unzip → PATH (`$RUNNER_TEMP/xcodegen-bin/xcodegen/bin`); deleted `Brewfile` + both `brew bundle` calls. Verified: artifact downloads (exit 0), checksum matches, extracted binary reports `Version: 2.45.4` with `share/` resolution. Existing "Verify tool versions" drift check retained.
+- [x] L3  Deleted orphaned `Caloura/Resources/Caloura.entitlements` (was `app-sandbox=false`, the default; never wired to `CODE_SIGN_ENTITLEMENTS`, never passed to `codesign`). **Delete not wire** is enforced by `ReleaseScriptTests.testReleaseBuildDoesNotEmbedFalseSandboxEntitlement` which forbids `CODE_SIGN_ENTITLEMENTS` in project.yml — wiring would fail it. Corrected `SANDBOX-DECISION.md:8,66` (no file applied today; spike must *create + wire*). Regenerated pbxproj (0 entitlements refs).
+- [x] L12 (a) **Drift gate**: new `ci.yml` step "Assert Xcode project in sync with project.yml" runs after `xcodegen generate`, `git diff --exit-code` on the 3 xcodegen-owned files (pbxproj + contents.xcworkspacedata + scheme; excludes SwiftPM-owned workspace Package.resolved). Aligned `release_ready.sh`'s pre-existing whole-dir check to the same scope. Verified: all 3 files idempotent + machine-independent under pinned regen; gate would PASS (committed==regenerated byte-identical). (b) **Schema mismatch**: root `Package.resolved` was stale v2; `swift package resolve` (Swift 6.2.3) rewrote it v3+originHash, matching the xcodeproj copy; pins identical.
+- [x] M6  Downgrade-validator tests now run in a pipeline. Chose `unittest discover` (pure stdlib, hermetic — no pytest install) over the audit's pytest suggestion since the test is already `unittest.TestCase`. Added `python3 -m unittest discover -s scripts/tests -p "test_*.py"` to `ci.yml` ("Release-tooling unit tests") + `release_ready.sh`; updated the test's docstring runner. Verified: 9 tests OK from repo root. Added `__pycache__/`+`*.pyc` to `.gitignore`.
+- [x] M5  Documented the `swift test` (SwiftPM `CalouraTests` unit only) vs `xcodebuild test` (adds `CalouraSystemTests`+`CalouraUITests`, scheme-only) split in `CLAUDE.md` (Build & Test) + `AGENTS.md` (Build & Validate), incl. the `CalouraTests/UITests/`-is-a-unit-subdir nuance. AGENTS.md edited by orchestrator directly (self-forbids Codex edits).
+
+**Batch F GATE GREEN:** build SUCCEEDED · 807 tests, 0 failures, 8 skipped (perf opt-in) · swiftlint exit 0. Red-team: 3 iterations, factually clean (YAML valid, embedded shell `bash -n` OK, `release_ready.sh` `bash -n` OK, drift-gate files idempotent, ReleaseScriptTests confirms delete-not-wire, fixed 1 stale "brew installs" comment). Note: pbxproj/scheme regenerated with **pinned 2.45.4** (local brew xcodegen is 2.42.0 → produces drifting output; see lessons).
+
+### Batch G — Docs accuracy [x]
+- [x] M10 README/AGENTS/CLAUDE key-storage misinformation → corrected to Keychain-backed (file only in DEBUG)
+  - Ground truth: `HistoryCrypto.getOrCreateKeychainKey()` (`:117`) is the production path; the file-backed key (`getOrCreateFileBackedKey`) is `#if DEBUG` + test-override-only (`:103-109`). Keychain attrs: `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` + non-synchronizable (`KeychainHelper.swift:72,75`), account `history-root-key-v1`.
+  - README.md:50-54 → root key in macOS Keychain (device-only, non-syncing, non-interactive); file path is DEBUG/test-only. `history.enc` payload path left unchanged (accurate).
+  - AGENTS.md:37 + CLAUDE.md:40 self-contradictory rule reworded (identical in both): don't stash runtime data (license/app-state/history) in Keychain — persist on disk, AES-GCM via `HistoryCrypto.encrypt()`; Keychain holds exactly one item (the non-interactive root key); don't add new items. Edited directly (AGENTS.md self-forbids Codex edits).
+- [x] L8  Stale "Gumroad" verification description → updated to signed Cloudflare Worker model
+  - Ground truth: `LicenseEntitlementVerifier.swift:5-6,41-50` — production routes through the signed entitlement backend; Gumroad is `#if DEBUG` fallback only. Source doc-comment already accurate.
+  - docs/SANDBOX-DECISION.md:30,48,70 verification descriptions → signed backend (Cloudflare Worker), Gumroad noted as DEBUG fallback.
+  - **Scope guard:** storefront/distribution stays Gumroad — `release.sh:4,652` describe *distribution* (Upload DMG to Gumroad/website), left unchanged; source `gumroadProductID`/DEBUG fallback code untouched. Only *verification* prose changed.
+
+**Batch G GATE GREEN:** build SUCCEEDED · 807 tests, 0 failures, 8 skipped (perf opt-in) · swiftlint exit 0. Docs-only batch (README/AGENTS/CLAUDE/SANDBOX-DECISION all `.md`) → no compiled/tested/linted file changed vs Batch F green; gate re-run confirms main releasable. Red-team: verified HistoryCrypto Keychain-vs-file ground truth + verifier signed-backend ground truth before editing; AGENTS/CLAUDE rule byte-identical; no stale "Gumroad license verification"/"Gumroad verifier" phrasing remains in docs; storefront/distribution Gumroad refs correctly preserved.
+
+## Phase 3 — Adversarial review (Workflow, read-only) [x]
+Reviewers over the full diff: correctness/regression · Swift-6 concurrency · test-quality · CI/release-config · docs-accuracy. Fix findings, re-verify, loop until clean.
+
+DONE 2026-07-01. Round 1 (wf_2af4bd03-6cb, 5 reviewers): 4/5 clean, 1 CONFIRMED — `release_ready.sh` ran an **unpinned PATH** `xcodegen generate` (local brew 2.42.0 → objectVersion 54), drifting from the committed pinned-2.45.4 project (objectVersion 77) and tripping its own drift gate. Root cause: a regression I introduced in Batch F (regen'd project to 77 + deleted Brewfile, but left the local pipeline trusting PATH).
+
+**Fix (closed the whole class, not just the one site):** extracted one shared `scripts/install_xcodegen.sh` (checksum-verified pinned install; prints bin dir on stdout, diagnostics to stderr; self-checks version) and wired ALL FOUR consumers to it — `release_ready.sh`, `release.sh`, `ci.yml`, `release-smoke.yml`. Every `xcodegen generate` in the repo is now pinned (verified by grep sweep: ci.yml:79 via `$GITHUB_PATH`; release.sh:559, release_ready.sh:133 via `export PATH`).
+
+Round 2 (targeted adversarial re-review of the fix, Explore): 8/8 checks — stdout purity, `set -e`/pipefail abort on checksum/download failure, `$GITHUB_PATH` persistence, exec-bit (755→100755 on stage), SCRIPT_DIR-absolute resolution, idempotent drift gate, no dangling refs, swiftlint block intact. Re-review's own scope-note (release.sh:554 bare xcodegen in the local packaging path) then fixed too — that closed the last gap and made install_xcodegen.sh's "every consumer pinned" header assertion true repo-wide. Reached fixed point (release.sh edit is the identical validated pattern → no new finding).
+
+**Evidence:** `bash -n` clean on all edited shell; both workflows valid YAML; pbxproj/scheme restored to pinned-2.45.4 (objectVersion 77 + `parallelizable="NO"`) and md5-idempotent across regenerate (0 `/Users/` leakage); full gate GREEN (build SUCCEEDED · 807 tests, 0 failures, 8 skipped · swiftlint exit 0). Gate still valid after the release.sh edit (shell script, not a build/test/lint input; pbxproj byte-identical).
+
+**COMMIT-TIME NOTE (do at commit, not now):** `scripts/install_xcodegen.sh` is a NEW untracked file that all 4 consumers hard-depend on — `git add` it EXPLICITLY (working-tree mode is 755 → lands 100755). A tracked-only `git add -u`/`git commit -am` would silently omit it and break CI + local release. No commits until user asks.
+
+## Phase 4 — Product decisions to user (AskUserQuestion) [x]
+DONE 2026-07-01. User decisions:
+1. **PII redaction → ON by default** (with the existing per-capture review overlay). The audit's #1 hidden moat → marketed headline.
+2. **History cap → user-configurable** (default ~200 + 'unlimited' option); enforce + prune.
+3. **Preview timing (L4) → keep crop-then-preview.** No code change; L4 closed as WONT-CHANGE-by-design.
+4. **Build next → Native Share Sheet only.** Annotation editor, scrolling capture, screen recording NOT selected — deferred to a later roadmap pass.
+
+## Phase 5 — Track B implementation (gate after each; no commits) [x]
+Sequenced by leverage-per-effort. Ground each in code before editing; unit tests + gate + red-team per feature; Teach mode applies.
+**Scout maps done (3 read-only Explore agents). Two corrections to prior assumptions:** (i) AppSettings uses `Keys` enum + stored `didSet { debouncedSave() }` + init-from-defaults + `saveAllSettings()` line — NOT the `access/withMutation` pattern (which doesn't exist in this repo). (ii) `autoDetectPII` only DETECTS/surfaces (badge + manual Redact); it never auto-mutates the copied/saved image — so "on by default" = detection-on, low risk (no blocking step, no capture-latency, clipboard/save unchanged).
+
+- [x] B1  PII detection ON by default. **DONE.** `AppSettings.swift` init: `autoDetectPII` `?? false`→`?? true` (fresh installs only; stored user choices preserved). No pipeline change needed (redaction stays manual/non-blocking). Preferences caption at PreferencesView `Privacy` section already reads correctly for on-by-default ("Detected items appear in the Quick Access overlay for review before redaction"). New test `AppSettingsDefaultsTests.testAutoDetectPII_defaultsOnForFreshInstall` + explicit-user-choice-wins test. **Honesty note for marketing: app auto-DETECTS + surfaces, does NOT auto-redact — don't claim "auto-redaction".**
+  - **Regression found + fixed via B1:** flipping the default reroutes `CaptureEnrichmentService.runEnrichment` (:193-208) from mocked `recognizeText` → real `recognizeTextObservations`+PII, breaking 12 pipeline tests that inherited the default through the `makePipeline` fixture. Fixed at the fixture (`CapturePipelineTestHelpers`: pin `autoDetectPII=false` when it creates settings) + the one test that injects its own settings (`testSaveLastCapture_doesNotDoubleTriggerEnrichmentWhilePending`). PII branch itself still covered by `CaptureEnrichmentService*Tests`. Lesson recorded (2026-07-01, default-flip reroutes branch).
+- [x] B2  User-configurable history cap. **DONE.** (1) `AppSettings`: `Keys.historyItemLimit` + `var historyItemLimit: Int { didSet { debouncedSave() } }` + init `as? Int ?? 200` + `saveAllSettings()` line; `static unlimitedHistoryLimit = Int.max` + `historyItemLimitOptions = [100,200,500,Int.max]`. (2) `AppState`: `maxRecentItems` now `private(set) var`, seeded from injectable `historyItemLimit:` init param (defaults to `AppSettings.shared.historyItemLimit`); `pruneRecentScreenshotsIfNeeded()` unchanged (sole enforcement, preserves embedding + preview/PII cleanup). (3) `AppState.setHistoryItemLimit(_:)` (guarded: no-op when unchanged, prunes only when lowered, then `debouncedSaveHistory()`), triggered by `.onChange` on the new `GeneralPreferencesView` "History" Picker (100/200/500/Unlimited). (4) Existing cap tests pinned to cap=50 via injected param (AppStateTests setUp; AppStateEdgeCaseTests setUp + 2 reload instances); +3 new tests (lowering prunes items **and embeddings**; unlimited never prunes; raising keeps items) + `AppSettingsDefaultsTests.testHistoryItemLimit_defaultsTo200`. Prune/delete never touch on-disk PNGs (verified) — caption says so.
+- [x] B3  Native Share Sheet. **DONE.** (1) Pure seam `CaptureShareItems` (new file `Caloura/App/CaptureShareItems.swift`): `items(for: ProcessedScreenshot)` = `[filePath]` if saved else `[image]`; `items(for: ScreenshotItem)` = `[]` if empty path else `[fileURL]`. 4 unit tests (`CaptureShareItemsTests`). (2) Overlay: added `.share` to `CaptureQuickAction` enum + all 4 string maps (title/shortTitle-default/icon/accessibilityID in QuickAccessOverlay.swift) + both overflow arrays (first item, after alternate save/pin). `.share` special-cased in `handleAction` → `presentSharePicker` builds `NSSharingServicePicker(items:)` anchored to `panel.contentView`, `preferredEdge:.maxY` (opens upward from the bottom-right chip). New state `isPresentingShare` guards `handleHover` so moving the pointer onto the picker menu doesn't re-arm the auto-dismiss timer and tear out the anchor; retained `SharePickerDelegate` dismisses the chip once the picker resolves (chosen or cancelled). Updated both `QuickAccessPresentationModelTests` expected overflow arrays. (3) `CaptureDistributionService.performQuickAction` gained a `.share` case that logs an error + no-ops (invariant: share is presented by the overlay, never routed here — the only prod caller special-cases it first). (4) History: `ShareLink(item: URL(fileURLWithPath:))` in `HistoryView` `.contextMenu`, guarded on non-empty `filePath` (URL always on disk, no temp write). No entitlement (non-sandboxed).
+  - **Gate:** `xcodebuild build` SUCCEEDED · `swift test` 817 tests / 8 skipped / **0 failures** (813 prior + 4 new share tests) · `swiftlint --quiet` exit 0.
+  - **Full `xcodebuild test` note (verified, NOT a regression):** the full suite surfaced **5 assertion failures across 4 `CalouraSystemTests` methods** (`testAreaCaptureUsesNonactivatingOverlayPanelLevel`, `testAreaCaptureKeepsMouseScreenOverlayKey`, `testFullscreenCapturePresentsDisplaySelectionCue`, `testAreaCaptureMultiOverlayPresentationKeysExactlyOneWindow`), all rooted in `overlayWindows.filter(\.isKeyWindow).count` being 0 on the **capture** overlay (one method contributes a second, dependent screen-match assertion that fails only because the key set is empty). These are environmental: `isKeyWindow` is only true when the test host app is frontmost, which a focused CLI `xcodebuild test` run isn't (the one system test not asserting isKeyWindow passed). Proven unrelated to B3 (and to all audit work) via git: the test file (`git diff HEAD` empty) and the coordinator `present()` key path (`git diff HEAD` empty) are byte-identical to HEAD, and the **key-window-relevant code** — `canBecomeKey`/`canBecomeMain`/`styleMask`/`level` — is unchanged in value. NOTE: both window *files* ARE modified (`M` in `git status`), but only as a behavior-preserving extraction of 4 unchanged properties into `configureAsOverlay()`; none governs key-window eligibility, so unchanged focus behavior can't have regressed. B3 touches only the post-capture QuickAccessOverlay chip, not the capture coordinators. CI runs these on a GHA runner where the host is frontmost → green there **(assumed from the environment mechanism + prior green CI, not yet observed on this un-pushed branch)**. Lesson recorded.
+- L4: no-op (user chose keep-current).
 
 ## Review / Evidence
-- 0.1 PR #5 merged (c75661b). First green CI since 2026-04-28: run 27320567683 (build-test pass 3m53s). Root cause verified in logs of run 25078035743: "Could not find Xcode version that satisfied version spec: '26.0'" on macos-14. macos-26 image ships Xcode 26.4.1/26.5 → ^26.0 range required.
-- 0.2 PR #6 merged. Version assertion proven live: first run failed loudly (run 27321838249: "swiftlint 0.63.2 != pinned 0.63.3") → pin corrected to image-preinstalled 0.63.2 → green run 27321925569.
-- 1.1 task-22 d22a89f. Red-proof: with excludeFromScreenSharing() commented out, testCountdownOverlayCreatesNonShareablePanel + testPinnedScreenshotWindowIsNonShareable fail (NSWindowSharingType 1 != 0); green restored, 6/6.
-- 1.2 PR #7 merged. Executed: xcodegen generate ✓, xcodebuild build ✓, RELEASE_GUARD_ONLY=1 RELEASE_TAG=v2.4.2 ./scripts/release.sh 2.4.2 ✓ (guard checks pass).
-- 1.3 PR #8 merged (4 atomic commits). KeychainHelperTests 9/9 green after sync-flag change.
-- flake: testEnqueue_limitsConcurrentJobs asserted start ORDER of 2 concurrent jobs; failed PR #9 CI (run 27322059940, ["second","first"]) and 2 local pre-commit runs. Fixed in PR #11 (set-membership assertion), 5/5 green repeats.
-- In flight: PR #9 (coverage gate, rerun after #11), PR #10 (strict lint + 41 fixes), PR #11 (flake fix).
 
-## ⚠️ ACTION NEEDED (user)
-Test runs (unsigned test host) fired AppMover and replaced /Applications/Caloura.app with an unsigned DEBUG build; your signed 2.5.0 is intact at ~/.Trash/Caloura.app. Sandbox denied my restore. Run:
-  trash /Applications/Caloura.app && cp -Rp ~/.Trash/Caloura.app /Applications/
-Root-cause fix (test host can never trigger AppMover) landed separately — see evidence log.
+### Track A completeness reconciliation (2026-07-01)
+All **24** audit Track A findings accounted for (11 medium + 13 low):
+- **Mediums (11):** M1 EmbeddingStore debounce (B) · M2 AppState off-main encode (B) · M3 pooled-overlay frozenImage release (C) · M4 coverage-gate security files (E) · M5 swift-test/xcodebuild-test split doc (F) · M6 downgrade-validator tests in CI+release_ready (F) · M7 keychain-leak test isolation (E) · M8 checksum-pinned xcodegen (F) · M9 shared MetricSampleWindow (D) · M10 key-storage docs (G) · **M(url) URL-scheme handler deleted (A)**.
+- **Lows (13):** L1 dead capture path (A) · L2 NSPanel.configureAsOverlay (C) · L3 orphaned entitlements deleted (F) · **L4 smart-crop preview → deferred to Phase 4 (product call, recommend keep crop-then-preview)** · L5 cursor observer deinit + 4Hz reprime (C) · L6 Timeout cancel-race stash (D) · L7 enrichment-queue dedup (D) · L8 Gumroad→signed-backend docs (G) · L9 perf-baseline opt-in gate (E) · L10 license-verify negative tests (E) · L11 CacheKey revision token (B) · L12 xcodegen-drift gate + Package.resolved (F) · L13 test-only getter + de-flaked sleeps (D).
+- **Only open Track A item is L4, intentionally deferred to Phase 4** as a UX decision. Everything else is closed with code + gate evidence.
 
-- 0.3 PR #9 merged. Gate live: first run caught a REAL gap (ScreenCaptureManager+Permission 70.11% < 85 headless) -> covered via DI seams to 91.38%, run 27324137758 green.
-- 0.4 PR #10 merged: --strict + 41 violations fixed properly; size rules warning==old error (sanctioned hard-cap form; PermissionCoordinator split deferred per contract).
-- 0.5 GATE-PROOFS (all red, recorded, branches deleted): lint run 27324885375 (identifier_name error, exit 2); coverage run 27324885783 (UpdateManager.swift 31.29% < 85); build run 27324630230 (emit-module fail). Note: first lint proof was invalid (comment line; ignores_comments:true) and LicenseManager kept >=90% via redundant suites — both proofs strengthened. PR #15/#13/#14 closed unmerged.
-- 0.6 release-guard workflow_dispatch run 27324842720 SUCCESS (30s). release-smoke: was UNPARSEABLE since creation (runner.temp in job-level env -> 0s failures on every tag push) — fixed in PR #16 (merged), re-dispatched.
-- Flake root cause #2 (the big one): FoundationModels LanguageModelSession EXC_BREAKPOINT inside unsigned XCTest hosts (crash report xctest-2026-06-11-011546.ips) — SmartMetadataGenerator now short-circuits in test hosts (PR #17). 3 consecutive full-suite runs green; previously ~50% crash rate.
-- Test-host safety: PR #12 merged (TestEnvironment hard gate; AppMover can never fire in tests).
-- Permissions rework S1 committed on audit/permissions-rework: PermissionStore (24 tests), 722 green, coordinator 875->802.
+### Gates
+Every batch A–G gated GREEN (build SUCCEEDED · swift test 0 failures · swiftlint exit 0); final steady state 807 tests / 8 skipped (perf opt-in). Phase 3 adversarial review closed the one regression (unpinned xcodegen in local release path) + its whole class; re-reviewed to a fixed point. See Phase 3 section for full evidence.
 
-## Permissions rework S2 — publication gate (DONE, uncommitted on audit/permissions-rework)
-- [x] Single publish(_ candidate:source:) path; route ALL permissionUIModel writes (updateUIModel via publishStatus, updateCooldownInModel, cooldown timer)
-- [x] Gate: diagnosis preservation unchanged (INVARIANT-5); .passive deferred to deferredPassiveEvidence while inFlightValidation != nil; .serializedFlow always applies
-- [x] Flow completion re-evaluates deferred slot with FRESH store context via PermissionStatusCore.passiveStatus, published through the same gate
-- [x] Internal flow calls to refreshPassiveStatus rerouted as .serializedFlow (behavior-preserving)
-- [x] New CalouraTests/CaptureTests/PermissionPublicationGateTests.swift (4 tests, INVARIANT-3/5 tagged)
-- [x] swift build + swift test x2 + swiftlint --strict green; 13 existing permission test files UNMODIFIED
+### Commit status (updated 2026-07-02)
+**Committed** as `f01c2a8` (audit sprint: Track A + Track B B1/B2/B3) + `7101440` (SDKROOT git-hook lesson) on branch `audit-a-plus-2026-07`. The full pre-commit gate — build + 817 tests + swiftlint — ran green on the committed tree, after fixing a git-hook `SDKROOT` poison (Apple's `/usr/bin/git` injected the CLT SDK into hook subprocesses; see `tasks/lessons.md` 2026-07-02). All previously-untracked files were `git add`-ed (verified via `git show f01c2a8 --stat`). Original pre-commit note kept below for history.
 
-S2 evidence: swift build "Build complete! (7.44s)"; swift test x2 = 726 tests 0 failures both runs (722 existing + 4 new); swiftlint lint --quiet --strict exit 0; git diff --name-only CalouraTests/ = empty (no test files modified). Remaining raw permissionUIModel writes: line 67 declaration default, line 712 + updateUIModel (927) both inside publish() apply branch only.
+_Original (pre-commit) note:_ All work (Track A + Track B B1/B2/B3) is uncommitted on branch `audit-a-plus-2026-07`. Awaiting explicit user go-ahead to commit. Commit-time reminder — these are UNTRACKED and must be `git add`-ed explicitly or they'll be missed: `scripts/install_xcodegen.sh` (all 4 xcodegen consumers depend on it) · `Caloura/App/CaptureShareItems.swift` (B3) · `Caloura/App/MetricSampleWindow.swift` (Track A M9) · `CalouraTests/AppTests/{AppSettingsDefaultsTests,CaptureShareItemsTests,LicenseEntitlementVerifierTests}.swift` · `CalouraTests/Helpers/CryptoIsolatedTestCase.swift` · `tasks/audit-2026-07-01.md`. The generated `Caloura.xcodeproj/project.pbxproj` must be committed too (it now references the new source files after `xcodegen generate`).
 
-## STOPPED 2026-06-11 ~01:50 — session usage limit (resets 2:50am NY)
-Rework branch audit/permissions-rework pushed (design doc + S2 commit ebb0a29; S1 rode into main via PR #17 — see PR comment).
-S3 (RecoveryPlanner) NOT started in code: interrupted agent only read files; tree clean, builds green.
-NEXT: (1) dispatch S3 per tasks/permissions-rework-design.md stage spec; (2) S4 facade slim; (3) open rework PR; (4) check release-smoke dispatch result (gh run list --workflow=release-smoke.yml); (5) remaining plan phases 2.x/3.x/5.x; Phase 4 license URL still blocked on DNS decision.
-REMINDER (user): put the signed app back — trash /Applications/Caloura.app && cp -Rp ~/.Trash/Caloura.app /Applications/
+---
 
-## Permissions rework S4 (2026-06-11) — facade slim-down + docs
-- [x] Move store-derived status queries (statusContext, identity match, diagnosis, trust window) into PermissionStore
-- [x] Split serialized flow cores + recovery step executors into PermissionCoordinator+RecoveryExecution.swift
-- [x] Inline dead/thin forwarders (grep-verified across Caloura/ + CalouraTests/)
-- [x] PermissionCoordinator.swift ≤ ~400 lines
-- [x] Update codex/CODEMAP.md permission section
-- [x] xcodegen generate; swift build + swift test x2 green; swiftlint --strict clean
-- [x] Commit: [permissions-S4] Slim coordinator facade + architecture docs
+## Phase 6 — Full-confidence finalization (2026-07-02)
 
-### S4 Review / Evidence
-- PermissionCoordinator.swift 998 -> 405 lines; +Publication.swift 91; +RecoveryExecution.swift 391; store-derived queries -> PermissionStore (statusContext + identity-match/diagnosis/trust-window)
-- swift test x2: Executed 750 tests, 0 failures (both runs); swiftlint --strict exit 0
-- Acceptance gap (pre-existing, not S4-fixable without editing tests): INVARIANT-2/4/8/9/11 have no `// INVARIANT-n` comment in tests (1,3,5,6,7,10 present)
+Goal (user): "make this as high of a grade with your confidence. I want your full confidence." Approved plan: reproduce CI locally → close the B3 presentation gap → make the pre-commit gate durable → commit → push/PR/auto-merge → then remove CommandLineTools to fix the toolchain root cause.
 
-## Session resume (2026-06-11, post-limit) — S3/S4 landed, Phase 2 complete
-- [x] S3 PermissionRecoveryPlanner: pure 26-case decision table, 24 enumeration tests (75b8240); replayd fast-skip (H6) pinned; 750 tests x2 green
-- [x] S4 facade slim 998->405 lines + CODEMAP section (c17d654)
-- [x] All 11 invariants tagged `// INVARIANT-n` in asserting tests (79c0174): 2 new pins (history-never-bypasses-CG, only-working-completes-onboarding), API-surface test, tags added to existing asserting tests; 753 tests x2 green
-- [x] PR #18 (permissions rework S2-S4) — CI pass, MERGED
-- [x] 2.5 workflows hardened: all actions SHA-pinned (checkout v6.0.3 df4cb1c0..., setup-xcode v1.7.0 ed7a3b1f..., upload-artifact v4.6.2 ea165f8d...), concurrency groups (ci cancel-in-progress, release workflows not), PR #19 CI pass MERGED
-- [x] 2.3 savePresets do/catch + StatusMessageRouter surfacing; red test PresetManagerSaveFailureTests.testSavePresets_encodeFailure_surfacesStatusMessage; PR #20 CI pass MERGED
-- [x] 2.1 handleCaptureFailure resets isCapturing locally; red test CaptureExecutionServiceTests.testHandleCaptureFailureResetsIsCapturingLocally; PR #21 CI pass MERGED
-- [x] 2.4 freezeCaptureTarget fallback (empty exclusions when self missing from shareable apps); red test ScreenCaptureManagerFreezeTargetTests.testCurrentAppMissing_fallsBackToNoExclusions; PR #22 (CI failed ONLY on swiftlint image drift, see below)
-- [x] 2.2 captureDelayed defer-based countdown reset (guarded by handoff flag + request-ID match); red test CapturePipelineTests.testDelayedCaptureTaskDirectCancellation_resetsCountdownStateViaDefer; PR #23
-- [x] Tool-pin assertion caught real fleet drift: PR #22 run 27344560789 failed `swiftlint 0.63.3 != pinned 0.63.2` (mixed runner images). Root-cause fix PR #24: install pinned portable_swiftlint.zip + SHA256 check, drop swiftlint from Brewfile.
-- [ ] release-smoke dispatch (run 27325681345): parse fix WORKED; now fails on `Missing required secret: CALOURA_DEVELOPER_ID_CERT_P12_BASE64` — BLOCKED-BY-DECISION: user must add Developer ID signing secrets to repo (or accept smoke runs only locally).
-- [ ] Phase 3 perf: baseline agent dispatched (branch audit/perf-baseline)
-- [ ] Phase 4 license URL: still blocked on DNS decision (api.caloura.app)
-- [ ] Phase 5 polish
-REMINDER (user): put the signed app back — trash /Applications/Caloura.app && cp -Rp ~/.Trash/Caloura.app /Applications/
+### 6.1 Reproduce the ENTIRE CI pipeline locally — GREEN
+Ran every step of `.github/workflows/ci.yml` against the committed tree, in a clean shell (SDKROOT unset, `DEVELOPER_DIR` pinned to Xcode):
+- [x] `swift build` — exit 0
+- [x] `swiftlint lint --quiet --strict` (project-wide) — 0 violations
+- [x] `swift test` — 820 tests, 0 failures (was 817; +3 from 6.2)
+- [x] `python3 -m unittest discover -s scripts/tests` — OK (9 tests)
+- [x] xcodegen drift — pinned 2.45.4 via `scripts/install_xcodegen.sh`; regenerate is deterministic (identical output across runs)
+- [x] `xcodebuild test` (unit + system, `-skip-testing:CalouraUITests`, `CODE_SIGNING_ALLOWED=NO`) — **TEST SUCCEEDED**, 820 tests, 0 failures
+- [x] `python3 scripts/coverage_gate.py` — all 8 coverage floors passed
 
-## Item 3.1 — EmbeddingStore I/O off the main actor (branch audit/perf-embeddingstore-actor)
-- [x] BEFORE numbers from PerfBaselineEmbeddingStoreTests on this machine: save median 3.711 ms, load median 5.942 ms (main thread)
-- [x] Failing isolation test EmbeddingStoreIsolationTests.testSaveAndLoad_executeOffTheMainThread_whenInvokedFromMainActor — red: "XCTAssertFalse failed - save() I/O must not execute on the main thread when invoked from a main-actor context" (and same for load())
-- [x] Convert EmbeddingStore class → actor (drop @unchecked Sendable + NSLock); persistence format unchanged (payload struct, encryption purpose, write path identical; round-trip + plaintext-guard tests green)
-- [x] Call sites: AppState deleteScreenshot + prune → persistEmbeddingRemovals (fire-and-forget Task, batch remove+save), clearHistory → Task { await clear() }, AppState+History loadPersistedState → await load() (callers still await before semantic search), CaptureEnrichmentService storeEmbedding → structured await add+save, EmbeddingEngine.search → await findSimilar
-- [x] New ordering test EmbeddingStoreTests.testConcurrentAddAndSave_finalFileContainsAllEntries (+ testRemoveBatch)
-- [x] Existing tests: await syntax only, all assertions preserved
-- [x] AFTER numbers: awaited off-main round-trip save median 3.666 ms / load 5.904 ms (actor executor); main-actor fire-and-forget enqueue median 0.001 ms
-- [x] swift test ×2 = 774 tests 0 failures both runs (re-run on final code); xcodebuild app build SUCCEEDED; swiftlint --strict exit 0
-- [x] Red-team: lost-save-at-quit window accepted per audit prescription (last-write-wins; enrichment add+save stays structured); orphan embedding entries from an unsaved removal are harmless (filtered by history intersection) and bounded
-- [x] Commit + push + PR
+**Key finding — the "5 environmental isKeyWindow failures" caveat did NOT reproduce.** In a detached `xcodebuild` run (no focused foreground app stealing key), all 4 system-test methods (`testAreaCaptureUsesNonactivatingOverlayPanelLevel`, `testAreaCaptureKeepsMouseScreenOverlayKey`, `testFullscreenCapturePresentsDisplaySelectionCue`, `testAreaCaptureMultiOverlayPresentationKeysExactlyOneWindow`) **passed** locally. The earlier "not achievable locally" was reasoning about a *focused-Terminal* CLI run; a background `xcodebuild` behaves like a frontmost CI runner. So the full suite is now observed green locally, not just expected-green on CI.
 
-### 3.1 Review / Evidence
-See checklist above; baseline (merged main, PerfBaselineEmbeddingStoreTests): save 3.413 ms / load 5.454 ms median.
-Commit a84ebb1, PR #28 (https://github.com/Babayosa/Caloura/pull/28). Hook gotcha recorded in lessons (SDK env must be exported for git commit).
+### 6.2 Close the B3 gap — presentation-level share test
+- [x] Added `CalouraTests/AppTests/CaptureSharePickerPresentationTests.swift` (3 tests): feeds the app's resolved share items into the real `NSSharingServicePicker(items:)` (traps on an invalid/empty payload) and asserts an enabled, titled `standardShareMenuItem`. Covers both branches — file-URL (saved capture + history item) and NSImage (unsaved capture). `CaptureShareItemsTests` only checked item *shape*; this proves they're an actionable payload.
+- Deterministic + headless-safe: no windowserver dependency, no deprecated API. First draft used `NSSharingService.sharingServices(forItems:)` — dropped it (deprecated macOS 13 → compiler warning; and it returns empty headless so its assert was always skipped). Empirically verified `standardShareMenuItem.title="Share…"`, `isEnabled=true` headless before relying on it.
+- [x] Passes under both `swift test` and `xcodebuild test`; `swiftlint --strict` clean (caught + fixed two 120-char line-length violations — a rule the old non-strict hook would have let through).
+
+### 6.3 Durable pre-commit gate
+- [x] Tracked `.githooks/pre-commit` (was untracked `.git/hooks/pre-commit` — lost on any fresh clone, and it carried the SDKROOT fix). `git config core.hooksPath .githooks`. Documented activation in README "CI Test Coverage".
+- [x] Strengthened: per-file lint now `swiftlint --quiet --strict` (matches CI). The old hook ran non-strict, so line-length warnings passed the hook but failed CI's `--strict` — exactly the gap 6.2 hit. Now the hook predicts CI.
+
+### 6.4 Commit + push + PR + auto-merge — see Review/Evidence below
+### 6.5 Toolchain root-cause fix — remove CommandLineTools (user-run sudo, after merge)

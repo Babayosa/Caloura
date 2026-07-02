@@ -46,15 +46,19 @@ final class ScreenshotArtifactCoordinatorTests: XCTestCase {
         let (appState, settings) = makeAppState(testName: #function)
         let counter = CallCounter()
         let dest = temporaryFileURL(prefix: "save-dedup", fileExtension: "png")
+        let saveEntered = expectation(description: "first save entered")
+        let releaseSave = AsyncGate()
 
         let coordinator = ScreenshotArtifactCoordinator(
             appState: appState,
             settings: settings,
             saveFile: { _, _, _, _ in
                 counter.recordSaveFile()
-                // Slow down the save so concurrent callers must wait on the
-                // same in-flight task rather than racing to start their own.
-                try? await Task.sleep(for: .milliseconds(50))
+                saveEntered.fulfill()
+                // Hold the save in flight (unbounded, not a fixed delay) so the
+                // in-flight task slot stays registered while the coalescing
+                // callers run.
+                await releaseSave.wait()
                 return dest
             },
             overwriteImage: { _, _, _ in },
@@ -63,11 +67,23 @@ final class ScreenshotArtifactCoordinatorTests: XCTestCase {
 
         let processed = CapturePipelineTestHelpers.makeProcessed()
 
-        async let url1 = coordinator.saveCapture(processed)
-        async let url2 = coordinator.saveCapture(processed)
-        async let url3 = coordinator.saveCapture(processed)
+        // First caller registers the in-flight task slot and blocks inside
+        // saveFile on the gate.
+        let first = Task { try await coordinator.saveCapture(processed) }
+        await fulfillment(of: [saveEntered], timeout: 1.0)
 
-        let urls = try await [url1, url2, url3]
+        // With the save provably in flight and its slot registered, later callers
+        // for the same id attach to it instead of starting their own save. The
+        // coordinator and these `Task`s share the @MainActor serial executor, so
+        // the coalescing calls are enqueued ahead of any post-gate work and
+        // attach before the slot can clear — deterministic, with no fixed sleep
+        // to widen the window (audit L13).
+        let second = Task { try await coordinator.saveCapture(processed) }
+        let third = Task { try await coordinator.saveCapture(processed) }
+
+        await releaseSave.open()
+
+        let urls = try await [first.value, second.value, third.value]
 
         XCTAssertEqual(urls, [dest, dest, dest])
         XCTAssertEqual(

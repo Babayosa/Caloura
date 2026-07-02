@@ -31,10 +31,9 @@ jobs:
 
       - name: Install tools
         run: |
-          HOMEBREW_NO_AUTO_UPDATE=1 brew bundle --file=Brewfile
-          # Runner images drift between brew swiftlint versions mid-fleet, so
-          # install the pinned release binary (checksum-verified) instead of
-          # trusting whatever the image preinstalled.
+          # Both tools install from checksum-verified release artifacts, not
+          # brew: runner images drift between brew versions mid-fleet (and may
+          # omit a tool entirely). The checksums pin the exact bytes.
           source scripts/ci_tool_versions.env
           curl -fsSL -o /tmp/portable_swiftlint.zip \
             "https://github.com/realm/SwiftLint/releases/download/${SWIFTLINT_VERSION}/portable_swiftlint.zip"
@@ -42,6 +41,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/swiftlint-bin"
           unzip -o -q /tmp/portable_swiftlint.zip -d "$RUNNER_TEMP/swiftlint-bin"
           echo "$RUNNER_TEMP/swiftlint-bin" >> "$GITHUB_PATH"
+          # xcodegen: single source of truth in scripts/install_xcodegen.sh
+          # (checksum-verified pinned install; prints its bin dir on stdout).
+          # Shared with release_ready.sh so every `xcodegen generate` matches.
+          scripts/install_xcodegen.sh >> "$GITHUB_PATH"
 
       - name: Verify tool versions
         run: |
@@ -67,8 +70,30 @@ jobs:
       - name: SwiftPM tests
         run: swift test
 
+      - name: Release-tooling unit tests
+        # Guards the appcast downgrade/rollback validator that publish.sh
+        # relies on. Pure-stdlib unittest — no pytest install needed.
+        run: python3 -m unittest discover -s scripts/tests -p "test_*.py"
+
       - name: Generate Xcode project
         run: xcodegen generate
+
+      - name: Assert Xcode project in sync with project.yml
+        run: |
+          # The committed .xcodeproj must equal what pinned XcodeGen produces
+          # from project.yml. If they drift (someone edited the pbxproj by hand,
+          # or regenerated with an unpinned XcodeGen), fail loudly instead of
+          # building a project that silently diverges from source-of-truth.
+          # Scope: only the files XcodeGen owns — the SwiftPM-managed
+          # workspace Package.resolved is written by Xcode, not XcodeGen.
+          if ! git diff --exit-code -- \
+            Caloura.xcodeproj/project.pbxproj \
+            Caloura.xcodeproj/project.xcworkspace/contents.xcworkspacedata \
+            'Caloura.xcodeproj/xcshareddata/xcschemes/*.xcscheme'; then
+            source scripts/ci_tool_versions.env
+            echo "::error::Caloura.xcodeproj is stale. Run 'xcodegen generate' with XcodeGen $XCODEGEN_VERSION and commit the result."
+            exit 1
+          fi
 
       - name: Xcode tests (unit + system, no signing)
         run: |

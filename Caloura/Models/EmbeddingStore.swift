@@ -32,6 +32,16 @@ actor EmbeddingStore {
     private let modelVersion: Int
     private static let encryptionPurpose = "embedding-storage"
 
+    /// Debounce window: a burst of `scheduleSave()` calls (one per capture's
+    /// enrichment completion) coalesces into a single encrypt-and-write.
+    private static let saveDebounceIntervalNanos: UInt64 = 500_000_000
+    private var saveDebounceTask: Task<Void, Never>?
+
+    /// Count of actual encrypt-and-write operations. Test seam for asserting
+    /// that debouncing coalesces a burst of `scheduleSave()` calls into fewer
+    /// disk writes.
+    private(set) var writeCount = 0
+
     init(
         storeURL: URL? = nil,
         modelVersion: Int = EmbeddingEngine.modelVersion
@@ -81,6 +91,27 @@ actor EmbeddingStore {
         return results
     }
 
+    /// Schedule a debounced persist. Coalesces rapid saves (each capture's
+    /// enrichment triggers one) into a single disk write after the debounce
+    /// window. Mutations are still applied synchronously by `add`/`remove`;
+    /// only the write is deferred.
+    func scheduleSave() {
+        saveDebounceTask?.cancel()
+        saveDebounceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: EmbeddingStore.saveDebounceIntervalNanos)
+            guard let self, !Task.isCancelled else { return }
+            await self.save()
+        }
+    }
+
+    /// Cancel any pending debounced save and write immediately. Used on the
+    /// termination path so a just-scheduled save is not lost on process exit.
+    func flush() {
+        saveDebounceTask?.cancel()
+        saveDebounceTask = nil
+        save()
+    }
+
     func save() {
         do {
             let payload = EmbeddingStorePayload(
@@ -90,6 +121,7 @@ actor EmbeddingStore {
             )
             let data = try JSONEncoder().encode(payload)
             try HistoryCrypto.writeEncrypted(data, to: storeURL, purpose: Self.encryptionPurpose)
+            writeCount += 1
         } catch {
             let message = error.localizedDescription
             embeddingStoreLogger.error("Failed to persist embeddings: \(message, privacy: .public)")
@@ -124,6 +156,8 @@ actor EmbeddingStore {
     }
 
     func clear() {
+        saveDebounceTask?.cancel()
+        saveDebounceTask = nil
         entries = []
         do {
             try FileManager.default.removeItem(at: storeURL)

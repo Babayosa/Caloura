@@ -103,7 +103,11 @@ private struct MainActorCaptureCursorScheduler: CaptureCursorScheduling {
 @MainActor
 final class CaptureCursorController: NSObject, CaptureCursorControlling {
     private static let initialReprimeDelay: Duration = .milliseconds(1)
-    private static let maintenanceReprimeDelay: Duration = .milliseconds(50)
+    /// Backstop cadence for re-asserting the crosshair in case AppKit reverts
+    /// it. The primary reprime paths are event-driven (becomeKey, didBecomeActive,
+    /// space change, mouseMoved); this periodic net only needs to be occasional,
+    /// so 250ms (4Hz) replaces the old 50ms (20Hz) micro-loop.
+    private static let maintenanceReprimeDelay: Duration = .milliseconds(250)
 
     private let crosshairDriver: CaptureCrosshairDriving
     private let scheduler: CaptureCursorScheduling
@@ -139,6 +143,10 @@ final class CaptureCursorController: NSObject, CaptureCursorControlling {
             name: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil
         )
+    }
+
+    deinit {
+        notificationCenter.removeObserver(self)
     }
 
     func startCrosshairSession() -> any CaptureCursorSessionHandling {

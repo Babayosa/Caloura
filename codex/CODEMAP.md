@@ -1,7 +1,7 @@
 # Caloura Code Map
 
 ## Overview
-Caloura is a macOS menu-bar screenshot tool. The app routes user actions (menu-bar items, hotkeys, or URL scheme) into a central capture pipeline that performs captures, processing, distribution, and history persistence. Release confidence is enforced via scripts and CI gates (build, strict lint, tests, coverage thresholds).
+Caloura is a macOS menu-bar screenshot tool. The app routes user actions (menu-bar items or hotkeys) into a central capture pipeline that performs captures, processing, distribution, and history persistence. Release confidence is enforced via scripts and CI gates (build, strict lint, tests, coverage thresholds).
 
 ## Top-Level Layout
 
@@ -19,12 +19,11 @@ Caloura is a macOS menu-bar screenshot tool. The app routes user actions (menu-b
 ## Core Runtime Flow
 
 1. **Entry points**
-   - `Caloura/App/CalouraApp.swift` — `@main` + app delegate; wires `StatusMessageRouter.sink`, permission refresh, hotkeys, URL scheme at launch.
+   - `Caloura/App/CalouraApp.swift` — `@main` + app delegate; wires `StatusMessageRouter.sink`, permission refresh, hotkeys at launch.
    - `Caloura/App/TestEnvironment.swift` — detects XCTest-hosted runs and blocks launch side effects (onboarding, AppMover) inside test processes.
    - `Caloura/UI/MenuBarView.swift` — menu-bar actions.
-   - `Caloura/App/URLSchemeHandler.swift` — `caloura://` automation routes.
    - `Caloura/HotKeys/HotKeyManager.swift` — hotkey bindings to notifications.
-   - `Caloura/App/AppCommandController.swift` + `AppCommand.swift` — single command router: menu/hotkey/URL actions resolve to a `Routing` table of capture and copy/save commands.
+   - `Caloura/App/AppCommandController.swift` + `AppCommand.swift` — single command router: menu/hotkey actions resolve to a `Routing` table of capture and copy/save commands.
 
 2. **Capture orchestration** (`CapturePipeline` is a thin `@Observable` facade over extracted services)
    - `Caloura/App/CapturePipeline.swift` (+ `CapturePipeline+SessionState.swift`) — owns service wiring and session state; public seam for UI and command routing.
@@ -118,7 +117,7 @@ Caloura is a macOS menu-bar screenshot tool. The app routes user actions (menu-b
 
 ## Tests
 
-- `CalouraTests/AppTests/*` — pipeline/services, permission coordinator flows, onboarding, license, URL scheme, diagnostics, performance contracts.
+- `CalouraTests/AppTests/*` — pipeline/services, permission coordinator flows, onboarding, license, diagnostics, performance contracts.
 - `CalouraTests/CaptureTests/*` — permission machine, capture manager, overlay/cursor units.
 - `CalouraTests/ContextTests/*` — presets + context detection.
 - `CalouraTests/DistributionTests/*` — file organizer (incl. path-traversal cases) + markdown export.

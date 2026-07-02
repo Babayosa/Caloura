@@ -1,4 +1,5 @@
 import Foundation
+import XCTest
 
 /// Wall-clock measurement helper for the Phase 3.0 performance baseline
 /// (audit `tasks/audit-2026-06-09-full.md`, findings 3.1/3.2/3.3).
@@ -6,7 +7,17 @@ import Foundation
 /// These harnesses record numbers — they are NOT regression gates. Assertions
 /// in the PerfBaseline* tests use only generous sanity bounds so the suite
 /// stays deterministic across machines and load conditions.
+///
+/// Wall-clock timing is load-sensitive and adds seconds to every `swift test`
+/// run for numbers nobody reads in CI, so the harness is **opt-in**: both
+/// entry points call `requireOptIn()` first and throw `XCTSkip` unless
+/// `CALOURA_RUN_PERF_BASELINES` is set to a truthy value. Because every
+/// PerfBaseline* test funnels through `measure`/`measureAsync`, gating here
+/// skips the whole family by construction — no per-test opt-in to forget
+/// (audit L9).
 enum PerfBaselineMeasurement {
+
+    static let optInEnvironmentKey = "CALOURA_RUN_PERF_BASELINES"
 
     struct Stats {
         let iterations: Int
@@ -16,11 +27,26 @@ enum PerfBaselineMeasurement {
         let maxMS: Double
     }
 
+    /// Throws `XCTSkip` unless the perf-baseline opt-in env var is truthy.
+    /// Public so a test can gate explicitly before doing expensive setup, but
+    /// `measure`/`measureAsync` already call it so most callers need not.
+    static func requireOptIn() throws {
+        let raw = ProcessInfo.processInfo.environment[optInEnvironmentKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard let raw, ["1", "true", "yes"].contains(raw) else {
+            throw XCTSkip(
+                "Perf baselines are opt-in; set \(optInEnvironmentKey)=1 to run them."
+            )
+        }
+    }
+
     static func measure(
         warmup: Int = 1,
         iterations: Int,
         _ block: () throws -> Void
-    ) rethrows -> Stats {
+    ) throws -> Stats {
+        try requireOptIn()
         for _ in 0..<warmup {
             try block()
         }
@@ -39,7 +65,8 @@ enum PerfBaselineMeasurement {
         iterations: Int,
         isolation: isolated (any Actor)? = #isolation,
         _ block: () async throws -> Void
-    ) async rethrows -> Stats {
+    ) async throws -> Stats {
+        try requireOptIn()
         for _ in 0..<warmup {
             try await block()
         }

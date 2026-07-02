@@ -156,7 +156,7 @@ final class CaptureEnrichmentService {
                     vector: vector,
                     textHash: textHash
                 )
-                await store.save()
+                await store.scheduleSave()
 
                 await MainActor.run {
                     appState.markEmbeddingVersion(

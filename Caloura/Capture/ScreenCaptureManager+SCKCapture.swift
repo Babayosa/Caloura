@@ -388,12 +388,6 @@ extension ScreenCaptureManager {
         return try await sckCaptureImage(in: captureRect)
     }
 
-    func sckCaptureAreaInDisplaySpace(
-        rect: CGRect
-    ) async throws -> CGImage {
-        try await sckCaptureImage(in: rect.integral)
-    }
-
 }
 
 final class OneShotFrozenDisplayStreamCapture: NSObject,

@@ -18,7 +18,7 @@ final class QuickAccessPresentationModelTests: XCTestCase {
         )
         XCTAssertEqual(
             presentation.overflowActions,
-            [.pin, .beautify, .redact, .markdown, .citation, .dismiss]
+            [.pin, .share, .beautify, .redact, .markdown, .citation, .dismiss]
         )
         XCTAssertFalse(presentation.showsPendingBadge)
         XCTAssertFalse(presentation.showsPIIBadge)
@@ -53,7 +53,7 @@ final class QuickAccessPresentationModelTests: XCTestCase {
         )
         XCTAssertEqual(
             presentation.overflowActions,
-            [.save, .beautify, .markdown, .citation, .dismiss]
+            [.save, .share, .beautify, .markdown, .citation, .dismiss]
         )
         XCTAssertTrue(presentation.showsPIIBadge)
         XCTAssertFalse(presentation.showsPendingBadge)

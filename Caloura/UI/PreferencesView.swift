@@ -221,6 +221,26 @@ struct GeneralPreferencesView: View {
                 Text("After Capture")
             }
 
+            Section("History") {
+                Picker("Keep in history", selection: $settings.historyItemLimit) {
+                    ForEach(AppSettings.historyItemLimitOptions, id: \.self) { limit in
+                        Text(
+                            limit == AppSettings.unlimitedHistoryLimit
+                                ? "Unlimited"
+                                : "\(limit) most recent"
+                        )
+                        .tag(limit)
+                    }
+                }
+                .onChange(of: settings.historyItemLimit) { _, newValue in
+                    AppState.shared.setHistoryItemLimit(newValue)
+                }
+                Text("Older screenshots beyond this limit drop off the history list. "
+                    + "Screenshots you saved to disk stay in your save folder.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             if settings.autoSaveToDisk {
                 Section("Output") {
                     LabeledContent("Save location") {

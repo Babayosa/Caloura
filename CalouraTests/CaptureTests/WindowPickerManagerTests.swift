@@ -123,7 +123,10 @@ final class WindowPickerManagerTests: XCTestCase {
         let secondTask = Task { await manager.pickWindow() }
         await waitForPendingPicker(picker)
         picker.emitSelected(filter: SCContentFilter(), to: staleObserver)
-        try? await Task.sleep(for: .milliseconds(25))
+        // The stale callback enqueues one `Task { @MainActor }` hop. Draining
+        // the main-actor queue (serial executor runs jobs FIFO) deterministically
+        // lets that hop run and be ignored, instead of guessing a delay (L13).
+        await Task { @MainActor in }.value
 
         XCTAssertEqual(picker.removeCallCount, 1)
         XCTAssertTrue(picker.isActive)

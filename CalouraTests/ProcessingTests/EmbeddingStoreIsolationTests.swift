@@ -19,7 +19,7 @@ private extension EmbeddingStore {
 /// Audit item 3.1: `EmbeddingStore` file I/O (JSON encode + AES-GCM +
 /// atomic write) must not execute on the main thread when invoked from
 /// main-actor call sites (AppState delete/prune/loadPersistedState).
-final class EmbeddingStoreIsolationTests: XCTestCase {
+final class EmbeddingStoreIsolationTests: CryptoIsolatedTestCase {
     private func makeTempStoreURL() -> URL {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("isolation-\(UUID().uuidString).enc")

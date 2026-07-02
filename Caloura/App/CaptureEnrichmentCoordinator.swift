@@ -16,8 +16,13 @@ actor CaptureEnrichmentCoordinator {
         screenshotID: UUID,
         operation: @escaping Operation
     ) {
-        if pendingOperations[screenshotID] == nil,
-           runningTasks[screenshotID] == nil {
+        // Queue membership is tracked by `pendingOperations`: append to the
+        // order only when there is no pending op yet for this id (coalesce
+        // repeat enqueues into one slot with the latest operation). This holds
+        // even when the id is currently running — the re-enqueued op stays
+        // pending and `scheduleIfNeeded` defers it until the in-flight run ends,
+        // instead of orphaning it outside `pendingOrder` (audit L7).
+        if pendingOperations[screenshotID] == nil {
             pendingOrder.append(screenshotID)
         }
         pendingOperations[screenshotID] = operation
@@ -34,9 +39,17 @@ actor CaptureEnrichmentCoordinator {
     }
 
     private func scheduleIfNeeded() {
-        while runningTasks.count < maxConcurrentJobs,
-              let nextID = pendingOrder.first {
-            pendingOrder.removeFirst()
+        var index = 0
+        while runningTasks.count < maxConcurrentJobs, index < pendingOrder.count {
+            let nextID = pendingOrder[index]
+            // Never run two operations for the same screenshot concurrently:
+            // leave this id in place and try the next one. `finish` re-runs the
+            // scheduler when the in-flight run for this id completes.
+            if runningTasks[nextID] != nil {
+                index += 1
+                continue
+            }
+            pendingOrder.remove(at: index)
             guard let operation = pendingOperations.removeValue(forKey: nextID) else {
                 continue
             }

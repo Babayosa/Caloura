@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Regression tests for the appcast no-downgrade gate.
 
-Run with: `python3 -m pytest scripts/tests/test_validate_appcast_downgrade.py`
+Run with: `python3 -m unittest discover -s scripts/tests -p "test_*.py"`
+(the runner CI and release_ready.sh use — pure stdlib, no pytest needed)
 or `python3 scripts/tests/test_validate_appcast_downgrade.py` for direct invocation.
 """
 from __future__ import annotations

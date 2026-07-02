@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Synchronous flush — blocks until written, ensuring data survives process exit.
         AppState.shared.saveHistorySync()
+        AppState.shared.flushEmbeddingStoreSync()
         AppSettings.shared.saveAllSettings()
     }
 
@@ -117,14 +118,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotKeyManager.shared.registerAll()
         setupCommandHandlers()
         registerCaptureObserver()
-
-        // Register URL scheme handler
-        NSAppleEventManager.shared().setEventHandler(
-            self,
-            andSelector: #selector(handleURLEvent(_:withReplyEvent:)),
-            forEventClass: AEEventClass(kInternetEventClass),
-            andEventID: AEEventID(kAEGetURL)
-        )
 
         do {
             try FileOrganizer.ensureBaseDirectory(AppSettings.shared.saveDirectory)
@@ -227,18 +220,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 onboardingLogger.info("funnel_event=first_capture_completed")
                 self?.onboardingController.close()
             }
-        }
-    }
-
-    @objc private func handleURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
-        // Apple Event selectors may be invoked off the main thread via the ObjC runtime,
-        // bypassing @MainActor isolation. Dispatch explicitly to guarantee main thread.
-        guard let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
-              let url = URL(string: urlString) else {
-            return
-        }
-        Task { @MainActor in
-            URLSchemeHandler.handle(url)
         }
     }
 

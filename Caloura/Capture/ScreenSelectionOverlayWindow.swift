@@ -16,16 +16,13 @@ final class ScreenSelectionOverlayWindow: NSPanel {
             defer: false
         )
 
-        self.excludeFromScreenSharing()
-        self.isReleasedWhenClosed = false
+        self.configureAsOverlay()
         self.level = CaptureOverlayWindow.overlayLevel
         self.isOpaque = false
         self.backgroundColor = NSColor.black.withAlphaComponent(0.01)
         self.hasShadow = false
         self.ignoresMouseEvents = false
         self.acceptsMouseMovedEvents = true
-        self.hidesOnDeactivate = false
-        self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let selectionView = ScreenSelectionView(
             frame: NSRect(origin: .zero, size: screen.frame.size),

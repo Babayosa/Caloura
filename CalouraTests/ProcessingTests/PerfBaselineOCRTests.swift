@@ -20,6 +20,9 @@ import XCTest
 final class PerfBaselineOCRTests: XCTestCase {
 
     func testBaseline_singleEnrichmentOCRPass_sampleImage() async throws {
+        // Skip before the Vision probe below — otherwise a default `swift test`
+        // run pays a full OCR pass just to reach the gated measurement (L9).
+        try PerfBaselineMeasurement.requireOptIn()
         let image = Self.makeTextImage(
             width: 800,
             height: 600,

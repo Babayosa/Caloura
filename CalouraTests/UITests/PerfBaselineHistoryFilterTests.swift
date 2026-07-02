@@ -43,7 +43,8 @@ final class PerfBaselineHistoryFilterTests: XCTestCase {
         searchText: String,
         label: String,
         expectedMatches: Int? = nil
-    ) {
+    ) throws {
+        try PerfBaselineMeasurement.requireOptIn()
         let items = Self.makeItems(count: itemCount)
         let result = HistorySearchModel.filteredScreenshots(
             from: items,
@@ -55,7 +56,7 @@ final class PerfBaselineHistoryFilterTests: XCTestCase {
             XCTAssertEqual(result.count, expectedMatches, "Synthetic data must behave deterministically")
         }
 
-        let stats = PerfBaselineMeasurement.measure(warmup: 5, iterations: 50) {
+        let stats = try PerfBaselineMeasurement.measure(warmup: 5, iterations: 50) {
             _ = HistorySearchModel.filteredScreenshots(
                 from: items,
                 searchText: searchText,
@@ -71,26 +72,26 @@ final class PerfBaselineHistoryFilterTests: XCTestCase {
         XCTAssertLessThan(stats.meanMS, 1_000, "Sanity bound only — not a perf gate")
     }
 
-    func testBaseline_filter50Items_missQuery_worstCaseFullScan() {
+    func testBaseline_filter50Items_missQuery_worstCaseFullScan() throws {
         // A query that matches nothing forces a scan of every field of every
         // item (lowercasing each) — the worst case the audit describes.
-        measureFilter(itemCount: 50, searchText: "zzqxv", label: "miss-query", expectedMatches: 0)
+        try measureFilter(itemCount: 50, searchText: "zzqxv", label: "miss-query", expectedMatches: 0)
     }
 
-    func testBaseline_filter50Items_hitQuery() {
-        measureFilter(itemCount: 50, searchText: "invoice", label: "hit-query", expectedMatches: 5)
+    func testBaseline_filter50Items_hitQuery() throws {
+        try measureFilter(itemCount: 50, searchText: "invoice", label: "hit-query", expectedMatches: 5)
     }
 
-    func testBaseline_filter500Items_missQuery_worstCaseFullScan() {
-        measureFilter(itemCount: 500, searchText: "zzqxv", label: "miss-query", expectedMatches: 0)
+    func testBaseline_filter500Items_missQuery_worstCaseFullScan() throws {
+        try measureFilter(itemCount: 500, searchText: "zzqxv", label: "miss-query", expectedMatches: 0)
     }
 
-    func testBaseline_filter500Items_hitQuery() {
-        measureFilter(itemCount: 500, searchText: "invoice", label: "hit-query", expectedMatches: 50)
+    func testBaseline_filter500Items_hitQuery() throws {
+        try measureFilter(itemCount: 500, searchText: "invoice", label: "hit-query", expectedMatches: 50)
     }
 
-    func testBaseline_filter500Items_emptyQuery_passthrough() {
+    func testBaseline_filter500Items_emptyQuery_passthrough() throws {
         // Empty search returns the array unchanged — confirms the cheap path.
-        measureFilter(itemCount: 500, searchText: "", label: "empty-query", expectedMatches: 500)
+        try measureFilter(itemCount: 500, searchText: "", label: "empty-query", expectedMatches: 500)
     }
 }

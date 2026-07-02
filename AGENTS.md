@@ -5,7 +5,21 @@
 Run in this order. All must pass before commit.
 1. `swift build`
 2. `swiftlint lint --quiet`
-3. `swift test` — full suite, no skipping, no deleting tests
+3. `swift test` — the SwiftPM `CalouraTests` unit target. No skipping, no deleting tests.
+
+`swift test` is **not** the full suite. The `CalouraSystemTests` (capture/overlay/cursor
+regression guards) and `CalouraUITests` targets exist only in the XcodeGen project
+(`project.yml`), not in `Package.swift`, so they run only under `xcodebuild test`:
+
+```
+xcodegen generate
+xcodebuild test -project Caloura.xcodeproj -scheme Caloura -configuration Debug \
+  -derivedDataPath .build/DerivedData -destination 'platform=macOS'
+```
+
+Add `-skip-testing:CalouraUITests` to skip the (slower, automation-gated) UI target.
+CI runs unit + system on every PR; the full gate (incl. UI smoke) runs in
+`scripts/release_ready.sh`.
 
 ## Branch Protocol
 1. Create branch: `task-XX-[short-description]`
@@ -20,7 +34,7 @@ Run in this order. All must pass before commit.
 - No TODO comments without a linked task number.
 
 ## Architecture
-- No Keychain for runtime persistence — use `HistoryCrypto.encrypt()` instead
+- Don't stash runtime data (license state, app state, history) in the Keychain — persist it on disk, and encrypt sensitive history via `HistoryCrypto.encrypt()` (AES-GCM). The Keychain holds exactly one item: HistoryCrypto's non-interactive, device-only AES root key. Don't add new Keychain items.
 - `CGPreflightScreenCaptureAccess()` = coarse passive signal only; after explicit grant attempt, trust live ScreenCaptureKit validation
 - `CGWindowListCopyWindowInfo` gives false positives — never use for permission checks
 - `NSCursor.hide()/unhide()` are reference-counted — must balance exactly

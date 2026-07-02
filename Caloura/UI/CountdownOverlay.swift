@@ -69,15 +69,12 @@ private final class CountdownPanel: NSPanel {
             defer: false
         )
 
-        excludeFromScreenSharing()
-        isReleasedWhenClosed = false
+        configureAsOverlay()
         isFloatingPanel = true
         level = .floating
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         hasShadow = true
         backgroundColor = .clear
         isOpaque = false
-        hidesOnDeactivate = false
 
         let hostView = NSHostingView(rootView: CountdownOverlayView(state: state))
         hostView.frame = contentRect(forFrameRect: frame)

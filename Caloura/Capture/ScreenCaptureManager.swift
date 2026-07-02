@@ -13,7 +13,6 @@ protocol ScreenCaptureManaging: AnyObject {
     func captureRectInDisplaySpace(rect: CGRect, screen: NSScreen?) throws -> CGRect
     func captureFrozenDisplaySnapshot(screen: NSScreen?) async throws -> CGImage
     func captureWindow(filter: SCContentFilter) async throws -> CGImage
-    func captureAreaInDisplaySpace(_ rect: CGRect) async throws -> CGImage
 }
 
 protocol FrozenDisplaySnapshotOperation: AnyObject, Sendable {
@@ -526,21 +525,6 @@ final class ScreenCaptureManager: ScreenCaptureManaging {
             label: "area",
             sckOperation: { try await self.sckCaptureArea(rect: rect, screen: screen) },
             cliOperation: { try await self.screencaptureArea(rect: rect, screen: screen) }
-        )
-    }
-
-    func captureAreaInDisplaySpace(
-        _ rect: CGRect
-    ) async throws -> CGImage {
-        guard rect.width > 0, rect.height > 0 else {
-            let desc = rect.debugDescription
-            logger.warning("Rejecting degenerate display-space rect: \(desc)")
-            throw CaptureError.invalidRegion(reason: desc)
-        }
-        return try await withSCKFallback(
-            label: "display-space area",
-            sckOperation: { try await self.sckCaptureAreaInDisplaySpace(rect: rect) },
-            cliOperation: { try await self.screencaptureAreaInDisplaySpace(rect: rect) }
         )
     }
 
