@@ -17,9 +17,13 @@ Inherits global rules from `~/CLAUDE.md`.
 `project.yml`, not `Package.swift`, so they run **only** under `xcodebuild test`:
 
 ```
-xcodegen generate && xcodebuild test -project Caloura.xcodeproj -scheme Caloura \
-  -configuration Debug -derivedDataPath .build/DerivedData -destination 'platform=macOS'
+"$(scripts/install_xcodegen.sh)/xcodegen" generate && xcodebuild test -project Caloura.xcodeproj \
+  -scheme Caloura -configuration Debug -derivedDataPath .build/DerivedData -destination 'platform=macOS'
 ```
+
+Never plain `xcodegen` from PATH — brew 2.42.0 silently reverts the committed pbxproj
+(objectVersion 77 → 54) and reds out the CI drift gate; `install_xcodegen.sh` prints the pinned
+2.45.4 bin dir on stdout. After any generate: `grep -m1 objectVersion Caloura.xcodeproj/project.pbxproj` must show 77.
 
 `CalouraTests/UITests/` (perf/filter unit tests) is a subdirectory of the *unit*
 target and does run under `swift test` — distinct from the top-level `CalouraUITests`

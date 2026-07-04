@@ -152,5 +152,19 @@ Ran every step of `.github/workflows/ci.yml` against the committed tree, in a cl
 - [x] Tracked `.githooks/pre-commit` (was untracked `.git/hooks/pre-commit` — lost on any fresh clone, and it carried the SDKROOT fix). `git config core.hooksPath .githooks`. Documented activation in README "CI Test Coverage".
 - [x] Strengthened: per-file lint now `swiftlint --quiet --strict` (matches CI). The old hook ran non-strict, so line-length warnings passed the hook but failed CI's `--strict` — exactly the gap 6.2 hit. Now the hook predicts CI.
 
-### 6.4 Commit + push + PR + auto-merge — see Review/Evidence below
-### 6.5 Toolchain root-cause fix — remove CommandLineTools (user-run sudo, after merge)
+### 6.4 Commit + push + PR + merge — DONE
+- [x] Committed `a9f5ef2` through the durable `.githooks` gate (build + 820 tests + `--strict` all ✓; `COMMIT_EXIT=0`, HEAD moved).
+- [x] Post-commit drift gate: pinned-xcodegen regenerate → `git diff --exit-code` = 0.
+- [x] Pushed branch; opened **PR #44**.
+- [x] CI (`build-test`, macos-26) ran the full pipeline and **passed** (conclusion=success, 3m35s) — real-runner confirmation of the local reproduction, incl. the system tests and coverage floors. The local SwiftLint 0.63.2 vs CI 0.63.3 gap was a non-issue.
+- [x] Squash-merged to `main` as `0d32913` (PR #44). Verified on `origin/main`: `.githooks/pre-commit` (mode 100755) + the new test tracked, pbxproj references it. Branch preserved (not deleted) for granular history.
+
+### 6.5 Toolchain root-cause fix — remove CommandLineTools (user-run sudo)
+- Blast radius verified SAFE: `xcrun`/`which` show `swift`/`swiftc`/`clang` → Xcode default toolchain, `git` → Xcode; **nothing resolves into CLT**. `python3` = python.org 3.13, `swiftlint`/`xcodegen` = Homebrew — all independent. Only CLT-resident item on PATH is `/usr/bin/python3` (3.9.6, shadowed/unused).
+- Only caveat: Homebrew officially prefers CLT (`brew doctor` may nag; rare source-only formulae may want it). Fully reversible: `xcode-select --install`.
+- **Note:** the practical pain (hook `swift build` failing) is ALREADY fixed by the tracked `.githooks/pre-commit` (`unset SDKROOT` + `DEVELOPER_DIR`) now on main, so removal is optional cleanup of the partial-toolchain state, not required for the A+ goal.
+- Command handed to user (I cannot run `rm`; needs sudo password): `sudo rm -rf /Library/Developer/CommandLineTools` → then verify `git --version`, `swift --version`, `xcodebuild -version`, `python3 --version`.
+
+### Left for user (not mine to absorb)
+- Working-tree `M CLAUDE.md`: an EXTERNAL edit (not this session) pinning `xcodegen` in the test-target-split doc snippet — correct improvement, surfaced not committed. Keep or drop.
+- Untracked `marketing/Caloura_..._Zen.png` (old asset) — left alone.
